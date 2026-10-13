@@ -1001,9 +1001,12 @@ public final class GuildManager {
         if (!plugin.bus().isReady()) {
             return; // 单服：notifyGuild 已处理
         }
-        plugin.bus().publish("GUILD_ANNOUNCE", CrossServerBus.map(
-                "guild", guildId, "text", MM.serialize(text), "except", except == null ? "" : except.toString(),
-                "server", plugin.serverId()));
+        String payload = MM.serialize(text);
+        final String exceptId = except == null ? "" : except.toString();
+        final String server = plugin.serverId();
+        // Redis 发布是阻塞 IO，放异步线程，避免主线程卡顿（工会战公告可能很频繁）。
+        plugin.async(() -> plugin.bus().publish("GUILD_ANNOUNCE", CrossServerBus.map(
+                "guild", guildId, "text", payload, "except", exceptId, "server", server)));
     }
 
     /**

@@ -824,7 +824,7 @@ public final class WarManager implements GuildModule {
                     "winner", winnerName, "score_a", war.scoreA(), "score_b", war.scoreB()));
         }
         applyRewards(war, winner);
-        publishState(war);
+        publishState(war, true);
         phaseUntil = System.currentTimeMillis() + modeOf(war).settleSeconds * 1000L;
     }
 
@@ -1341,10 +1341,28 @@ public final class WarManager implements GuildModule {
     // 广播
     // =====================================================================
 
+    /** 战况上报节流：击杀密集时避免每次击杀都做一次阻塞 Redis 发布。 */
+    private volatile long lastStatePublishAt;
+
     private void publishState(GuildWar war) {
-        if (plugin.bus().isReady()) {
-            plugin.bus().publishWarState(war.id(), war.state().name(), war.scoreA(), war.scoreB());
+        publishState(war, false);
+    }
+
+    private void publishState(GuildWar war, boolean force) {
+        if (!plugin.bus().isReady()) {
+            return;
         }
+        long now = System.currentTimeMillis();
+        if (!force && now - lastStatePublishAt < 500L) {
+            return;
+        }
+        lastStatePublishAt = now;
+        String id = war.id();
+        String state = war.state().name();
+        int scoreA = war.scoreA();
+        int scoreB = war.scoreB();
+        // Redis 发布是阻塞 IO，放异步线程
+        plugin.async(() -> plugin.bus().publishWarState(id, state, scoreA, scoreB));
     }
 
     private void broadcastWar(GuildWar war, net.kyori.adventure.text.Component text) {
