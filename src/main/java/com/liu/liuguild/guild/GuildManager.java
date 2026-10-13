@@ -493,6 +493,10 @@ public final class GuildManager {
     }
 
     public boolean kick(Player actor, Guild g, UUID targetId, String targetName) {
+        if (actor.getUniqueId().equals(targetId)) {
+            plugin.messages().send(actor, "self-target");
+            return false;
+        }
         GuildMember actorM = g.member(actor.getUniqueId());
         GuildMember targetM = g.member(targetId);
         if (targetM == null) {
@@ -540,6 +544,10 @@ public final class GuildManager {
     }
 
     public boolean promote(Player actor, Guild g, UUID targetId, String targetName) {
+        if (actor.getUniqueId().equals(targetId)) {
+            plugin.messages().send(actor, "self-target");
+            return false;
+        }
         GuildMember actorM = g.member(actor.getUniqueId());
         GuildMember targetM = g.member(targetId);
         if (actorM == null || actorM.rank() != GuildRank.LEADER) {
@@ -562,6 +570,10 @@ public final class GuildManager {
     }
 
     public boolean demote(Player actor, Guild g, UUID targetId, String targetName) {
+        if (actor.getUniqueId().equals(targetId)) {
+            plugin.messages().send(actor, "self-target");
+            return false;
+        }
         GuildMember actorM = g.member(actor.getUniqueId());
         GuildMember targetM = g.member(targetId);
         if (actorM == null || actorM.rank() != GuildRank.LEADER) {
@@ -584,6 +596,10 @@ public final class GuildManager {
     }
 
     public boolean transfer(Player actor, Guild g, UUID targetId, String targetName) {
+        if (actor.getUniqueId().equals(targetId)) {
+            plugin.messages().send(actor, "self-target");
+            return false;
+        }
         GuildMember actorM = g.member(actor.getUniqueId());
         GuildMember targetM = g.member(targetId);
         if (actorM == null || actorM.rank() != GuildRank.LEADER) {

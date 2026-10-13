@@ -18,6 +18,7 @@ zh_CN:
   guild-not-found: "<red>找不到工会 <white>{name}</white>。"
   player-not-found: "<red>找不到玩家 <white>{player}</white>。"
   target-not-in-guild: "<red>该玩家不在你的工会里。"
+  self-target: "<red>不能对自己执行该操作。"
   no-permission-rank: "<red>你在工会中的职位不足以执行该操作。"
   cooldown: "<red>操作过于频繁，请 <white>{seconds}</white> 秒后再试。"
 
@@ -152,6 +153,7 @@ zh_CN:
   input-guild-name: "<gray>请在聊天栏输入工会名称（可带标签，格式：名称 标签）："
   confirm-kick: "<red>确定要踢出成员 <white>{player}</white> 吗？"
   confirm-transfer: "<red>确定将会长转让给 <white>{player}</white> 吗？（不可撤销）"
+  confirm-leave: "<red>确定要退出工会 <white>{player}</white> 吗？此操作可再次加入。"
   promote-already-officer: "<yellow>{player} 已是副会长；如需转让会长请使用 <white>Shift+左键</white>。"
 
   # ---- 工会驻地 ----

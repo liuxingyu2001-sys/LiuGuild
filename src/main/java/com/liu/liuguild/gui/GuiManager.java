@@ -408,8 +408,13 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "leave" -> {
                 if (g != null) {
-                    plugin.guilds().leave(player);
+                    GuildMember self = g.member(player.getUniqueId());
+                    if (self != null && self.rank() == GuildRank.LEADER) {
+                        plugin.messages().send(player, "leave-leader-denied");
+                        return;
+                    }
                     player.closeInventory();
+                    confirm(player, "confirm-leave", g.name(), () -> plugin.guilds().leave(player));
                 }
             }
             case "back:main" -> openMain(player);
