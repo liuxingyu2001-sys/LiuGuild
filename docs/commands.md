@@ -1,0 +1,76 @@
+# 指令
+
+## 玩家指令 `/guild`（别名 `g` / `gh` / `gonghui`）
+
+| 指令 | 说明 |
+|---|---|
+| `/guild`、`/guild gui` | 打开工会主菜单 |
+| `/guild create <名称> [标签]` | 创建工会（扣除创建费） |
+| `/guild disband confirm` | 会长解散工会（二次确认） |
+| `/guild join <名称>` | 加入开放加入的工会 |
+| `/guild leave` | 退出工会（会长需先转让/解散） |
+| `/guild invite <玩家>` | 邀请玩家（会长/官员） |
+| `/guild accept <工会>` | 接受邀请 |
+| `/guild deny <工会>` | 拒绝邀请 |
+| `/guild kick <玩家>` | 踢出成员（会长/官员） |
+| `/guild promote <玩家>` | 提升职位（左键同效） |
+| `/guild demote <玩家>` | 降低职位（右键同效） |
+| `/guild transfer <玩家>` | 转让会长 |
+| `/guild seticon <图标id>` | 更换工会图标（扣费） |
+| `/guild set open <true/false>` | 设置加入方式 |
+| `/guild set notice <内容>` | 设置公告 |
+| `/guild set desc <内容>` | 设置简介 |
+| `/guild bank deposit <金额>` | 存入工会银行 |
+| `/guild bank withdraw <金额>` | 取出工会银行（会长/官员） |
+| `/guild info [工会]` | 查看工会信息 |
+| `/guild list [页码]` | 工会列表 |
+| `/guild top <points\|bank\|level\|wins>` | 排行榜 |
+| `/guild war queue [模式]` | 参与匹配（默认模式） |
+| `/guild war leave` | 退出匹配队列 |
+| `/guild war join` | 进入竞技场（匹配成功后） |
+| `/guild war spectate` | 旁观 |
+| `/guild war status` | 当前战况 |
+| `/guild war history` | 历史战绩 |
+
+## 管理指令 `/guildadmin`（权限 `liuguild.admin`）
+
+| 指令 | 说明 |
+|---|---|
+| `/guildadmin reload` | 重载全部配置与模块 |
+| `/guildadmin status` | **详细运行状态**（存储、跨服、工会、队列、场地、钩子、模块） |
+| `/guildadmin gui` | 打开管理面板 GUI |
+| `/guildadmin import <sql文件>` | 导入旧版 PlayerGuild 数据（见 [import.md](import.md)） |
+| `/guildadmin arena list` | 竞技场列表 |
+| `/guildadmin arena info <id>` | 竞技场详情 |
+| `/guildadmin arena setspawn <id> <a\|b\|spec>` | **把当前所站位置设为出生点** |
+| `/guildadmin arena setworld <id> <世界>` | 设置固定世界 |
+| `/guildadmin arena setserver <id> <承办服id>` | 设置承办服 |
+| `/guildadmin arena settemplate <id> <模板>` | 设置 liudungeon 动态模板 |
+| `/guildadmin arena create <id>` | 新建竞技场 |
+| `/guildadmin kit list` | 装备套装列表 |
+| `/guildadmin kit save <key>` | **把当前身上穿的装备保存为套装** |
+| `/guildadmin kit delete <key>` | 删除套装 |
+| `/guildadmin kit info <key>` | 套装详情 |
+| `/guildadmin mode list` | 工会战模式列表 |
+| `/guildadmin mode info <模式>` | 模式详情 |
+| `/guildadmin mode start <模式>` | **强制开启赛季模式**（公告 + 可选自动入队） |
+| `/guildadmin war list` | 进行中的工会战与队列 |
+| `/guildadmin war <warId>` | 单场工会战详情 |
+| `/guildadmin disband <工会>` | 强制解散 |
+| `/guildadmin setlevel <工会> <等级>` | 设置等级 |
+| `/guildadmin setpoints <工会> <点数>` | 设置点数 |
+| `/guildadmin forceend [warId]` | 强制结束工会战 |
+| `/guildadmin info <工会>` | 工会详情 |
+
+## 权限
+
+| 权限 | 默认 | 说明 |
+|---|---|---|
+| `liuguild.use` | true | 基础功能 |
+| `liuguild.create` | true | 创建工会 |
+| `liuguild.create.free` | op | 免创建费 |
+| `liuguild.war` | true | 参与工会战（仍需会长/官员身份） |
+| `liuguild.admin` | op | 管理总权限 |
+| `liuguild.admin.reload` / `.status` / `.import` / `.arena` / `.kit` / `.mode` / `.disband` / `.setlevel` / `.setpoints` / `.forceend` | op | 管理子权限 |
+
+> 指令均带 Tab 补全：子命令、工会名、在线玩家、模式、场地、套装、坐标点均可补全。

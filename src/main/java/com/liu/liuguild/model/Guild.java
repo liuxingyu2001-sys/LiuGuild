@@ -15,6 +15,10 @@ public final class Guild {
     private volatile String leaderName;
     private volatile String description;
     private volatile String notice;
+    /** 工会图标 id（见 icons.yml）。 */
+    private volatile String icon;
+    /** 自定义图标数据（旧插件导入的序列化 ItemStack，可空）。 */
+    private volatile String iconData;
     private volatile boolean open;
     private volatile long createdAt;
     private volatile long updatedAt;
@@ -37,7 +41,8 @@ public final class Guild {
     public Guild(String id, String name, String tag, UUID leaderUuid, String leaderName,
                  String description, String notice, boolean open,
                  long createdAt, long updatedAt, long points, int level,
-                 int wins, int losses, long bank, String homeServer, int memberCount) {
+                 int wins, int losses, long bank, String homeServer, int memberCount,
+                 String icon) {
         this.id = id;
         this.name = name;
         this.tag = tag;
@@ -55,6 +60,7 @@ public final class Guild {
         this.bank = bank;
         this.homeServer = homeServer;
         this.memberCount = memberCount;
+        this.icon = icon;
     }
 
     public String id() {
@@ -107,6 +113,22 @@ public final class Guild {
 
     public void notice(String notice) {
         this.notice = notice;
+    }
+
+    public String icon() {
+        return icon == null || icon.isBlank() ? "default" : icon;
+    }
+
+    public void icon(String icon) {
+        this.icon = icon;
+    }
+
+    public String iconData() {
+        return iconData == null ? "" : iconData;
+    }
+
+    public void iconData(String iconData) {
+        this.iconData = iconData;
     }
 
     public boolean open() {

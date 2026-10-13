@@ -1,14 +1,18 @@
 # ==========================================================
-#  LiuGuild 主配置（settings / server-id / database / cross-server）
+#  LiuGuild 主配置（config.yml）
 # ----------------------------------------------------------
-#  配置已模块化，各模块独立成文件，改一个模块无需碰其它文件：
-#    config.yml     本服系统设置、数据库、跨服
-#    guild.yml      工会玩法设置、图标
-#    war.yml        工会战设置、竞技场、奖励
-#    kit.yml        工会战统一装备
-#    gui.yml        GUI 菜单布局
-#    icons.yml      工会图标定义
-#    messages.yml   多语言消息
+#  配置按功能模块拆分，各模块独立成文件，改一个模块无需碰其它文件：
+#    config.yml        本服系统设置、server-id
+#    database.yml      数据库
+#    cross-server.yml  跨服 Redis / 传送 / 心跳
+#    guild.yml         工会玩法、权限、银行、图标费用
+#    war.yml           工会战全局设置与模式默认值
+#    war-modes.yml     各工会战模式（匹配 / 赛季 / 自定义）
+#    arena.yml         竞技场场地（模板 / 世界 / 出生点 / 承办服）
+#    kit.yml           工会战统一装备（可多套）
+#    gui.yml           GUI 菜单布局
+#    icons.yml         工会图标定义
+#    messages.yml      多语言消息
 #  多台子服可把 settings.shared-config-path 指向同一共享目录，改一处全服生效。
 # ==========================================================
 
@@ -25,42 +29,3 @@ settings:
 # 本服在群组中的唯一标识（每台子服必须不同）。
 # 建议留空并在 plugins/LiuGuild/server.yml 里覆盖。
 server-id: ""
-
-database:
-  # sqlite（单服开箱即用）| mysql（多服共享，跨服工会战必须）
-  type: sqlite
-  host: 127.0.0.1
-  port: 3306
-  database: minecraft
-  user: root
-  password: ""
-  params: "useSSL=false&characterEncoding=utf8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true"
-  sqlite-file: plugins/LiuGuild/data.db
-  table-prefix: liuguild
-  pool-size: 5
-  connection-timeout-ms: 5000
-  auto-create-database: true
-  auto-create-tables: true
-
-# ==========================================================
-#  跨服（Redis）
-# ----------------------------------------------------------
-#  跨服工会战要求所有子服指向同一 Redis 实例、相同 channel/database。
-#  Redis 不可用时自动降级为【仅本服】，不影响单服工会功能。
-# ==========================================================
-cross-server:
-  enabled: true
-  redis:
-    host: 127.0.0.1
-    port: 6379
-    password: ""
-    database: 0
-    pool-size: 8
-    timeout-ms: 2000
-    # 键前缀 / 频道名；同一 Redis 被多个群组共用时用它隔离
-    channel: liuguild
-  # 允许跨服传送到工会战举办服
-  transfer:
-    enabled: true
-  # 在线心跳间隔（秒）
-  heartbeat-seconds: 5

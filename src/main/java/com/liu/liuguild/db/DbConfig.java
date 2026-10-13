@@ -1,5 +1,7 @@
 package com.liu.liuguild.db;
 
+import org.bukkit.configuration.file.FileConfiguration;
+
 /**
  * 数据库连接配置 POJO（参考 multiserver-db-guide.md）。
  * jdbcUrl() 与 baseJdbcUrl() 分离：自动建库必须用不带库名的 URL 先连一次。
@@ -21,6 +23,25 @@ public final class DbConfig {
 
     public boolean isSqlite() {
         return "sqlite".equalsIgnoreCase(type);
+    }
+
+    /** 从 database.yml 解析。 */
+    public static DbConfig parse(FileConfiguration c) {
+        DbConfig d = new DbConfig();
+        d.type = c.getString("type", d.type);
+        d.host = c.getString("host", d.host);
+        d.port = c.getInt("port", d.port);
+        d.database = c.getString("database", d.database);
+        d.user = c.getString("user", d.user);
+        d.password = c.getString("password", d.password);
+        d.params = c.getString("params", d.params);
+        d.sqliteFile = c.getString("sqlite-file", d.sqliteFile);
+        d.tablePrefix = c.getString("table-prefix", d.tablePrefix);
+        d.poolSize = Math.max(1, c.getInt("pool-size", d.poolSize));
+        d.connectionTimeoutMs = Math.max(500, c.getInt("connection-timeout-ms", d.connectionTimeoutMs));
+        d.autoCreateDatabase = c.getBoolean("auto-create-database", d.autoCreateDatabase);
+        d.autoCreateTables = c.getBoolean("auto-create-tables", d.autoCreateTables);
+        return d;
     }
 
     public String jdbcUrl() {

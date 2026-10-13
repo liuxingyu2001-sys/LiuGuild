@@ -1,0 +1,231 @@
+# ==========================================================
+#  LiuGuild · GUI 菜单模块（gui.yml）
+#  所有菜单、按钮、图标均可在此配置；material 支持原生材质或 CE:命名空间:id。
+#  占位符 {xxx} 与 PAPI 占位符 %xxx% 均会在渲染时替换。
+# ==========================================================
+
+gui:
+  # 通用填充物
+  filler:
+    enabled: true
+    material: GRAY_STAINED_GLASS_PANE
+    name: " "
+
+  # ---------------- 工会主菜单 ----------------
+  main:
+    title: "<gradient:#3AA0FF:#8AD4FF><bold>{guild}</bold></gradient> <dark_gray>· 工会"
+    rows: 6
+    buttons:
+      info:
+        slot: 4
+        material: "CE:liuguild:emblem_default"
+        fallback-material: SHIELD
+        name: "<white>{guild} <dark_gray>[{tag}]"
+        lore:
+          - "<gray>会长：<white>{leader}"
+          - "<gray>等级：<white>{level} <dark_gray>/ {max_level}"
+          - "<gray>成员：<white>{members}<gray>/<white>{member_limit}"
+          - "<gray>点数：<white>{points}"
+          - "<gray>战绩：<white>{wins} 胜 {losses} 负"
+          - "<gray>银行：<white>{bank}"
+          - ""
+          - "<yellow>公告：<white>{notice}"
+      members:
+        slot: 20
+        material: PLAYER_HEAD
+        name: "<white>成员列表"
+        lore: ["<gray>查看并管理工会成员"]
+      war:
+        slot: 22
+        material: NETHERITE_SWORD
+        name: "<white>工会战"
+        lore: ["<gray>匹配 / 查看战况 / 历史战绩"]
+      bank:
+        slot: 24
+        material: GOLD_INGOT
+        name: "<white>工会银行"
+        lore: ["<gray>余额：<white>{bank}", "<gray>左键存入 / 右键取出"]
+      settings:
+        slot: 30
+        material: REDSTONE_TORCH
+        name: "<white>工会设置"
+        lore: ["<gray>图标 / 公告 / 简介 / 加入方式"]
+      list:
+        slot: 32
+        material: WRITABLE_BOOK
+        name: "<white>工会列表"
+        lore: ["<gray>浏览全服工会"]
+      leave:
+        slot: 49
+        material: BARRIER
+        name: "<red>退出工会"
+        lore: ["<gray>离开当前工会"]
+
+  # ---------------- 成员菜单 ----------------
+  members:
+    title: "<white>工会成员 <dark_gray>· {guild}"
+    rows: 6
+    entry:
+      # 成员头像物品（PLAYER_HEAD 会显示玩家皮肤）
+      material: PLAYER_HEAD
+      name: "<white>{player} <dark_gray>[{rank}]"
+      lore:
+        - "<gray>职位：<white>{rank}"
+        - "<gray>贡献：<white>{contributed}"
+        - "<gray>击杀/死亡：<white>{kills}<gray>/<white>{deaths}"
+        - "<gray>加入：<white>{joined}"
+        - ""
+        - "<yellow>左键晋升 / 右键降级"
+        - "<red>Shift+左键踢出"
+    back:
+      slot: 49
+      material: ARROW
+      name: "<white>返回"
+
+  # ---------------- 工会列表菜单 ----------------
+  list:
+    title: "<white>工会列表 <dark_gray>· 共 {count} 个"
+    rows: 6
+    entry:
+      material: "CE:liuguild:emblem_default"
+      fallback-material: SHIELD
+      name: "<white>{guild} <dark_gray>[{tag}]"
+      lore:
+        - "<gray>会长：<white>{leader}"
+        - "<gray>等级：<white>{level}"
+        - "<gray>成员：<white>{members}"
+        - "<gray>点数：<white>{points}"
+        - "<gray>战绩：<white>{wins} 胜 {losses} 负"
+        - ""
+        - "<yellow>左键申请加入"
+    back:
+      slot: 49
+      material: ARROW
+      name: "<white>返回"
+
+  # ---------------- 工会设置菜单 ----------------
+  settings:
+    title: "<white>工会设置 <dark_gray>· {guild}"
+    rows: 4
+    buttons:
+      icon:
+        slot: 10
+        material: SHIELD
+        name: "<white>更换图标"
+        lore: ["<gray>当前：<white>{icon_name}", "<gray>费用：<white>{icon_cost}"]
+      toggle_open:
+        slot: 12
+        material: OAK_DOOR
+        name: "<white>加入方式：<yellow>{open}"
+        lore: ["<gray>点击切换 开放 / 邀请"]
+      notice:
+        slot: 14
+        material: PAPER
+        name: "<white>修改公告"
+        lore: ["<gray>当前：<white>{notice}", "<gray>点击后在聊天栏输入新公告"]
+      desc:
+        slot: 16
+        material: WRITABLE_BOOK
+        name: "<white>修改简介"
+        lore: ["<gray>当前：<white>{description}", "<gray>点击后在聊天栏输入新简介"]
+      back:
+        slot: 31
+        material: ARROW
+        name: "<white>返回"
+
+  # ---------------- 图标选择菜单 ----------------
+  icons:
+    title: "<white>选择工会图标"
+    rows: 4
+    entry:
+      slot: -1
+      material: SHIELD
+      name: "<white>{icon_name}"
+      lore: ["<gray>点击使用", "<gray>费用：<white>{icon_cost}"]
+    back:
+      slot: 31
+      material: ARROW
+      name: "<white>返回"
+
+  # ---------------- 工会战菜单 ----------------
+  war:
+    title: "<white>工会战 <dark_gray>· {guild}"
+    rows: 5
+    # 每种工会战模式一个条目（动态生成，点击参与匹配）
+    entry:
+      slot: -1
+      material: NETHERITE_SWORD
+      name: "<white>{mode} <dark_gray>[{mode_key}]"
+      lore:
+        - "<gray>状态：<yellow>{mode_state}"
+        - "<gray>场地：<white>{mode_arena}"
+        - "<gray>人数：<white>{mode_team}" 最低 <white>{mode_min}"
+        - "<gray>公平：<white>{mode_fair} / {mode_health}"
+        - "<gray>时长：<white>{mode_duration} 秒"
+        - "<gray>时间表：<white>{mode_schedule}"
+        - ""
+        - "<yellow>点击参与该模式匹配"
+    buttons:
+      status:
+        slot: 38
+        material: COMPASS
+        name: "<white>当前战况"
+        lore: ["<gray>状态：<white>{state}", "<gray>对手：<white>{enemy}", "<gray>比分：<white>{score} : {enemy_score}"]
+      leave_queue:
+        slot: 40
+        material: BARRIER
+        name: "<red>退出匹配"
+        lore: ["<gray>当前正在匹配中"]
+      history:
+        slot: 42
+        material: PAPER
+        name: "<white>历史战绩"
+        lore: ["<gray>最近 {history_count} 场"]
+      back:
+        slot: 44
+        material: ARROW
+        name: "<white>返回"
+
+  # ---------------- 管理菜单 ----------------
+  admin:
+    title: "<gold><bold>LiuGuild</bold></gold> <dark_gray>· 管理面板"
+    rows: 5
+    buttons:
+      admin_status:
+        slot: 10
+        material: BOOK
+        name: "<white>插件状态"
+        lore:
+          - "<gray>server-id：<white>{server}"
+          - "<gray>存储：<white>{storage}"
+          - "<gray>跨服：<white>{cross}"
+          - "<gray>工会数：<white>{guild_count}"
+          - "<gray>匹配队列：<white>{queue}"
+          - "<gray>进行中：<white>{live_wars}"
+          - ""
+          - "<yellow>点击查看详细状态"
+      admin_modes:
+        slot: 12
+        material: NETHERITE_SWORD
+        name: "<white>工会战模式"
+        lore: ["<gray>查看各模式配置"]
+      admin_arena:
+        slot: 14
+        material: GRASS_BLOCK
+        name: "<white>竞技场"
+        lore: ["<gray>查看场地（承办服 / 世界 / 坐标）", "<gray>设置：<white>/guildadmin arena setspawn <id> <a|b|spec>"]
+      admin_kit:
+        slot: 16
+        material: DIAMOND_CHESTPLATE
+        name: "<white>装备套装"
+        lore: ["<gray>查看成套装备", "<gray>保存：<white>/guildadmin kit save <key>"]
+      admin_reload:
+        slot: 30
+        material: REDSTONE
+        name: "<white>重载配置"
+        lore: ["<gray>重新加载全部模块"]
+      close:
+        slot: 32
+        material: BARRIER
+        name: "<red>关闭"
+        lore: ["<gray>关闭菜单"]

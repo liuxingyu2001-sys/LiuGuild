@@ -8,6 +8,8 @@ zh_CN:
   no-permission: "<red>你没有权限执行该操作。"
   players-only: "<red>该命令只能由玩家执行。"
   unknown-command: "<red>未知子命令，输入 <white>/guild help</white> 查看帮助。"
+  help-header: "<dark_gray>―――― <white>LiuGuild 帮助</white> <dark_gray>――――"
+  help-line: "<gray>/guild <white>create|join|leave|invite|accept|kick|promote|seticon|set|bank|info|list|top|war|gui"
   reload-done: "<green>配置已重载。"
 
   # ---- 通用 ----
@@ -115,6 +117,10 @@ zh_CN:
   war-spectate: "<gray>你以旁观者身份进入竞技场。"
   war-arena-failed: "<red>竞技场准备失败，工会战已取消。"
   war-transfer-failed: "<red>跨服传送失败，请稍后重试。"
+  war-queue-broadcast: "<gold>[工会战] <white>{player}</white> 代表工会 <white>{guild}</white> 参与了 <white>{mode}</white> 匹配！"
+  war-season-open: "<gold><bold>[赛季工会战]</bold> <white>{mode}</white> 已开启，报名/匹配窗口 <white>{minutes}</white> 分钟！"
+  war-mode-disabled: "<red>工会战模式 <white>{mode}</white> 当前未开启。"
+  war-need-level: "<red>你的工会等级需达到 <white>{level}</white> 才能参与该模式。"
 
   # ---- 管理 ----
   admin-usage: "<red>用法：<white>/guildadmin <reload|disband|setlevel|setpoints|forceend|info> ...</white>"
@@ -122,3 +128,43 @@ zh_CN:
   admin-setlevel: "<green>已将工会 <white>{guild}</white> 等级设为 <white>{level}</white>。"
   admin-setpoints: "<green>已将工会 <white>{guild}</white> 点数设为 <white>{points}</white>。"
   admin-forceend: "<green>已强制结束工会战 <white>{war}</white>。"
+
+  # ---- 输入会话 / GUI ----
+  input-cancel-hint: "<dark_gray>（输入 <white>cancel</white> 取消）"
+  input-notice: "<gray>请在聊天栏输入新的工会公告："
+  input-desc: "<gray>请在聊天栏输入新的工会简介："
+  input-deposit: "<gray>请在聊天栏输入要存入工会银行的金额："
+  input-withdraw: "<gray>请在聊天栏输入要从工会银行取出的金额："
+  input-invalid-number: "<red>请输入有效且大于 0 的数字。"
+  input-cancelled: "<yellow>已取消输入。"
+
+  # ---- 图标 ----
+  set-icon: "<green>工会图标已更换为 <white>{icon}</white>。"
+  set-icon-unknown: "<red>未知的图标：<white>{icon}</white>。"
+  set-icon-no-permission: "<red>你没有权限使用该图标。"
+
+  # ---- 等级 ----
+  guild-level-up: "<gold>工会升级！当前等级 <white>{level}</white>。"
+
+  # ---- 工会战历史 ----
+  war-history-empty: "<gray>暂无工会战记录。"
+  war-history-header: "<gold>最近工会战记录："
+  war-history-line: "<gray>- 对阵 <white>{enemy}</white>　比分 <yellow>{self}</yellow> : <yellow>{opp}</yellow>　结果 <white>{result}</white>"
+
+  # ---- 数据导入 ----
+  import-usage: "<red>用法：<white>/guildadmin import <sql文件路径></white>"
+  import-started: "<yellow>开始导入数据，请稍候…"
+  import-file-missing: "<red>找不到文件：<white>{file}</white>"
+  import-done: "<green>{summary}"
+  import-failed: "<red>导入失败：<white>{error}</white>"
+
+  # ---- 管理：场地 / 装备 / 模式 ----
+  arena-usage: "<red>用法：<white>/guildadmin arena <list|info|setspawn|setworld|setserver|settemplate|create> ...</white>"
+  arena-set: "<green>竞技场 <white>{arena}</white> 已更新为 <white>{value}</white>。"
+  arena-created: "<green>已新建竞技场 <white>{arena}</white>（固定坐标模式）。"
+  arena-spawn-set: "<green>竞技场 <white>{arena}</white> 的 <white>{point}</white> 点已设为当前坐标（世界 <white>{world}</white>）。"
+  kit-usage: "<red>用法：<white>/guildadmin kit <list|save|delete|info> [key]</white>"
+  kit-saved: "<green>已把当前身上装备保存为套装 <white>{key}</white>。"
+  kit-deleted: "<green>已删除套装 <white>{key}</white>。"
+  mode-usage: "<red>用法：<white>/guildadmin mode <list|info|start> [模式]</white>"
+  season-started: "<green>已开启赛季工会战模式 <white>{mode}</white>。"

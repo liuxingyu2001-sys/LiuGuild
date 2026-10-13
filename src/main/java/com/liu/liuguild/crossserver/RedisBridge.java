@@ -1,6 +1,6 @@
 package com.liu.liuguild.crossserver;
 
-import com.liu.liuguild.config.GuildConfig;
+import com.liu.liuguild.config.MainSettings;
 import org.bukkit.plugin.Plugin;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
@@ -28,7 +28,7 @@ public final class RedisBridge {
     private static final int DEGRADE_THRESHOLD = 3;
 
     private final Plugin plugin;
-    private final GuildConfig conf;
+    private final MainSettings conf;
     private final String prefix;
 
     private final AtomicInteger consecutiveFailures = new AtomicInteger();
@@ -38,7 +38,7 @@ public final class RedisBridge {
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile JedisPubSub subscriber;
 
-    public RedisBridge(Plugin plugin, GuildConfig conf) {
+    public RedisBridge(Plugin plugin, MainSettings conf) {
         this.plugin = plugin;
         this.conf = conf;
         this.prefix = conf.redisChannel + ":";

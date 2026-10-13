@@ -1,6 +1,6 @@
 package com.liu.liuguild.crossserver;
 
-import com.liu.liuguild.config.GuildConfig;
+import com.liu.liuguild.config.MainSettings;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
@@ -31,14 +31,14 @@ public final class CrossServerBus {
     }
 
     private final Plugin plugin;
-    private final GuildConfig conf;
+    private final MainSettings conf;
     private final RedisBridge bridge;
     private final ServerTransfer transfer;
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
 
     private volatile boolean ready;
 
-    public CrossServerBus(Plugin plugin, GuildConfig conf, RedisBridge bridge, ServerTransfer transfer) {
+    public CrossServerBus(Plugin plugin, MainSettings conf, RedisBridge bridge, ServerTransfer transfer) {
         this.plugin = plugin;
         this.conf = conf;
         this.bridge = bridge;
@@ -57,7 +57,7 @@ public final class CrossServerBus {
         return transfer;
     }
 
-    public GuildConfig conf() {
+    public MainSettings conf() {
         return conf;
     }
 
@@ -159,6 +159,21 @@ public final class CrossServerBus {
                 return null;
             });
         });
+    }
+
+    /** 单个玩家上线：登记在线存在（异步）。 */
+    public void presence(UUID uuid, String name) {
+        if (!bridge.isHealthyIgnoringDegrade()) {
+            return;
+        }
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> bridge.withJedis(jedis -> {
+            int ttl = RedisBridge.HEARTBEAT_TTL_SECONDS;
+            jedis.setex(bridge.keyPresence(uuid), ttl, conf.serverId);
+            if (name != null) {
+                jedis.setex(bridge.keyName(name.toLowerCase(java.util.Locale.ROOT)), ttl, uuid.toString());
+            }
+            return null;
+        }));
     }
 
     public void clearPresence(UUID uuid, String name) {

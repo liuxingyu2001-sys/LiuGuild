@@ -1,0 +1,104 @@
+# ==========================================================
+#  LiuGuild · 工会战模式模块（war-modes.yml）
+#  每一种工会战模式在这里独立配置，互不影响。
+#  未显式填写的项会继承 war.yml 的 war.defaults。
+#  场地通过 arena 字段引用 arena.yml 中定义的竞技场 id。
+# ==========================================================
+
+modes:
+
+  # ----------------------------------------------------------
+  #  匹配工会战：玩家在工会菜单点击「参与匹配」，凑齐两队即可开战
+  # ----------------------------------------------------------
+  match:
+    enabled: true
+    display: "匹配工会战"
+    description: "随时匹配，人满即战。"
+    # 引用 arena.yml 中的竞技场
+    arena: main
+    # 是否发放完全相同的公平装备
+    fair-equipment: true
+    # 是否屏蔽 LuckyPeaches 蟠桃血量加成，保证公平血量
+    fair-health: true
+    # 使用 kit.yml 中的哪套装备
+    kit: default
+    team-size: 10
+    min-members: 1
+    min-level: 1
+    prepare-seconds: 30
+    duration-seconds: 600
+    settle-seconds: 10
+    allow-spectators: true
+    # 玩家点击参与匹配时全服广播提示
+    broadcast-queue: true
+    score:
+      kill: 1
+      death: -1
+      objective: 5
+    rewards:
+      win-money: 5000.0
+      lose-money: 1000.0
+      win-points: 200
+      lose-points: 50
+      win-pass-xp: 500
+      lose-pass-xp: 100
+      pass-id: ""
+      win-title-id: 0
+
+  # ----------------------------------------------------------
+  #  赛季工会战：按时间表自动开启的赛季赛事
+  #  schedule 支持："20:00"（每天）、"sat 20:00"、"mon-fri 20:00"、"* 20:00"
+  # ----------------------------------------------------------
+  season:
+    enabled: true
+    display: "赛季工会战"
+    description: "赛季限时开启，奖励更丰厚。"
+    arena: main
+    fair-equipment: true
+    # 是否屏蔽 LuckyPeaches 蟠桃血量加成，保证公平血量
+    fair-health: true
+    kit: season
+    team-size: 10
+    min-members: 2
+    min-level: 3
+    prepare-seconds: 60
+    duration-seconds: 900
+    settle-seconds: 15
+    allow-spectators: true
+    broadcast-queue: true
+    score:
+      kill: 2
+      death: -1
+      objective: 10
+    rewards:
+      win-money: 12000.0
+      lose-money: 3000.0
+      win-points: 600
+      lose-points: 150
+      win-pass-xp: 1500
+      lose-pass-xp: 300
+      pass-id: ""
+      win-title-id: 0
+    # ---- 赛季时间表 ----
+    schedule:
+      - "sat 20:00"
+      - "sun 20:00"
+    season:
+      # 到点后开放报名/匹配的窗口时长（分钟）
+      window-minutes: 10
+      # 到点是否自动把符合条件的工会加入匹配队列
+      auto-enqueue: false
+      # 赛季奖励点数倍率
+      points-multiplier: 1.0
+
+  # ----------------------------------------------------------
+  #  示例：自定义模式（复制上段即可新增）
+  # ----------------------------------------------------------
+  # nightly:
+  #   enabled: false
+  #   display: " nightly 工会战"
+  #   arena: pvp
+  #   fair-equipment: false
+  #   kit: default
+  #   schedule:
+  #     - "* 21:30"

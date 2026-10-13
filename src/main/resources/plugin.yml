@@ -12,6 +12,10 @@ softdepend:
   - liudungeon
   - LiuChat
   - liupass
+  - CraftEngine
+  - SparrowSync
+  - LuckyPeaches
+  - PlayerTitle
   - Vault
   - PlaceholderAPI
   - LuckPerms
@@ -53,6 +57,11 @@ permissions:
     default: op
     children:
       liuguild.admin.reload: true
+      liuguild.admin.status: true
+      liuguild.admin.import: true
+      liuguild.admin.arena: true
+      liuguild.admin.kit: true
+      liuguild.admin.mode: true
       liuguild.admin.disband: true
       liuguild.admin.setlevel: true
       liuguild.admin.setpoints: true

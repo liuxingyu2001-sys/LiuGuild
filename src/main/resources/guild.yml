@@ -1,0 +1,43 @@
+# ==========================================================
+#  LiuGuild · 工会玩法模块（guild.yml）
+#  仅本文件负责「工会」相关设置，与 war.yml / kit.yml 解耦。
+# ==========================================================
+
+guild:
+  name:
+    min-length: 2
+    max-length: 16
+  tag:
+    min-length: 2
+    max-length: 5
+  # 创建费用（需 Vault 经济；无经济插件时忽略）
+  create-cost: 10000.0
+  # 基础成员上限
+  max-members: 50
+  # 每提升 1 级增加的成员上限
+  max-members-per-level: 5
+  invite:
+    expire-seconds: 300
+    cooldown-seconds: 30
+  bank:
+    enabled: true
+    # 存款手续费百分比（0 = 不收）
+    deposit-tax-percent: 0.0
+  level:
+    base-required-points: 1000
+    required-growth: 1.5
+    max-level: 20
+  # 同会成员之间是否免伤（true = 允许互相攻击，默认 false）
+  friendly-fire: false
+  # 官员（副会长）权限
+  officer:
+    invite: true
+    kick: true
+    declare-war: true
+    set-notice: true
+  # 工会图标：见 icons.yml 定义可用图标
+  icon:
+    # 新工会默认图标 id（对应 icons.yml 的键）
+    default: "default"
+    # 更换图标费用（需 Vault）
+    change-cost: 5000.0

@@ -1,0 +1,31 @@
+# ==========================================================
+#  LiuGuild · 数据库模块（database.yml）
+#  仅本文件负责存储；支持 SQLite（单服开箱即用）与 MySQL（跨服共享）。
+#  自动建库 + 自动建表，首次启动无需手动初始化。
+# ==========================================================
+
+# sqlite（单服）| mysql（多服共享，跨服工会战必须）
+type: sqlite
+
+# ---- MySQL ----
+host: 127.0.0.1
+port: 3306
+database: minecraft
+user: root
+password: ""
+params: "useSSL=false&characterEncoding=utf8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true"
+
+# ---- SQLite ----
+sqlite-file: plugins/LiuGuild/data.db
+
+# 表前缀；多个插件共用一个库时用于隔离
+table-prefix: liuguild
+
+# 连接池
+pool-size: 5
+connection-timeout-ms: 5000
+
+# 自动创建数据库（MySQL）
+auto-create-database: true
+# 自动创建数据表
+auto-create-tables: true

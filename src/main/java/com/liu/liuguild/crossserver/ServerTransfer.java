@@ -2,7 +2,7 @@ package com.liu.liuguild.crossserver;
 
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
-import com.liu.liuguild.config.GuildConfig;
+import com.liu.liuguild.config.MainSettings;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
@@ -17,10 +17,10 @@ public final class ServerTransfer {
     private static final String CHANNEL = "BungeeCord";
 
     private final Plugin plugin;
-    private final GuildConfig conf;
+    private final MainSettings conf;
     private volatile boolean registered;
 
-    public ServerTransfer(Plugin plugin, GuildConfig conf) {
+    public ServerTransfer(Plugin plugin, MainSettings conf) {
         this.plugin = plugin;
         this.conf = conf;
     }

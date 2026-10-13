@@ -1,7 +1,11 @@
 package com.liu.liuguild.war;
 
 import com.liu.liuguild.LiuGuild;
-import com.liu.liuguild.config.GuildConfig;
+import com.liu.liuguild.config.KitSettings;
+import com.liu.liuguild.config.KitSettings.KitProfile;
+import com.liu.liuguild.config.WarMode;
+import com.liu.liuguild.util.ItemUtil;
+import com.liu.liuguild.util.NumberUtil;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -22,8 +26,13 @@ public final class KitService {
         this.plugin = plugin;
     }
 
-    public GuildConfig conf() {
-        return plugin.config();
+    public KitSettings kit() {
+        return plugin.settings().kit;
+    }
+
+    /** 解析某模式的装备套装。 */
+    public KitProfile profile(WarMode mode) {
+        return kit().profile(mode == null ? null : mode.kit);
     }
 
     /** 参赛前的状态快照，赛后完整还原（避免统一装备误删玩家原有物品）。 */
@@ -76,29 +85,56 @@ public final class KitService {
         return out;
     }
 
-    /** 发放统一装备。主线程调用。 */
-    public void apply(Player player) {
-        GuildConfig c = conf();
-        if (player == null || !c.kitEnabled) {
+    /**
+     * 采集玩家当前「身上穿的装备 + 背包 + 副手」为 Base64 快照。
+     * 布局：0-35 背包、36-39 护甲（boots→helmet）、40 副手。
+     */
+    public String capture(Player player) {
+        ItemStack[] data = new ItemStack[41];
+        ItemStack[] contents = player.getInventory().getContents();
+        for (int i = 0; i < 36 && i < contents.length; i++) {
+            data[i] = contents[i];
+        }
+        ItemStack[] armor = player.getInventory().getArmorContents();
+        for (int i = 0; i < 4 && i < armor.length; i++) {
+            data[36 + i] = armor[i];
+        }
+        data[40] = player.getInventory().getItemInOffHand();
+        return ItemUtil.encode(data);
+    }
+
+    /** 发放某工会战模式的统一装备。主线程调用。 */
+    public void apply(Player player, WarMode mode) {
+        if (player == null || mode == null) {
             return;
         }
-        if (c.kitClearInventory) {
+        KitProfile c = profile(mode);
+        if (!kit().enabled || !mode.fairEquipment || c == null || !c.enabled) {
+            // 非公平模式：仅恢复满状态，不动装备
+            fullState(player, mode);
+            return;
+        }
+        if (c.clearInventory) {
             player.getInventory().clear();
             player.getInventory().setArmorContents(new ItemStack[4]);
             player.getInventory().setItemInOffHand(null);
         }
+        if (c.hasSnapshot()) {
+            applySnapshot(player, c, mode);
+            return;
+        }
         // 护甲
-        if (!c.kitArmor.isEmpty()) {
+        if (!c.armor.isEmpty()) {
             ItemStack[] armor = new ItemStack[4];
-            armor[3] = resolve(c.kitArmor.get("helmet"), Material.DIAMOND_HELMET);
-            armor[2] = resolve(c.kitArmor.get("chestplate"), Material.DIAMOND_CHESTPLATE);
-            armor[1] = resolve(c.kitArmor.get("leggings"), Material.DIAMOND_LEGGINGS);
-            armor[0] = resolve(c.kitArmor.get("boots"), Material.DIAMOND_BOOTS);
+            armor[3] = resolve(c.armor.get("helmet"), Material.DIAMOND_HELMET);
+            armor[2] = resolve(c.armor.get("chestplate"), Material.DIAMOND_CHESTPLATE);
+            armor[1] = resolve(c.armor.get("leggings"), Material.DIAMOND_LEGGINGS);
+            armor[0] = resolve(c.armor.get("boots"), Material.DIAMOND_BOOTS);
             player.getInventory().setArmorContents(armor);
         }
         // 物品栏
         int slot = 0;
-        for (String spec : c.kitItems) {
+        for (String spec : c.items) {
             if (spec == null || spec.isBlank()) {
                 continue;
             }
@@ -112,19 +148,48 @@ public final class KitService {
                 break;
             }
         }
-        // 药水效果
-        int duration = (c.durationSeconds + c.prepareSeconds + 60) * 20;
-        for (String eff : c.kitEffects) {
-            if (eff == null || eff.isBlank()) {
-                continue;
+        fullState(player, mode);
+    }
+
+    /** 应用直接保存的装备快照。 */
+    private void applySnapshot(Player player, KitProfile c, WarMode mode) {
+        ItemStack[] data = ItemUtil.decode(c.snapshot);
+        if (data.length < 41) {
+            plugin.getLogger().warning("装备套装 " + c.key + " 快照损坏，已忽略。");
+            fullState(player, mode);
+            return;
+        }
+        ItemStack[] contents = new ItemStack[36];
+        ItemStack[] armor = new ItemStack[4];
+        for (int i = 0; i < 36; i++) {
+            contents[i] = data[i] == null ? null : data[i].clone();
+        }
+        for (int i = 0; i < 4; i++) {
+            armor[i] = data[36 + i] == null ? null : data[36 + i].clone();
+        }
+        player.getInventory().setContents(contents);
+        player.getInventory().setArmorContents(armor);
+        player.getInventory().setItemInOffHand(data[40] == null ? null : data[40].clone());
+        fullState(player, mode);
+    }
+
+    /** 药水效果 + 回满状态。 */
+    private void fullState(Player player, WarMode mode) {
+        KitProfile c = profile(mode);
+        int duration = (mode.durationSeconds + mode.prepareSeconds + 60) * 20;
+        if (c != null) {
+            for (String eff : c.effects) {
+                if (eff == null || eff.isBlank()) {
+                    continue;
+                }
+                String[] parts = eff.split(":");
+                PotionEffectType type = PotionEffectType.getByName(parts[0].trim().toUpperCase(java.util.Locale.ROOT));
+                if (type == null) {
+                    continue;
+                }
+                int amp = parts.length > 1 ? NumberUtil.toInt(parts[1], 0) : 0;
+                player.addPotionEffect(new PotionEffect(type, duration, Math.max(0, amp), true, false));
             }
-            String[] parts = eff.split(":");
-            PotionEffectType type = PotionEffectType.getByName(parts[0].trim().toUpperCase(java.util.Locale.ROOT));
-            if (type == null) {
-                continue;
-            }
-            int amp = parts.length > 1 ? parseInt(parts[1], 0) : 0;
-            player.addPotionEffect(new PotionEffect(type, duration, Math.max(0, amp), true, false));
         }
         player.setHealth(player.getMaxHealth());
         player.setFoodLevel(20);

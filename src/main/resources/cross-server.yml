@@ -1,0 +1,27 @@
+# ==========================================================
+#  LiuGuild · 跨服模块（cross-server.yml）
+#  跨服工会战要求所有子服指向同一 Redis 实例、相同 channel/database。
+#  Redis 不可用时自动降级为【仅本服】，不影响单服工会功能。
+# ==========================================================
+
+enabled: true
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: ""
+  database: 0
+  pool-size: 8
+  timeout-ms: 2000
+  # 键前缀 / 频道名；同一 Redis 被多个群组共用时用它隔离
+  channel: liuguild
+
+# 允许跨服传送到工会战举办服
+transfer:
+  enabled: true
+
+# 在线心跳间隔（秒）
+heartbeat-seconds: 5
+
+# Redis 不可用时是否自动降级为单服模式
+local-fallback: true

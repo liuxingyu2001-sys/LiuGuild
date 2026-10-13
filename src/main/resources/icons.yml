@@ -1,0 +1,38 @@
+# ==========================================================
+#  LiuGuild · 工会图标模块（icons.yml）
+#  每个图标有唯一 id，工会可花费金币切换（见 guild.yml guild.icon.change-cost）。
+#  item 支持：原生材质 或 CE:命名空间:id（CraftEngine 自定义物品）。
+#  permission：可选，设置后只有拥有该权限的工会才能使用（留空 = 所有人可用）。
+# ==========================================================
+
+icons:
+  default:
+    display: "<gray>默认徽章"
+    item: "CE:liuguild:emblem_default"
+    fallback-material: SHIELD
+  sword:
+    display: "<red>利剑"
+    item: IRON_SWORD
+  crown:
+    display: "<gold>王冠"
+    item: GOLDEN_HELMET
+  dragon:
+    display: "<dark_purple>巨龙"
+    item: DRAGON_EGG
+    permission: "liuguild.icon.dragon"
+  star:
+    display: "<yellow>星辰"
+    item: NETHER_STAR
+  heart:
+    display: "<red>赤诚"
+    item: RED_DYE
+  shield:
+    display: "<blue>坚盾"
+    item: SHIELD
+  anchor:
+    display: "<aqua>远航"
+    item: "CE:liuguild:emblem_anchor"
+    fallback-material: OAK_BOAT
+  flame:
+    display: "<gold>烈焰"
+    item: BLAZE_POWDER

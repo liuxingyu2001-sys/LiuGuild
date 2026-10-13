@@ -1,9 +1,20 @@
 package com.liu.liuguild.guild;
 
 import com.liu.liuguild.LiuGuild;
-import com.liu.liuguild.config.GuildConfig;
+import com.liu.liuguild.api.event.GuildBankEvent;
+import com.liu.liuguild.api.event.GuildCreateEvent;
+import com.liu.liuguild.api.event.GuildDisbandEvent;
+import com.liu.liuguild.api.event.GuildJoinEvent;
+import com.liu.liuguild.api.event.GuildLeaveEvent;
+import com.liu.liuguild.api.event.GuildLevelUpEvent;
+import com.liu.liuguild.config.GuildSettings;
+import com.liu.liuguild.config.IconDef;
 import com.liu.liuguild.crossserver.CrossServerBus;
 import com.liu.liuguild.model.Guild;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.model.GuildRank;
 import com.liu.liuguild.util.Text;
@@ -40,8 +51,8 @@ public final class GuildManager {
         this.plugin = plugin;
     }
 
-    private GuildConfig conf() {
-        return plugin.config();
+    private GuildSettings conf() {
+        return plugin.settings().guild;
     }
 
     private static final class Invite {
@@ -184,7 +195,7 @@ public final class GuildManager {
     // =====================================================================
 
     public boolean create(Player player, String name, String tag) {
-        GuildConfig c = conf();
+        GuildSettings c = conf();
         String cleanName = Text.clean(name);
         String cleanTag = Text.clean(tag);
         if (Text.hasFormatting(name) || Text.hasFormatting(tag)
@@ -219,7 +230,8 @@ public final class GuildManager {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
         Guild g = new Guild(id, cleanName, cleanTag, player.getUniqueId(), player.getName(),
-                "", "", false, now, now, 0, 1, 0, 0, 0, plugin.serverId(), 1);
+                "", "", false, now, now, 0, 1, 0, 0, 0, plugin.serverId(), 1,
+                conf().defaultIcon);
         GuildMember leader = new GuildMember(player.getUniqueId(), player.getName(), id,
                 GuildRank.LEADER, now, 0, 0, 0);
         g.putMember(leader);
@@ -256,6 +268,7 @@ public final class GuildManager {
             }
         });
         plugin.messages().send(player, "create-success", "guild", cleanName);
+        Bukkit.getPluginManager().callEvent(new GuildCreateEvent(g, player));
         return true;
     }
 
@@ -279,6 +292,7 @@ public final class GuildManager {
         if (broadcast) {
             notifyGuild(g.id(), plugin.messages().component("disband-broadcast", "guild", g.name()), null);
         }
+        Bukkit.getPluginManager().callEvent(new GuildDisbandEvent(g, GuildDisbandEvent.Cause.PLAYER));
         return true;
     }
 
@@ -325,11 +339,12 @@ public final class GuildManager {
         plugin.messages().send(player, viaInvite ? "accept-success" : "join-success", "guild", g.name());
         notifyGuild(g.id(), plugin.messages().component("join-notify-members", "player", player.getName()), player.getUniqueId());
         guildBroadcast(g.id(), plugin.messages().component("join-notify-members", "player", player.getName()), player.getUniqueId());
+        Bukkit.getPluginManager().callEvent(new GuildJoinEvent(g, player, viaInvite));
         return true;
     }
 
     public void invite(Player actor, Guild g, String targetName) {
-        GuildConfig c = conf();
+        GuildSettings c = conf();
         long now = System.currentTimeMillis();
         Long last = inviteCooldown.get(actor.getUniqueId());
         if (last != null && now - last < c.inviteCooldownSeconds * 1000L) {
@@ -427,6 +442,7 @@ public final class GuildManager {
         removeMember(g, player.getUniqueId());
         plugin.messages().send(player, "leave-success", "guild", g.name());
         notifyGuild(g.id(), plugin.messages().component("leave-notify-members", "player", player.getName()), player.getUniqueId());
+        Bukkit.getPluginManager().callEvent(new GuildLeaveEvent(g, player, GuildLeaveEvent.Cause.QUIT));
         return true;
     }
 
@@ -456,6 +472,7 @@ public final class GuildManager {
         Player tp = plugin.player(targetId);
         if (tp != null) {
             plugin.messages().send(tp, "kick-notify", "guild", g.name());
+            Bukkit.getPluginManager().callEvent(new GuildLeaveEvent(g, tp, GuildLeaveEvent.Cause.KICK));
         }
         return true;
     }
@@ -544,7 +561,8 @@ public final class GuildManager {
         return true;
     }
 
-    private void saveMember(GuildMember m) {
+    /** 异步保存成员数据（供本模块与工会战模块共用）。 */
+    public void saveMemberAsync(GuildMember m) {
         plugin.async(() -> {
             try {
                 plugin.repo().updateMember(m);
@@ -552,6 +570,10 @@ public final class GuildManager {
                 plugin.getLogger().warning("保存成员失败: " + e.getMessage());
             }
         });
+    }
+
+    private void saveMember(GuildMember m) {
+        saveMemberAsync(m);
     }
 
     public void saveGuild(Guild g) {
@@ -569,6 +591,39 @@ public final class GuildManager {
     // =====================================================================
     // 设置
     // =====================================================================
+
+    /** 更换工会图标（需权限与费用）。 */
+    public boolean setIcon(Player actor, Guild g, String iconId) {
+        GuildMember m = g.member(actor.getUniqueId());
+        if (m == null) {
+            plugin.messages().send(actor, "not-in-guild");
+            return false;
+        }
+        if (m.rank() != GuildRank.LEADER && !(m.rank() == GuildRank.OFFICER && conf().officerSetNotice)) {
+            plugin.messages().send(actor, "no-permission-rank");
+            return false;
+        }
+        IconDef def = plugin.settings().icons.icon(iconId);
+        if (def == null) {
+            plugin.messages().send(actor, "set-failed");
+            return false;
+        }
+        if (!def.hasPermission(actor)) {
+            plugin.messages().send(actor, "no-permission");
+            return false;
+        }
+        double cost = conf().iconChangeCost;
+        if (cost > 0) {
+            if (!plugin.economy().has(actor, cost) || !plugin.economy().withdraw(actor, cost)) {
+                plugin.messages().send(actor, "create-cost-missing", "cost", plugin.economy().format(cost));
+                return false;
+            }
+        }
+        g.icon(iconId);
+        saveGuild(g);
+        plugin.messages().send(actor, "set-icon", "icon", def.display);
+        return true;
+    }
 
     public boolean canManageSettings(Player actor, Guild g) {
         GuildMember m = g.member(actor.getUniqueId());
@@ -620,6 +675,7 @@ public final class GuildManager {
                 "amount", plugin.economy().format(credited), "balance", plugin.economy().format(g.bank()));
         notifyGuild(g.id(), plugin.messages().component("bank-notify",
                 "player", player.getName(), "action", "存入", "amount", plugin.economy().format(credited)), player.getUniqueId());
+        Bukkit.getPluginManager().callEvent(new GuildBankEvent(g, player, GuildBankEvent.Action.DEPOSIT, credited, g.bank()));
         return true;
     }
 
@@ -642,6 +698,7 @@ public final class GuildManager {
         saveGuild(g);
         plugin.messages().send(player, "bank-withdraw",
                 "amount", plugin.economy().format(amount), "balance", plugin.economy().format(g.bank()));
+        Bukkit.getPluginManager().callEvent(new GuildBankEvent(g, player, GuildBankEvent.Action.WITHDRAW, (long) amount, g.bank()));
         return true;
     }
 
@@ -654,8 +711,28 @@ public final class GuildManager {
         saveGuild(g);
     }
 
+    /** 管理员强制设置等级（不触发升级事件）。 */
+    public void setLevel(Guild g, int level) {
+        if (g == null) {
+            return;
+        }
+        int max = conf().maxLevel;
+        g.level(Math.max(1, Math.min(max, level)));
+        saveGuild(g);
+    }
+
+    /** 管理员强制设置点数（不重算等级）。 */
+    public void setPoints(Guild g, long points) {
+        if (g == null) {
+            return;
+        }
+        g.points(Math.max(0, points));
+        saveGuild(g);
+    }
+
     public void recomputeLevel(Guild g) {
-        GuildConfig c = conf();
+        GuildSettings c = conf();
+        int old = g.level();
         long cumulative = 0;
         int lvl = 1;
         while (lvl < c.maxLevel && g.points() >= cumulative + c.requiredPoints(lvl)) {
@@ -663,6 +740,10 @@ public final class GuildManager {
             lvl++;
         }
         g.level(lvl);
+        if (lvl > old) {
+            Bukkit.getPluginManager().callEvent(new GuildLevelUpEvent(g, old, lvl));
+            notifyGuild(g.id(), plugin.messages().component("guild-level-up", "guild", g.name(), "level", lvl), null);
+        }
     }
 
     public void recordWarResult(Guild winner, Guild loser, long winPoints, long losePoints) {
@@ -707,6 +788,11 @@ public final class GuildManager {
         plugin.bus().publish("GUILD_ANNOUNCE", CrossServerBus.map(
                 "guild", guildId, "text", MM.serialize(text), "except", except == null ? "" : except.toString(),
                 "server", plugin.serverId()));
+    }
+
+    /** 向本服所有在线玩家广播（用于匹配提示等）。 */
+    public void broadcastAll(Component text) {
+        Bukkit.getServer().broadcast(text);
     }
 
     private void notifyMember(UUID uuid, Component text) {

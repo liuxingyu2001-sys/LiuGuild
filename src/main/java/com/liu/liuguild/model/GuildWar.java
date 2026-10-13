@@ -24,6 +24,8 @@ public final class GuildWar {
     /** 举办竞技场的服务器 id。 */
     private volatile String hostServer = "";
     private volatile String arenaWorld = "";
+    /** 工会战模式 key（match / season / 自定义）。 */
+    private volatile String mode = "match";
 
     /** 出战名单（内存，仅举办服有效）。 */
     private final Set<UUID> rosterA = new LinkedHashSet<>();
@@ -37,6 +39,14 @@ public final class GuildWar {
 
     public String id() {
         return id;
+    }
+
+    public String mode() {
+        return mode;
+    }
+
+    public void mode(String mode) {
+        this.mode = mode == null || mode.isBlank() ? "match" : mode;
     }
 
     public String guildA() {

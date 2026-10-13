@@ -86,8 +86,8 @@ public final class GuildRepository {
 
     public boolean insertGuild(Guild g) throws SQLException {
         String sql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,"
-                + "`description`,`notice`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,"
-                + "`bank`,`home_server`,`member_count`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,"
+                + "`bank`,`home_server`,`member_count`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, g.id());
@@ -97,23 +97,25 @@ public final class GuildRepository {
             ps.setString(5, g.leaderName());
             ps.setString(6, g.description());
             ps.setString(7, g.notice());
-            ps.setInt(8, g.open() ? 1 : 0);
-            ps.setLong(9, g.createdAt());
-            ps.setLong(10, g.updatedAt());
-            ps.setLong(11, g.points());
-            ps.setInt(12, g.level());
-            ps.setInt(13, g.wins());
-            ps.setInt(14, g.losses());
-            ps.setLong(15, g.bank());
-            ps.setString(16, g.homeServer());
-            ps.setInt(17, g.memberCount());
+            ps.setString(8, g.icon());
+            ps.setString(9, g.iconData());
+            ps.setInt(10, g.open() ? 1 : 0);
+            ps.setLong(11, g.createdAt());
+            ps.setLong(12, g.updatedAt());
+            ps.setLong(13, g.points());
+            ps.setInt(14, g.level());
+            ps.setInt(15, g.wins());
+            ps.setInt(16, g.losses());
+            ps.setLong(17, g.bank());
+            ps.setString(18, g.homeServer());
+            ps.setInt(19, g.memberCount());
             return ps.executeUpdate() > 0;
         }
     }
 
     public void updateGuild(Guild g) throws SQLException {
         String sql = "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
-                + "`description`=?,`notice`=?,`open`=?,`updated_at`=?,`points`=?,`level`=?,`wins`=?,`losses`=?,"
+                + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,`points`=?,`level`=?,`wins`=?,`losses`=?,"
                 + "`bank`=?,`home_server`=?,`member_count`=? WHERE `guild_id`=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
@@ -123,16 +125,18 @@ public final class GuildRepository {
             ps.setString(4, g.leaderName());
             ps.setString(5, g.description());
             ps.setString(6, g.notice());
-            ps.setInt(7, g.open() ? 1 : 0);
-            ps.setLong(8, g.updatedAt());
-            ps.setLong(9, g.points());
-            ps.setInt(10, g.level());
-            ps.setInt(11, g.wins());
-            ps.setInt(12, g.losses());
-            ps.setLong(13, g.bank());
-            ps.setString(14, g.homeServer());
-            ps.setInt(15, g.memberCount());
-            ps.setString(16, g.id());
+            ps.setString(7, g.icon());
+            ps.setString(8, g.iconData());
+            ps.setInt(9, g.open() ? 1 : 0);
+            ps.setLong(10, g.updatedAt());
+            ps.setLong(11, g.points());
+            ps.setInt(12, g.level());
+            ps.setInt(13, g.wins());
+            ps.setInt(14, g.losses());
+            ps.setLong(15, g.bank());
+            ps.setString(16, g.homeServer());
+            ps.setInt(17, g.memberCount());
+            ps.setString(18, g.id());
             ps.executeUpdate();
         }
     }
@@ -271,8 +275,8 @@ public final class GuildRepository {
 
     public void insertWar(GuildWar w) throws SQLException {
         String sql = "INSERT INTO `" + db.t("guild_wars") + "` (`war_id`,`guild_a`,`guild_b`,`name_a`,`name_b`,"
-                + "`tag_a`,`tag_b`,`state`,`score_a`,`score_b`,`winner`,`host_server`,`arena_world`,"
-                + "`created_at`,`started_at`,`ended_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "`tag_a`,`tag_b`,`state`,`score_a`,`score_b`,`winner`,`host_server`,`arena_world`,`mode`,"
+                + "`created_at`,`started_at`,`ended_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, w.id());
@@ -288,9 +292,10 @@ public final class GuildRepository {
             ps.setString(11, w.winner());
             ps.setString(12, w.hostServer());
             ps.setString(13, w.arenaWorld());
-            ps.setLong(14, w.createdAt());
-            ps.setLong(15, w.startedAt());
-            ps.setLong(16, w.endedAt());
+            ps.setString(14, w.mode());
+            ps.setLong(15, w.createdAt());
+            ps.setLong(16, w.startedAt());
+            ps.setLong(17, w.endedAt());
             ps.executeUpdate();
         }
     }
@@ -315,7 +320,7 @@ public final class GuildRepository {
 
     public void updateWar(GuildWar w) throws SQLException {
         String sql = "UPDATE `" + db.t("guild_wars") + "` SET `state`=?,`score_a`=?,`score_b`=?,`winner`=?,"
-                + "`host_server`=?,`arena_world`=?,`started_at`=?,`ended_at`=? WHERE `war_id`=?";
+                + "`host_server`=?,`arena_world`=?,`mode`=?,`started_at`=?,`ended_at`=? WHERE `war_id`=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, w.state().name());
@@ -324,9 +329,10 @@ public final class GuildRepository {
             ps.setString(4, w.winner());
             ps.setString(5, w.hostServer());
             ps.setString(6, w.arenaWorld());
-            ps.setLong(7, w.startedAt());
-            ps.setLong(8, w.endedAt());
-            ps.setString(9, w.id());
+            ps.setString(7, w.mode());
+            ps.setLong(8, w.startedAt());
+            ps.setLong(9, w.endedAt());
+            ps.setString(10, w.id());
             ps.executeUpdate();
         }
     }
@@ -389,7 +395,7 @@ public final class GuildRepository {
 
     private Guild mapGuild(ResultSet rs) throws SQLException {
         String leader = rs.getString("leader_uuid");
-        return new Guild(
+        Guild g = new Guild(
                 rs.getString("guild_id"),
                 rs.getString("name"),
                 rs.getString("tag"),
@@ -406,7 +412,10 @@ public final class GuildRepository {
                 rs.getInt("losses"),
                 rs.getLong("bank"),
                 rs.getString("home_server"),
-                rs.getInt("member_count"));
+                rs.getInt("member_count"),
+                rs.getString("icon"));
+        g.iconData(rs.getString("icon_data"));
+        return g;
     }
 
     private GuildMember mapMember(ResultSet rs) throws SQLException {
@@ -433,6 +442,10 @@ public final class GuildRepository {
         w.winner(rs.getString("winner"));
         w.hostServer(rs.getString("host_server"));
         w.arenaWorld(rs.getString("arena_world"));
+        try {
+            w.mode(rs.getString("mode"));
+        } catch (SQLException ignored) {
+        }
         w.createdAt(rs.getLong("created_at"));
         w.startedAt(rs.getLong("started_at"));
         w.endedAt(rs.getLong("ended_at"));

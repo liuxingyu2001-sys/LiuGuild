@@ -1,0 +1,42 @@
+# ==========================================================
+#  LiuGuild · 竞技场模块（arena.yml）
+#  每个竞技场自描述：直接写「承办服 server + 世界 world + 坐标」，
+#  可在 war-modes.yml 里通过 arena: <id> 引用，自定义程度最高。
+#
+#  server  : 承办该场工会战的服务器 server-id；留空 = war.yml 的 dedicated-server / 发起匹配的服务器
+#  world   : 世界名；留空 = 主世界（固定场地直接写世界名即可）
+#  template: 可选，liudungeon 动态世界模板；填写且模板存在时优先动态开世界，
+#            留空则使用 world + 下方坐标的固定场地
+#  spawn-* : 精确坐标与朝向（x / y / z / yaw / pitch）
+#  管理员可用 /guildadmin arena <id> setspawn <a|b|spec> 现场设置坐标
+# ==========================================================
+
+# 动态创建竞技场世界前是否预热区块
+pregenerate: true
+# 使用 liudungeon 动态模板时的创建超时（秒）
+create-timeout-seconds: 60
+
+arenas:
+
+  # -------------------- 固定场地：世界 + 坐标 --------------------
+  main:
+    # 承办服 server-id（跨服时玩家会被传送到该服）
+    server: ""
+    # 世界名（固定场地直接写，例如 world / arena_world）
+    world: ""
+    # 可选动态模板；留空 = 只用固定世界坐标
+    template: ""
+    radius: 48
+    spawn-a:         { x: 0.5,  y: 70.0, z: 0.5,  yaw: 0.0,   pitch: 0.0 }
+    spawn-b:         { x: 20.5, y: 70.0, z: 0.5,  yaw: 180.0, pitch: 0.0 }
+    spawn-spectator: { x: 10.5, y: 80.0, z: 10.5, yaw: 0.0,   pitch: 30.0 }
+
+  # -------------------- 动态场地：liudungeon 模板 --------------------
+  # dungeon:
+  #   server: ""
+  #   world: arena_dungeon
+  #   template: guild_arena
+  #   radius: 64
+  #   spawn-a:         { x: 0.5,  y: 64.0, z: 0.5,  yaw: 0.0,   pitch: 0.0 }
+  #   spawn-b:         { x: 40.5, y: 64.0, z: 0.5,  yaw: 180.0, pitch: 0.0 }
+  #   spawn-spectator: { x: 20.5, y: 80.0, z: 20.5, yaw: 0.0,   pitch: 45.0 }

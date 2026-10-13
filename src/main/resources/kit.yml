@@ -1,0 +1,55 @@
+# ==========================================================
+#  LiuGuild · 工会战统一装备模块（kit.yml）
+#  可定义多套装备，war-modes.yml 中通过 kit: <key> 选用不同套装。
+#  物品写法：
+#    DIAMOND_SWORD            原生物品
+#    DIAMOND_SWORD:1          原生物品 + 数量
+#    CE:namespace:id           CraftEngine 自定义物品
+#    CE:namespace:id:16        CraftEngine 自定义物品 + 数量
+# ==========================================================
+
+# 是否允许统一装备（全局总开关）
+enabled: true
+# 未指定时使用的默认套装
+default-kit: default
+
+kits:
+
+  # 匹配工会战默认套装
+  default:
+    enabled: true
+    # 发放前是否清空背包（赛后会完整还原，见 Sparrow Sync 集成）
+    clear-inventory: true
+    armor:
+      helmet: DIAMOND_HELMET
+      chestplate: DIAMOND_CHESTPLATE
+      leggings: DIAMOND_LEGGINGS
+      boots: DIAMOND_BOOTS
+    items:
+      - DIAMOND_SWORD
+      - BOW
+      - ARROW:32
+      - GOLDEN_APPLE:8
+      - COOKED_BEEF:16
+    # 药水效果：TYPE:amplifier（amplifier 从 0 开始）
+    effects:
+      - SPEED:0
+
+  # 赛季工会战套装（更豪华，可在模式里选用）
+  season:
+    enabled: true
+    clear-inventory: true
+    armor:
+      helmet: NETHERITE_HELMET
+      chestplate: NETHERITE_CHESTPLATE
+      leggings: NETHERITE_LEGGINGS
+      boots: NETHERITE_BOOTS
+    items:
+      - NETHERITE_SWORD
+      - BOW
+      - ARROW:64
+      - GOLDEN_APPLE:16
+      - COOKED_BEEF:32
+    effects:
+      - SPEED:0
+      - REGENERATION:0
