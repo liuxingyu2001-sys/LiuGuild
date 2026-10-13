@@ -191,6 +191,13 @@ public final class Database {
                     + "PRIMARY KEY (`war_id`)"
                     + ")" + engine);
 
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_homes") + "` ("
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`slot` INT NOT NULL,"
+                    + "`location_json` TEXT NOT NULL,"
+                    + "PRIMARY KEY (`guild_id`,`slot`)"
+                    + ")" + engine);
+
             index(st, t("guilds") + "_name", t("guilds"), "`name`");
             index(st, t("guilds") + "_tag", t("guilds"), "`tag`");
             index(st, t("guild_members") + "_guild", t("guild_members"), "`guild_id`");

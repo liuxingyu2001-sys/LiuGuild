@@ -154,6 +154,20 @@ zh_CN:
   confirm-transfer: "<red>确定将会长转让给 <white>{player}</white> 吗？（不可撤销）"
   promote-already-officer: "<yellow>{player} 已是副会长；如需转让会长请使用 <white>Shift+左键</white>。"
 
+  # ---- 工会驻地 ----
+  home-unavailable: "<yellow>工会驻地需要安装 HuskHomes，或驻地功能已被关闭。"
+  home-war-denied: "<red>工会战期间无法使用工会驻地。"
+  home-cooldown: "<red>驻地传送冷却中，请 <white>{seconds}</white> 秒后再试。"
+  home-slot-invalid: "<red>无效的驻地槽位，当前可用 <white>{slots}</white> 个。"
+  home-missing: "<red>第 <white>{slot}</white> 个驻地尚未设置。"
+  home-saved: "<green>已把当前位置设为第 <white>{slot}</white> 个工会驻地。"
+  home-deleted: "<yellow>已删除第 <white>{slot}</white> 个工会驻地。"
+  home-teleport: "<green>正在传送到第 <white>{slot}</white> 个工会驻地…"
+  home-failed: "<red>驻地操作失败，请稍后重试。"
+  home-list-header: "<gold>工会 <white>{guild}</white> 的驻地（可用 <white>{slots}</white> 个）："
+  home-list-set: "<gray>  #{slot} <green>已设置"
+  home-list-empty: "<gray>  #{slot} <dark_gray>未设置"
+
   # ---- 图标 ----
   set-icon: "<green>工会图标已更换为 <white>{icon}</white>。"
   set-icon-unknown: "<red>未知的图标：<white>{icon}</white>。"

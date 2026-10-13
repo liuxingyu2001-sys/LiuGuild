@@ -21,7 +21,11 @@
 | `/guild set notice <内容>` | 设置公告 |
 | `/guild set desc <内容>` | 设置简介 |
 | `/guild bank deposit <金额>` | 存入工会银行 |
-| `/guild bank withdraw <金额>` | 取出工会银行（会长/官员） |
+| `/guild bank withdraw <金额>` | 取出工会银行（所有成员均可） |
+| `/guild home [槽位]` | 传送到工会驻地（需 HuskHomes） |
+| `/guild home set [槽位]` | 设置工会驻地（会长/副会长） |
+| `/guild home del [槽位]` | 删除工会驻地（会长/副会长） |
+| `/guild home list` | 查看驻地槽位 |
 | `/guild info [工会]` | 查看工会信息 |
 | `/guild list [页码]` | 工会列表 |
 | `/guild top <points\|bank\|level\|wins>` | 排行榜 |

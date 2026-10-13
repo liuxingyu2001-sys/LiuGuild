@@ -170,11 +170,61 @@ public final class GuildRepository {
                 ps.setString(1, id);
                 ps.executeUpdate();
             }
+            try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_homes") + "` WHERE `guild_id`=?")) {
+                ps.setString(1, id);
+                ps.executeUpdate();
+            }
             try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guilds") + "` WHERE `guild_id`=?")) {
                 ps.setString(1, id);
                 ps.executeUpdate();
             }
         }
+    }
+
+    // =====================================================================
+    // 工会驻地
+    // =====================================================================
+
+    /** 写入/覆盖某工会某槽位的驻地坐标。 */
+    public void saveHome(String guildId, int slot, String locationJson) throws SQLException {
+        String table = db.t("guild_homes");
+        String sql = db.isSqlite()
+                ? "INSERT INTO `" + table + "` (`guild_id`,`slot`,`location_json`) VALUES (?,?,?) "
+                        + "ON CONFLICT(`guild_id`,`slot`) DO UPDATE SET `location_json`=excluded.`location_json`"
+                : "INSERT INTO `" + table + "` (`guild_id`,`slot`,`location_json`) VALUES (?,?,?) "
+                        + "ON DUPLICATE KEY UPDATE `location_json`=VALUES(`location_json`)";
+        try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, guildId);
+            ps.setInt(2, slot);
+            ps.setString(3, locationJson);
+            ps.executeUpdate();
+        }
+    }
+
+    public void deleteHome(String guildId, int slot) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM `" + db.t("guild_homes") + "` WHERE `guild_id`=? AND `slot`=?")) {
+            ps.setString(1, guildId);
+            ps.setInt(2, slot);
+            ps.executeUpdate();
+        }
+    }
+
+    /** 读取某工会全部驻地：槽位 -> 序列化坐标。 */
+    public java.util.Map<Integer, String> loadHomes(String guildId) throws SQLException {
+        java.util.Map<Integer, String> out = new java.util.HashMap<>();
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT `slot`,`location_json` FROM `" + db.t("guild_homes") + "` WHERE `guild_id`=? ORDER BY `slot`")) {
+            ps.setString(1, guildId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.put(rs.getInt(1), rs.getString(2));
+                }
+            }
+        }
+        return out;
     }
 
     public List<Guild> topBy(String column, int limit) throws SQLException {

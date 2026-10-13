@@ -33,6 +33,14 @@
   - `suppress-xp-in-war`（默认 `false`）。
 - 旁观者与未参赛玩家不受影响；未安装 mcMMO 时完全跳过。
 
+## HuskHomes（工会驻地传送）
+
+- 坐标由 LiuGuild 保存（表 `guild_homes`），传送由 HuskHomes 执行。
+- `/guild home [槽位]` / `set` / `del` / `list`，按等级开放槽位数量。
+- 支持跨服传送（保存服务器名 + 世界 UUID）。
+- 未安装时相关命令提示不可用；工会战期间可禁用（`guild.home.deny-in-war`）。
+- 详见 [home.md](home.md)。
+
 ## liupass（通行证经验）
 
 - `addXp(UUID, int)` / `addXp(UUID, String passId, int)`：工会战胜利/失败按模式配置发放通行证经验。

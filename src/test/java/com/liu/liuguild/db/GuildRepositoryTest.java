@@ -105,4 +105,31 @@ class GuildRepositoryTest {
         assertFalse(repo.addBank(id, Long.MAX_VALUE));
         assertEquals(Long.MAX_VALUE - 1, repo.loadGuild(id).bank());
     }
+
+    @Test
+    void homesPersistAndDeletePerSlot() throws Exception {
+        String id = UUID.randomUUID().toString();
+        Guild g = guild(id, "Delta", "DE");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", id, GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+
+        repo.saveHome(id, 1, "{\"world\":\"world\"}");
+        repo.saveHome(id, 2, "{\"world\":\"nether\"}");
+        assertEquals(2, repo.loadHomes(id).size());
+        assertEquals("{\"world\":\"world\"}", repo.loadHomes(id).get(1));
+
+        // Overwrite slot 1 (upsert must not create a duplicate row)
+        repo.saveHome(id, 1, "{\"world\":\"overworld\"}");
+        assertEquals(2, repo.loadHomes(id).size());
+        assertEquals("{\"world\":\"overworld\"}", repo.loadHomes(id).get(1));
+
+        repo.deleteHome(id, 1);
+        assertEquals(1, repo.loadHomes(id).size());
+        assertFalse(repo.loadHomes(id).containsKey(1));
+
+        // Disband cleans up homes too
+        repo.deleteGuild(id);
+        assertTrue(repo.loadHomes(id).isEmpty());
+    }
 }

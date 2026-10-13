@@ -23,7 +23,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBS = List.of(
             "help", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
-            "kick", "promote", "demote", "transfer", "seticon", "set", "bank", "info", "list", "top", "war", "chat");
+            "kick", "promote", "demote", "transfer", "seticon", "set", "bank", "home", "info", "list", "top", "war", "chat");
 
     private final LiuGuild plugin;
 
@@ -63,6 +63,13 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             case "seticon", "icon" -> setIcon(player, args);
             case "set" -> set(player, args);
             case "bank" -> bank(player, args);
+            case "home", "hq" -> {
+                if (plugin.guildHome() == null) {
+                    plugin.messages().send(player, "home-unavailable");
+                } else {
+                    plugin.guildHome().command(player, args);
+                }
+            }
             case "info" -> info(player, args);
             case "list" -> list(player, args);
             case "top" -> top(player, args);
@@ -89,6 +96,9 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "设置", "/guild seticon <图标>", "更换工会图标");
         helpLine(player, "设置", "/guild set notice <内容>", "修改工会公告");
         helpLine(player, "银行", "/guild bank deposit <金额>", "存入工会银行");
+        helpLine(player, "驻地", "/guild home [槽位]", "传送到工会驻地（需 HuskHomes）");
+        helpLine(player, "驻地", "/guild home set [槽位]", "把当前位置设为工会驻地");
+        helpLine(player, "驻地", "/guild home del [槽位]", "删除工会驻地");
         helpLine(player, "信息", "/guild info", "查看工会信息");
         helpLine(player, "信息", "/guild list", "浏览全服工会");
         helpLine(player, "信息", "/guild top points", "查看排行榜");
@@ -477,6 +487,9 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             }
             if (sub.equals("bank")) {
                 return filter(List.of("deposit", "withdraw"), args[1]);
+            }
+            if (sub.equals("home") || sub.equals("hq")) {
+                return filter(List.of("set", "del", "list"), args[1]);
             }
             if (sub.equals("top")) {
                 return filter(List.of("points", "bank", "level", "wins"), args[1]);

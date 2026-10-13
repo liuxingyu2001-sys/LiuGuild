@@ -27,6 +27,15 @@ public final class GuildSettings {
     public String defaultIcon = "default";
     public double iconChangeCost = 5000.0;
 
+    // ---- 工会驻地（HuskHomes 软依赖） ----
+    public boolean homeEnabled = true;
+    public int homeMaxSlots = 3;
+    /** 每多少级多开放 1 个驻地。 */
+    public int homeLevelsPerSlot = 5;
+    public int homeCooldownSeconds = 30;
+    public int homeWarmupSeconds = 3;
+    public boolean homeDenyInWar = true;
+
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
         s.nameMin = Math.max(1, c.getInt("guild.name.min-length", s.nameMin));
@@ -50,7 +59,26 @@ public final class GuildSettings {
         s.officerSetNotice = c.getBoolean("guild.officer.set-notice", s.officerSetNotice);
         s.defaultIcon = c.getString("guild.icon.default", s.defaultIcon);
         s.iconChangeCost = c.getDouble("guild.icon.change-cost", s.iconChangeCost);
+        s.homeEnabled = c.getBoolean("guild.home.enabled", s.homeEnabled);
+        s.homeMaxSlots = Math.max(1, Math.min(50, c.getInt("guild.home.max-slots", s.homeMaxSlots)));
+        s.homeLevelsPerSlot = Math.max(1, c.getInt("guild.home.levels-per-slot", s.homeLevelsPerSlot));
+        s.homeCooldownSeconds = Math.max(0, c.getInt("guild.home.cooldown-seconds", s.homeCooldownSeconds));
+        s.homeWarmupSeconds = Math.max(0, c.getInt("guild.home.warmup-seconds", s.homeWarmupSeconds));
+        s.homeDenyInWar = c.getBoolean("guild.home.deny-in-war", s.homeDenyInWar);
         return s;
+    }
+
+    /** 当前等级可用的驻地数量。 */
+    public int homeSlots(int level) {
+        return homeSlots(homeMaxSlots, homeLevelsPerSlot, level);
+    }
+
+    /** 纯函数：按最高驻地数、每几级一驻地、等级计算可用驻地数量（至少 1）。 */
+    public static int homeSlots(int maxSlots, int levelsPerSlot, int level) {
+        int per = Math.max(1, levelsPerSlot);
+        int cap = Math.max(1, maxSlots);
+        int lv = Math.max(1, level);
+        return Math.min(cap, 1 + (lv - 1) / per);
     }
 
     /** 成员上限 = 基础 + (等级-1) * 每级增量。 */

@@ -41,3 +41,16 @@ guild:
     default: "default"
     # 更换图标费用（需 Vault）
     change-cost: 5000.0
+  # 工会驻地（需 HuskHomes；未安装时自动禁用）
+  home:
+    enabled: true
+    # 最多可用驻地数量（受等级限制）
+    max-slots: 3
+    # 每多少级多开放 1 个驻地
+    levels-per-slot: 5
+    # 传送冷却（秒）
+    cooldown-seconds: 30
+    # 传送前等待（秒，0 = 立即；需在 HuskHomes 允许范围内）
+    warmup-seconds: 3
+    # 工会战期间是否禁止使用驻地
+    deny-in-war: true

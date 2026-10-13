@@ -18,6 +18,7 @@ softdepend:
   - PlayerTitle
   - NotBounties
   - mcMMO
+  - HuskHomes
   - Vault
   - PlaceholderAPI
   - LuckPerms

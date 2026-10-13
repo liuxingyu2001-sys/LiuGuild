@@ -14,6 +14,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [arena.md](arena.md) | 竞技场：承办服、世界、坐标、动态模板 |
 | [kit.md](kit.md) | 统一装备：多套装、快照保存、公平血量 |
 | [gui.md](gui.md) | GUI 菜单与按钮配置、点击操作 |
+| [home.md](home.md) | 工会驻地（HuskHomes 传送） |
 | [api.md](api.md) | 开放 API 与 Bukkit 事件 |
 | [placeholders.md](placeholders.md) | PlaceholderAPI 变量 |
 | [craftengine.md](craftengine.md) | CraftEngine 物品/图标集成 |
