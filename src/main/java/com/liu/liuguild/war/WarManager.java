@@ -1402,10 +1402,6 @@ public final class WarManager implements GuildModule {
         return true;
     }
 
-    /** 死亡事件兜底：处理由 {@link #interceptDeath} 延后一 tick 执行。 */
-    public void onDeath(Player player) {
-    }
-
     public int lives(UUID uuid) {
         return livesRemaining.getOrDefault(uuid, 0);
     }

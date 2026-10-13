@@ -65,10 +65,6 @@ public final class GuildHomeHook {
         return api != null && plugin.settings().guild.homeEnabled;
     }
 
-    public boolean huskHomesPresent() {
-        return api != null;
-    }
-
     // =====================================================================
     // 命令入口
     // =====================================================================

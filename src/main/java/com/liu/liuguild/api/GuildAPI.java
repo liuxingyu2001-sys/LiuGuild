@@ -157,11 +157,14 @@ public final class GuildAPI {
     public static void addBank(String guildId, long delta) { changeBank(guildId, delta); }
 
     public static void sendGuildMessage(String guildId, Component message) {
-        if (!isReady() || message == null) {
+        if (!isReady() || message == null || guildId == null) {
             return;
         }
-        plugin.guilds().notifyGuild(guildId, message, null);
-        plugin.guilds().guildBroadcast(guildId, message, null);
+        // 消息投递涉及 Bukkit 实体，必须在主线程执行
+        plugin.sync(() -> {
+            plugin.guilds().notifyGuild(guildId, message, null);
+            plugin.guilds().guildBroadcast(guildId, message, null);
+        });
     }
 
     // =====================================================================

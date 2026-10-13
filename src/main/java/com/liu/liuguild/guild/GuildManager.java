@@ -922,7 +922,15 @@ public final class GuildManager {
         if (g == null || delta == 0) {
             return;
         }
-        g.points(Math.max(0, g.points() + delta));
+        long current = g.points();
+        long next;
+        if (delta > 0) {
+            next = current > Long.MAX_VALUE - delta ? Long.MAX_VALUE : current + delta;
+        } else {
+            // delta 可能为 Long.MIN_VALUE，避免取负溢出
+            next = delta == Long.MIN_VALUE || -delta > current ? 0 : current + delta;
+        }
+        g.points(next);
         recomputeLevel(g);
         saveGuild(g);
     }
@@ -959,19 +967,6 @@ public final class GuildManager {
         if (lvl > old) {
             Bukkit.getPluginManager().callEvent(new GuildLevelUpEvent(g, old, lvl));
             notifyGuild(g.id(), plugin.messages().component("guild-level-up", "guild", g.name(), "level", lvl), null);
-        }
-    }
-
-    public void recordWarResult(Guild winner, Guild loser, long winPoints, long losePoints) {
-        if (winner != null) {
-            winner.wins(winner.wins() + 1);
-            addPoints(winner, winPoints);
-            notifyGuild(winner.id(), plugin.messages().component("war-reward-win",
-                    "money", "-", "points", winPoints), null);
-        }
-        if (loser != null) {
-            loser.losses(loser.losses() + 1);
-            addPoints(loser, losePoints);
         }
     }
 
