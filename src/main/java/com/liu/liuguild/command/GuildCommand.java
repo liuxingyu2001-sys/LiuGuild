@@ -23,7 +23,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBS = List.of(
             "help", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
-            "kick", "promote", "demote", "transfer", "seticon", "set", "bank", "info", "list", "top", "war");
+            "kick", "promote", "demote", "transfer", "seticon", "set", "bank", "info", "list", "top", "war", "chat");
 
     private final LiuGuild plugin;
 
@@ -62,6 +62,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             case "info" -> info(player, args);
             case "list" -> list(player, args);
             case "top" -> top(player, args);
+            case "chat", "c" -> plugin.guildChat().chat(player, args.length > 1
+                    ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : "");
             case "war" -> war(player, args);
             default -> plugin.messages().send(player, "unknown-command");
         }
@@ -76,6 +78,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "基础", "/guild join <名称>", "加入一个开放加入的工会");
         helpLine(player, "基础", "/guild invite <玩家>", "邀请玩家加入工会");
         helpLine(player, "基础", "/guild leave", "退出当前工会");
+        helpLine(player, "聊天", "/guild chat [消息]", "切换工会频道或发送单条消息");
         helpLine(player, "成员", "/guild promote <玩家>", "提升成员职位");
         helpLine(player, "成员", "/guild kick <玩家>", "踢出成员");
         helpLine(player, "成员", "/guild transfer <玩家>", "转让会长");
@@ -292,10 +295,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(player, "bank-usage");
             return;
         }
-        double amount;
-        try {
-            amount = Double.parseDouble(args[2]);
-        } catch (NumberFormatException e) {
+        double amount = com.liu.liuguild.util.NumberUtil.parseAmount(args[2]);
+        if (amount <= 0) {
             plugin.messages().send(player, "input-invalid-number");
             return;
         }
@@ -319,21 +320,33 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 "members", g.memberCount(), "max", plugin.settings().guild.memberLimit(g.level()));
         plugin.messages().sendRaw(player, "info-points", "points", g.points(), "wins", g.wins(),
                 "losses", g.losses(), "bank", plugin.economy().format(g.bank()));
-        plugin.messages().sendRaw(player, "info-notice", "notice", g.notice().isBlank() ? "无" : g.notice());
+        plugin.messages().sendRaw(player, "info-notice", "notice", g.notice().isBlank() ? "无" : Text.esc(g.notice()));
     }
 
     private void list(Player player, String[] args) {
-        int page = args.length >= 2 ? parse(args[1], 1) : 1;
+        int page = args.length >= 2 ? Math.max(1, parse(args[1], 1)) : 1;
         List<Guild> guilds = new ArrayList<>(plugin.guilds().all());
         guilds.sort((a, b) -> Long.compare(b.points(), a.points()));
         int perPage = 10;
-        int from = Math.max(0, (page - 1) * perPage);
+        int maxPage = Math.max(1, (guilds.size() + perPage - 1) / perPage);
+        page = Math.min(page, maxPage);
+        int from = (page - 1) * perPage;
         plugin.messages().sendRaw(player, "list-header", "count", guilds.size());
         for (int i = 0; i < perPage && from + i < guilds.size(); i++) {
             Guild g = guilds.get(from + i);
             plugin.messages().sendRaw(player, "list-line", "guild", g.name(), "tag", g.tag(),
                     "leader", g.leaderName(), "members", g.memberCount());
         }
+        player.sendMessage(Text.mm("<gray>第 <white>" + page + "<gray>/<white>" + maxPage + " <gray>页  "
+                + nav("上一页", page > 1, page - 1)
+                + nav("下一页", page < maxPage, page + 1)));
+    }
+
+    private static String nav(String label, boolean enabled, int page) {
+        if (!enabled) {
+            return "<dark_gray>[" + label + "] ";
+        }
+        return "<click:run_command:'/guild list " + page + "'><yellow>[" + label + "]</yellow></click> <gray>";
     }
 
     private void top(Player player, String[] args) {

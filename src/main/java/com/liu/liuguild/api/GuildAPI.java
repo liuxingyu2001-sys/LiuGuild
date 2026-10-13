@@ -127,27 +127,34 @@ public final class GuildAPI {
     // 写入（异步）
     // =====================================================================
 
-    public static void addPoints(String guildId, long delta) {
+    /** 本插件管理的工会资金（点数），不属于 Vault 金币。 */
+    public static long funds(String guildId) {
         Guild g = raw(guildId);
-        if (g != null) {
-            plugin.guilds().addPoints(g, delta);
-        }
+        return g == null ? 0 : g.points();
     }
 
-    public static void addBank(String guildId, long delta) {
+    /** 工会银行 Vault 金币余额（整数）。 */
+    public static long bankBalance(String guildId) {
         Guild g = raw(guildId);
-        if (g == null) {
-            return;
-        }
-        plugin.async(() -> {
-            try {
-                if (plugin.repo().addBank(guildId, delta)) {
-                    plugin.guilds().reloadGuild(guildId);
-                }
-            } catch (Exception ignored) {
-            }
+        return g == null ? 0 : g.bank();
+    }
+
+    public static void addFunds(String guildId, long delta) { addPoints(guildId, delta); }
+
+    public static void addPoints(String guildId, long delta) {
+        if (isReady()) plugin.sync(() -> {
+            Guild g = raw(guildId);
+            if (g != null) plugin.guilds().addPoints(g, delta);
         });
     }
+
+    /** Completion reports atomic DB result. Does not move any player's Vault money. */
+    public static java.util.concurrent.CompletableFuture<Boolean> changeBank(String guildId, long delta) {
+        if (!isReady()) return java.util.concurrent.CompletableFuture.completedFuture(false);
+        return plugin.guilds().changeBank(guildId, delta);
+    }
+
+    public static void addBank(String guildId, long delta) { changeBank(guildId, delta); }
 
     public static void sendGuildMessage(String guildId, Component message) {
         if (!isReady() || message == null) {

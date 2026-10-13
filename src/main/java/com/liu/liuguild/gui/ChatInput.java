@@ -1,12 +1,14 @@
 package com.liu.liuguild.gui;
 
 import com.liu.liuguild.LiuGuild;
+import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.Map;
 import java.util.UUID;
@@ -39,18 +41,23 @@ public final class ChatInput implements Listener {
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-    public void onChat(AsyncPlayerChatEvent event) {
+    public void onChat(AsyncChatEvent event) {
         Player player = event.getPlayer();
         Consumer<String> cb = pending.remove(player.getUniqueId());
         if (cb == null) {
             return;
         }
         event.setCancelled(true);
-        String message = event.getMessage();
+        String message = PlainTextComponentSerializer.plainText().serialize(event.message());
         if (message.equalsIgnoreCase("cancel") || message.equalsIgnoreCase("取消")) {
             plugin.messages().send(player, "input-cancelled");
             return;
         }
         plugin.sync(() -> cb.accept(message));
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        pending.remove(event.getPlayer().getUniqueId());
     }
 }

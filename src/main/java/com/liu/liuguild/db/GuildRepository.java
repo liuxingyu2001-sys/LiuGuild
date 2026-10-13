@@ -116,7 +116,7 @@ public final class GuildRepository {
     public void updateGuild(Guild g) throws SQLException {
         String sql = "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
                 + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,`points`=?,`level`=?,`wins`=?,`losses`=?,"
-                + "`bank`=?,`home_server`=?,`member_count`=? WHERE `guild_id`=?";
+                + "`home_server`=?,`member_count`=? WHERE `guild_id`=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, g.name());
@@ -133,22 +133,23 @@ public final class GuildRepository {
             ps.setInt(12, g.level());
             ps.setInt(13, g.wins());
             ps.setInt(14, g.losses());
-            ps.setLong(15, g.bank());
-            ps.setString(16, g.homeServer());
-            ps.setInt(17, g.memberCount());
-            ps.setString(18, g.id());
+            ps.setString(15, g.homeServer());
+            ps.setInt(16, g.memberCount());
+            ps.setString(17, g.id());
             ps.executeUpdate();
         }
     }
 
     /** 原子增减银行余额；余额不足时返回 false。 */
     public boolean addBank(String guildId, long delta) throws SQLException {
-        String sql = "UPDATE `" + db.t("guilds") + "` SET `bank`=`bank`+? WHERE `guild_id`=? AND `bank`+?>=0";
+        if (delta == Long.MIN_VALUE) return false;
+        String sql = "UPDATE `" + db.t("guilds") + "` SET `bank`=`bank`+? WHERE `guild_id`=? AND `bank`>=? AND `bank`<=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setLong(1, delta);
             ps.setString(2, guildId);
-            ps.setLong(3, delta);
+            ps.setLong(3, delta < 0 ? -delta : 0);
+            ps.setLong(4, delta > 0 ? Long.MAX_VALUE - delta : Long.MAX_VALUE);
             return ps.executeUpdate() > 0;
         }
     }

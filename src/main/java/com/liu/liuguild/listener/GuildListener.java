@@ -43,12 +43,16 @@ public final class GuildListener implements GuildModule, Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         plugin.bus().presence(player.getUniqueId(), player.getName());
-        plugin.syncDelayed(() -> plugin.war().onPlayerJoinServer(player), 20L);
+        plugin.syncDelayed(() -> {
+            plugin.war().onPlayerJoinServer(player);
+            plugin.guildChat().refresh();
+        }, 20L);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         plugin.bus().clearPresence(event.getPlayer().getUniqueId(), event.getPlayer().getName());
+        plugin.guildChat().forget(event.getPlayer());
         plugin.war().onPlayerQuit(event.getPlayer());
     }
 

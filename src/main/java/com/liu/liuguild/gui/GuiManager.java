@@ -222,7 +222,7 @@ public final class GuiManager implements GuildModule, Listener {
         // 动态列出各工会战模式（点击参与匹配）
         int slot = 0;
         int entryLimit = def.rows * 9 - 9;
-        for (com.liu.liuguild.config.WarMode m : plugin.settings().war.modes.values()) {
+        for (com.liu.liuguild.config.WarMode m : plugin.settings().war.enabledModes()) {
             if (slot >= entryLimit) {
                 break;
             }
@@ -509,14 +509,25 @@ public final class GuiManager implements GuildModule, Listener {
             if (g == null || m == null) {
                 return;
             }
-            if (isShiftClick()) {
-                plugin.guilds().kick(player, g, target, m.name());
+            Guild guild = g;
+            if (isShiftClick() && isRightClick()) {
+                // Shift+右键：踢出成员（需确认）
+                confirm(player, "confirm-kick", m.name(), () -> plugin.guilds().kick(player, guild, target, m.name()));
+            } else if (isShiftClick()) {
+                // Shift+左键：转让会长（需确认，事后刷新列表）
+                confirm(player, "confirm-transfer", m.name(), () -> {
+                    plugin.guilds().transfer(player, guild, target, m.name());
+                    openMembers(player, guild, holder.page);
+                });
             } else if (isRightClick()) {
-                plugin.guilds().demote(player, g, target, m.name());
+                plugin.guilds().demote(player, guild, target, m.name());
+                openMembers(player, guild, holder.page);
+            } else if (m.rank() == GuildRank.OFFICER) {
+                plugin.messages().send(player, "promote-already-officer", "player", m.name());
             } else {
-                plugin.guilds().promote(player, g, target, m.name());
+                plugin.guilds().promote(player, guild, target, m.name());
+                openMembers(player, guild, holder.page);
             }
-            openMembers(player, g, holder.page);
         } else if (action.startsWith("list_entry:")) {
             String id = action.substring("list_entry:".length());
             Guild target = plugin.guilds().guild(id);
@@ -597,11 +608,20 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private double parseAmount(String text) {
-        try {
-            return Math.floor(Double.parseDouble(text.trim()));
-        } catch (Exception e) {
-            return -1;
-        }
+        return Math.floor(com.liu.liuguild.util.NumberUtil.parseAmount(text));
+    }
+
+    /** 危险操作确认：先在聊天栏提示，再要求输入 yes/确认。 */
+    private void confirm(Player player, String promptKey, String targetName, Runnable action) {
+        plugin.messages().send(player, promptKey, "player", targetName);
+        chatInput.request(player, plugin.messages().prefixed("input-confirm"), text -> {
+            String t = text.trim().toLowerCase(java.util.Locale.ROOT);
+            if (t.equals("yes") || t.equals("y") || t.equals("ok") || t.equals("确认") || t.equals("是")) {
+                action.run();
+            } else {
+                plugin.messages().send(player, "input-cancelled");
+            }
+        });
     }
 
     private void showHistory(Player player, Guild g) {
@@ -695,8 +715,8 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("wins", String.valueOf(g.wins()));
         ph.put("losses", String.valueOf(g.losses()));
         ph.put("bank", plugin.economy().format(g.bank()));
-        ph.put("notice", g.notice().isBlank() ? "无" : g.notice());
-        ph.put("description", g.description().isBlank() ? "无" : g.description());
+        ph.put("notice", g.notice().isBlank() ? "无" : Text.esc(g.notice()));
+        ph.put("description", g.description().isBlank() ? "无" : Text.esc(g.description()));
         ph.put("icon", g.icon());
         ph.put("open", g.open() ? "开放" : "邀请");
         return ph;

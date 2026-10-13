@@ -180,13 +180,14 @@ public final class CrossServerBus {
         if (!bridge.isHealthyIgnoringDegrade()) {
             return;
         }
-        bridge.withJedis(jedis -> {
+        // Redis 操作为网络 IO，异步执行，避免阻塞主线程（如 PlayerQuitEvent）
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> bridge.withJedis(jedis -> {
             jedis.del(bridge.keyPresence(uuid));
             if (name != null) {
                 jedis.del(bridge.keyName(name.toLowerCase(java.util.Locale.ROOT)));
             }
             return null;
-        });
+        }));
     }
 
     /** 玩家当前所在服务器；未知返回 null。 */

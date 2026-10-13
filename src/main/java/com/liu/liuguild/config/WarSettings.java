@@ -68,12 +68,14 @@ public final class WarSettings {
         base.scoreKill = c.getInt("war.score.kill", base.scoreKill);
         base.scoreDeath = c.getInt("war.score.death", base.scoreDeath);
         base.scoreObjective = c.getInt("war.score.objective", base.scoreObjective);
-        base.winMoney = c.getDouble("war.rewards.win-money", base.winMoney);
-        base.loseMoney = c.getDouble("war.rewards.lose-money", base.loseMoney);
-        base.winPoints = c.getLong("war.rewards.win-points", base.winPoints);
-        base.losePoints = c.getLong("war.rewards.lose-points", base.losePoints);
-        base.winPassXp = c.getInt("war.rewards.win-pass-xp", base.winPassXp);
-        base.losePassXp = c.getInt("war.rewards.lose-pass-xp", base.losePassXp);
+        base.winGuildFunds = Math.max(0, c.getLong("war.rewards.win-guild-funds",
+                (long) c.getDouble("war.rewards.win-money", base.winGuildFunds)));
+        base.loseGuildFunds = Math.max(0, c.getLong("war.rewards.lose-guild-funds",
+                (long) c.getDouble("war.rewards.lose-money", base.loseGuildFunds)));
+        base.winPlayerMoney = Math.max(0, c.getDouble("war.rewards.win-player-money", base.winPlayerMoney));
+        base.losePlayerMoney = Math.max(0, c.getDouble("war.rewards.lose-player-money", base.losePlayerMoney));
+        base.winPassXp = Math.max(0, c.getInt("war.rewards.win-pass-xp", base.winPassXp));
+        base.losePassXp = Math.max(0, c.getInt("war.rewards.lose-pass-xp", base.losePassXp));
         base.passId = c.getString("war.rewards.pass-id", base.passId);
         base.winTitleId = Math.max(0, c.getInt("war.rewards.win-title-id", base.winTitleId));
     }

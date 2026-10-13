@@ -11,11 +11,12 @@ folia-supported: false
 softdepend:
   - liudungeon
   - LiuChat
-  - liupass
+  - Liupass
   - CraftEngine
   - SparrowSync
   - LuckyPeaches
   - PlayerTitle
+  - NotBounties
   - Vault
   - PlaceholderAPI
   - LuckPerms

@@ -76,7 +76,8 @@ gui:
         - "<gray>加入：<white>{joined}"
         - ""
         - "<yellow>左键晋升 / 右键降级"
-        - "<red>Shift+左键踢出"
+        - "<gold>Shift+左键 转让会长"
+        - "<red>Shift+右键 踢出成员"
     back:
       slot: 49
       material: ARROW

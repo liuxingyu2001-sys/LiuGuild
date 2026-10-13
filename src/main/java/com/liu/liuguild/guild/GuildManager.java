@@ -11,15 +11,12 @@ import com.liu.liuguild.config.GuildSettings;
 import com.liu.liuguild.config.IconDef;
 import com.liu.liuguild.crossserver.CrossServerBus;
 import com.liu.liuguild.model.Guild;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
 import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.model.GuildRank;
 import com.liu.liuguild.util.Text;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -93,6 +90,7 @@ public final class GuildManager {
                 memberIndex.clear();
                 memberIndex.putAll(idx);
                 rebuildIndexes();
+                plugin.sync(() -> { if (plugin.guildChat() != null) plugin.guildChat().refresh(); });
             } catch (Exception e) {
                 plugin.getLogger().warning("载入工会数据失败: " + e.getMessage());
             }
@@ -174,16 +172,17 @@ public final class GuildManager {
         plugin.async(() -> {
             try {
                 Guild g = plugin.repo().loadGuild(guildId);
-                if (g == null) {
-                    guilds.remove(guildId);
-                    return;
+                Guild old = guilds.remove(guildId);
+                if (old != null) for (UUID uuid : old.memberMap().keySet()) memberIndex.remove(uuid, guildId);
+                if (g != null) {
+                    for (GuildMember m : plugin.repo().loadMembers(guildId)) {
+                        g.putMember(m);
+                        memberIndex.put(m.uuid(), guildId);
+                    }
+                    guilds.put(guildId, g);
                 }
-                for (GuildMember m : plugin.repo().loadMembers(guildId)) {
-                    g.putMember(m);
-                    memberIndex.put(m.uuid(), guildId);
-                }
-                guilds.put(guildId, g);
                 rebuildIndexes();
+                plugin.sync(() -> { if (plugin.guildChat() != null) plugin.guildChat().refresh(); });
             } catch (Exception e) {
                 plugin.getLogger().warning("刷新工会 " + guildId + " 失败: " + e.getMessage());
             }
@@ -272,10 +271,15 @@ public final class GuildManager {
         return true;
     }
 
-    public boolean disband(Guild g, boolean broadcast) {
+    public void disband(Guild g, boolean broadcast) {
+        disband(g, broadcast, GuildDisbandEvent.Cause.PLAYER);
+    }
+
+    public boolean disband(Guild g, boolean broadcast, GuildDisbandEvent.Cause cause) {
         if (g == null) {
             return false;
         }
+        if (broadcast) announceGuild(g.id(), plugin.messages().component("disband-broadcast", "guild", g.name()), null);
         guilds.remove(g.id());
         for (UUID u : g.memberMap().keySet()) {
             memberIndex.remove(u);
@@ -289,10 +293,8 @@ public final class GuildManager {
                 plugin.getLogger().warning("解散工会写库失败: " + e.getMessage());
             }
         });
-        if (broadcast) {
-            notifyGuild(g.id(), plugin.messages().component("disband-broadcast", "guild", g.name()), null);
-        }
-        Bukkit.getPluginManager().callEvent(new GuildDisbandEvent(g, GuildDisbandEvent.Cause.PLAYER));
+        if (plugin.guildChat() != null) plugin.guildChat().refresh();
+        Bukkit.getPluginManager().callEvent(new GuildDisbandEvent(g, cause));
         return true;
     }
 
@@ -337,8 +339,7 @@ public final class GuildManager {
         });
 
         plugin.messages().send(player, viaInvite ? "accept-success" : "join-success", "guild", g.name());
-        notifyGuild(g.id(), plugin.messages().component("join-notify-members", "player", player.getName()), player.getUniqueId());
-        guildBroadcast(g.id(), plugin.messages().component("join-notify-members", "player", player.getName()), player.getUniqueId());
+        announceGuild(g.id(), plugin.messages().component("join-notify-members", "player", player.getName()), player.getUniqueId());
         Bukkit.getPluginManager().callEvent(new GuildJoinEvent(g, player, viaInvite));
         return true;
     }
@@ -353,50 +354,60 @@ public final class GuildManager {
             return;
         }
         Player target = plugin.playerExact(targetName);
-        UUID targetId;
-        String targetDisplay;
         if (target != null) {
-            targetId = target.getUniqueId();
-            targetDisplay = target.getName();
-        } else {
-            targetId = plugin.bus().resolveOnlineUuid(targetName);
-            targetDisplay = targetName;
-            if (targetId == null) {
-                plugin.messages().send(actor, "player-not-found", "player", targetName);
-                return;
-            }
+            finishInvite(actor, g, target, target.getUniqueId(), target.getName(), now);
+            return;
         }
+        // 跨服解析玩家 UUID（Redis 查询为网络 IO，放到异步线程，避免卡主线程）
+        if (!plugin.bus().isReady()) {
+            plugin.messages().send(actor, "player-not-found", "player", targetName);
+            return;
+        }
+        plugin.async(() -> {
+            UUID targetId = plugin.bus().resolveOnlineUuid(targetName);
+            String server = targetId == null ? null : plugin.bus().serverOf(targetId);
+            plugin.sync(() -> {
+                if (targetId == null) {
+                    plugin.messages().send(actor, "player-not-found", "player", targetName);
+                    return;
+                }
+                finishInvite(actor, g, null, targetId, targetName, System.currentTimeMillis());
+                if (server != null && !server.equals(plugin.serverId())) {
+                    plugin.bus().publishTo(server, "GUILD_INVITE", CrossServerBus.map(
+                            "target", targetId.toString(), "guild", g.id(), "name", g.name(), "server", plugin.serverId()));
+                }
+            });
+        });
+    }
+
+    /** 完成邀请登记并通知邀请人（target 可为 null，表示目标是跨服玩家）。 */
+    private void finishInvite(Player actor, Guild g, Player target, UUID targetId, String targetDisplay, long now) {
         if (isInGuild(targetId)) {
             Guild cur = guildOf(targetId);
             plugin.messages().send(actor, "already-in-guild", "guild", cur == null ? "" : cur.name());
             return;
         }
-        long expires = now + c.inviteExpireSeconds * 1000L;
+        long expires = now + conf().inviteExpireSeconds * 1000L;
         invites.put(targetId, new Invite(g.id(), expires));
         inviteCooldown.put(actor.getUniqueId(), now);
-
-        Component inviteMsg = plugin.messages().component("invite-received", "guild", g.name());
         if (target != null) {
-            target.sendMessage(inviteMsg);
-        } else {
-            // 跨服投递：目标在别的子服，交给那台服本地投递
-            String server = plugin.bus().serverOf(targetId);
-            if (plugin.bus().isReady() && server != null && !server.equals(plugin.serverId())) {
-                plugin.bus().publishTo(server, "GUILD_INVITE", CrossServerBus.map(
-                        "player", targetId.toString(), "guild", g.id(), "guildName", g.name(), "server", plugin.serverId()));
-            }
-            // 目标服务端收到后会本地入库邀请
+            target.sendMessage(plugin.messages().component("invite-received", "guild", g.name()));
         }
         plugin.messages().send(actor, "invite-sent", "player", targetDisplay);
     }
 
     /** 收到跨服邀请时调用（在目标服的本地内存登记）。 */
     public void receiveRemoteInvite(UUID target, String guildId, String guildName) {
-        invites.put(target, new Invite(guildId, System.currentTimeMillis() + conf().inviteExpireSeconds * 1000L));
-        Player p = plugin.player(target);
-        if (p != null) {
-            p.sendMessage(plugin.messages().component("invite-received", "guild", guildName));
+        if (target == null || guildId == null) {
+            return;
         }
+        invites.put(target, new Invite(guildId, System.currentTimeMillis() + conf().inviteExpireSeconds * 1000L));
+        plugin.sync(() -> {
+            Player p = plugin.player(target);
+            if (p != null) {
+                p.sendMessage(plugin.messages().component("invite-received", "guild", guildName == null ? "" : guildName));
+            }
+        });
     }
 
     public boolean accept(Player player, String guildName) {
@@ -480,6 +491,7 @@ public final class GuildManager {
     private void removeMember(Guild g, UUID uuid) {
         g.removeMember(uuid);
         memberIndex.remove(uuid);
+        if (plugin.guildChat() != null) plugin.guildChat().refresh();
         plugin.async(() -> {
             try {
                 plugin.repo().deleteMember(uuid);
@@ -504,7 +516,6 @@ public final class GuildManager {
             return false;
         }
         if (targetM.rank() == GuildRank.OFFICER) {
-            plugin.messages().send(actor, "promote-success", "player", targetName, "rank", GuildRank.LEADER.display());
             // 已是官员：再提升即转让会长，交给 transfer 处理
             return transfer(actor, g, targetId, targetName);
         }
@@ -646,60 +657,100 @@ public final class GuildManager {
     // =====================================================================
 
     public boolean deposit(Player player, Guild g, double amount) {
-        if (!conf().bankEnabled) {
-            plugin.messages().send(player, "bank-disabled");
+        if (!bankAccess(player, g, amount)) return false;
+        long credited = (long) Math.floor(amount * (1 - conf().bankDepositTaxPercent / 100.0));
+        if (credited <= 0) {
+            plugin.messages().send(player, "input-invalid-number");
             return false;
         }
-        if (amount <= 0) {
-            plugin.messages().send(player, "set-failed");
-            return false;
-        }
-        if (!plugin.economy().has(player, amount)) {
-            plugin.messages().send(player, "bank-money-insufficient");
-            return false;
-        }
-        double tax = amount * conf().bankDepositTaxPercent / 100.0;
-        long credited = (long) Math.floor(amount - tax);
         if (!plugin.economy().withdraw(player, amount)) {
             plugin.messages().send(player, "bank-money-insufficient");
             return false;
         }
-        g.bank(g.bank() + credited);
-        GuildMember m = g.member(player.getUniqueId());
-        if (m != null) {
-            m.addContributed(credited);
-            saveMember(m);
-        }
-        saveGuild(g);
-        plugin.messages().send(player, "bank-deposit",
-                "amount", plugin.economy().format(credited), "balance", plugin.economy().format(g.bank()));
-        notifyGuild(g.id(), plugin.messages().component("bank-notify",
-                "player", player.getName(), "action", "存入", "amount", plugin.economy().format(credited)), player.getUniqueId());
-        Bukkit.getPluginManager().callEvent(new GuildBankEvent(g, player, GuildBankEvent.Action.DEPOSIT, credited, g.bank()));
+        changeBank(g.id(), credited).whenComplete((success, error) -> plugin.sync(() -> {
+            if (error != null || !Boolean.TRUE.equals(success)) {
+                if (!plugin.economy().deposit(player, amount)) {
+                    plugin.getLogger().severe("银行存款退款失败: 玩家=" + player.getUniqueId() + " 金额=" + amount);
+                }
+                plugin.messages().send(player, "bank-transaction-failed");
+                return;
+            }
+            GuildMember member = g.member(player.getUniqueId());
+            if (member != null) { member.addContributed(credited); saveMember(member); }
+            bankCompleted(player, g, credited, true);
+        }));
         return true;
     }
 
     public boolean withdraw(Player player, Guild g, double amount) {
-        if (!conf().bankEnabled) {
-            plugin.messages().send(player, "bank-disabled");
-            return false;
-        }
-        GuildMember m = g.member(player.getUniqueId());
-        if (m == null || m.rank() != GuildRank.LEADER) {
-            plugin.messages().send(player, "no-permission-rank");
-            return false;
-        }
-        if (amount <= 0 || g.bank() < amount) {
-            plugin.messages().send(player, "bank-insufficient");
-            return false;
-        }
-        g.bank(g.bank() - (long) amount);
-        plugin.economy().deposit(player, amount);
-        saveGuild(g);
-        plugin.messages().send(player, "bank-withdraw",
-                "amount", plugin.economy().format(amount), "balance", plugin.economy().format(g.bank()));
-        Bukkit.getPluginManager().callEvent(new GuildBankEvent(g, player, GuildBankEvent.Action.WITHDRAW, (long) amount, g.bank()));
+        if (!bankAccess(player, g, amount)) return false;
+        long debit = (long) amount;
+        changeBank(g.id(), -debit).whenComplete((success, error) -> plugin.sync(() -> {
+            if (error != null || !Boolean.TRUE.equals(success)) {
+                plugin.messages().send(player, "bank-insufficient");
+                return;
+            }
+            if (!plugin.economy().deposit(player, debit)) {
+                changeBank(g.id(), debit).whenComplete((refunded, refundError) -> {
+                    if (refundError != null || !Boolean.TRUE.equals(refunded)) {
+                        plugin.getLogger().severe("银行取款回滚失败: 工会=" + g.id() + " 玩家=" + player.getUniqueId() + " 金额=" + debit);
+                    }
+                });
+                plugin.messages().send(player, "bank-transaction-failed");
+                return;
+            }
+            bankCompleted(player, g, debit, false);
+        }));
         return true;
+    }
+
+    private boolean bankAccess(Player player, Guild g, double amount) {
+        if (!conf().bankEnabled) { plugin.messages().send(player, "bank-disabled"); return false; }
+        if (g == null || !g.id().equals(memberIndex.get(player.getUniqueId()))) {
+            plugin.messages().send(player, "not-in-guild"); return false;
+        }
+        if (plugin.economy() == null || !plugin.economy().available()) {
+            plugin.messages().send(player, "bank-economy-unavailable"); return false;
+        }
+        if (!Double.isFinite(amount) || amount < 1 || amount >= Long.MAX_VALUE || amount != Math.floor(amount)) {
+            plugin.messages().send(player, "input-invalid-number"); return false;
+        }
+        return true;
+    }
+
+    /** Atomic Vault-bank balance mutation; DB is authoritative. Never await on the server thread. */
+    public java.util.concurrent.CompletableFuture<Boolean> changeBank(String guildId, long delta) {
+        java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
+        plugin.async(() -> {
+            try {
+                boolean changed = plugin.repo().addBank(guildId, delta);
+                if (changed) {
+                    plugin.sync(() -> {
+                        Guild cached = guild(guildId);
+                        if (cached != null) {
+                            long balance = cached.bank();
+                            cached.bank(delta > 0 && balance > Long.MAX_VALUE - delta ? Long.MAX_VALUE
+                                    : Math.max(0, balance + delta));
+                        }
+                        plugin.broadcastGuildChange(guildId);
+                        result.complete(true);
+                        reloadGuild(guildId);
+                    });
+                } else result.complete(false);
+            } catch (Exception e) { result.completeExceptionally(e); }
+        });
+        return result;
+    }
+
+    private void bankCompleted(Player player, Guild original, long amount, boolean deposit) {
+        Guild g = guild(original.id());
+        if (g == null) g = original;
+        plugin.messages().send(player, deposit ? "bank-deposit" : "bank-withdraw",
+                "amount", plugin.economy().format(amount), "balance", plugin.economy().format(g.bank()));
+        announceGuild(g.id(), plugin.messages().component("bank-notify", "player", player.getName(),
+                "action", deposit ? "存入" : "取出", "amount", plugin.economy().format(amount)), player.getUniqueId());
+        Bukkit.getPluginManager().callEvent(new GuildBankEvent(g, player,
+                deposit ? GuildBankEvent.Action.DEPOSIT : GuildBankEvent.Action.WITHDRAW, amount, g.bank()));
     }
 
     public void addPoints(Guild g, long delta) {
@@ -790,6 +841,26 @@ public final class GuildManager {
                 "server", plugin.serverId()));
     }
 
+    /**
+     * 向工会成员公告：本服即时投递 + 跨服投递（其它子服通过 Redis 收到）。
+     * 推荐统一使用此入口，避免重复调用 {@link #notifyGuild} 与 {@link #guildBroadcast}。
+     */
+    public void announceGuild(String guildId, Component text, UUID except) {
+        if (guildId == null || text == null) {
+            return;
+        }
+        notifyGuild(guildId, text, except);
+        guildBroadcast(guildId, text, except);
+    }
+
+    /** 清理解除过期邀请与冷却记录（心跳调用，防止内存泄漏）。 */
+    public void purge() {
+        long now = System.currentTimeMillis();
+        invites.entrySet().removeIf(e -> e.getValue().expiresAt < now);
+        long cooldownMs = Math.max(1, conf().inviteCooldownSeconds) * 1000L;
+        inviteCooldown.entrySet().removeIf(e -> now - e.getValue() > cooldownMs * 4);
+    }
+
     /** 向本服所有在线玩家广播（用于匹配提示等）。 */
     public void broadcastAll(Component text) {
         Bukkit.getServer().broadcast(text);
@@ -802,12 +873,8 @@ public final class GuildManager {
         }
     }
 
-    /** 收到跨服公告：投递给本服成员。 */
+    /** 收到跨服公告：投递给本服成员（可能在 Redis 线程调用，需切回主线程）。 */
     public void deliverAnnounce(String guildId, String miniText, String except) {
-        Guild g = guilds.get(guildId);
-        if (g == null) {
-            return;
-        }
         Component text = Text.mm(miniText);
         UUID skip = null;
         if (except != null && !except.isBlank()) {
@@ -816,15 +883,8 @@ public final class GuildManager {
             } catch (IllegalArgumentException ignored) {
             }
         }
-        for (UUID u : g.memberMap().keySet()) {
-            if (skip != null && skip.equals(u)) {
-                continue;
-            }
-            Player p = plugin.player(u);
-            if (p != null) {
-                p.sendMessage(text);
-            }
-        }
+        UUID skipFinal = skip;
+        plugin.sync(() -> notifyGuild(guildId, text, skipFinal));
     }
 
     // =====================================================================

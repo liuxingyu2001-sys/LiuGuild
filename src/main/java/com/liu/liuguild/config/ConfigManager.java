@@ -21,7 +21,7 @@ public final class ConfigManager {
     /** 模块文件清单。 */
     public static final String[] MODULES = {
             "config.yml", "database.yml", "cross-server.yml", "guild.yml", "war.yml",
-            "war-modes.yml", "arena.yml", "kit.yml", "gui.yml", "icons.yml", "messages.yml"
+            "war-modes.yml", "arena.yml", "kit.yml", "gui.yml", "icons.yml", "messages.yml", "tasks.yml"
     };
 
     private final Plugin plugin;

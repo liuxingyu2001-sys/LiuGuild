@@ -74,10 +74,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
     }
 
     // =====================================================================
-    // 状态
-    // =====================================================================
-
-    // =====================================================================
     // 帮助 / 状态
     // =====================================================================
 
@@ -297,8 +293,12 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                             + " &7最低等级: &f" + m.minLevel));
                     sender.sendMessage(cn("&7准备/战斗/结算: &f" + m.prepareSeconds + "/" + m.durationSeconds + "/" + m.settleSeconds));
                     sender.sendMessage(cn("&7计分: &f击杀" + m.scoreKill + " 死亡" + m.scoreDeath + " 目标" + m.scoreObjective));
-                    sender.sendMessage(cn("&7奖励: &f胜" + (long) m.winMoney + "金币/" + m.winPoints + "点"
-                            + " &7负" + (long) m.loseMoney + "金币/" + m.losePoints + "点"));
+                    sender.sendMessage(cn("&7生命: &f每人 " + m.livesPerPlayer + " 次 &7人数均衡=" + m.balanceTeamLives
+                            + " &7复活等待=" + m.respawnDelaySeconds + " 秒"));
+                    sender.sendMessage(cn("&7奖励: &f胜个人金币 " + m.winPlayerMoney + " / 工会资金 " + m.winGuildFunds
+                            + " / 通行证经验 " + m.winPassXp + " &7负个人金币 " + m.losePlayerMoney
+                            + " / 工会资金 " + m.loseGuildFunds + " / 通行证经验 " + m.losePassXp
+                            + " &7胜方称号ID " + m.winTitleId));
                     sender.sendMessage(cn("&7时间表: &f" + (m.schedule.isEmpty() ? "无" : m.schedule)));
                 }
             }
@@ -386,7 +386,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(sender, "guild-not-found", "name", args[1]);
             return;
         }
-        plugin.guilds().disband(g, true);
+        plugin.guilds().disband(g, true, com.liu.liuguild.api.event.GuildDisbandEvent.Cause.ADMIN);
         plugin.messages().send(sender, "admin-disband", "guild", g.name());
     }
 
@@ -443,7 +443,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 + " &7点数: &f" + g.points() + " &7银行: &f" + g.bank()));
         sender.sendMessage(cn("&7成员: &f" + g.memberCount() + " &7战绩: &f" + g.wins() + "胜 " + g.losses() + "负"));
         sender.sendMessage(cn("&7图标: &f" + g.icon() + " &7开放: &f" + g.open()
-                + " &7创建: &f" + plugin.now()));
+                + " &7创建: &f" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm")
+                        .format(new java.util.Date(g.createdAt()))));
     }
 
     private Guild find(String key) {

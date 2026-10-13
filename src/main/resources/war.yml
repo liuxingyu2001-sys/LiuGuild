@@ -38,6 +38,10 @@ war:
     team-size: 10
     min-members: 1
     min-level: 1
+    lives:
+      per-player: 3
+      balance-teams: true
+      respawn-delay-seconds: 3
     prepare-seconds: 30
     duration-seconds: 600
     settle-seconds: 10
@@ -47,10 +51,10 @@ war:
       death: -1
       objective: 5
     rewards:
-      win-money: 5000.0
-      lose-money: 1000.0
-      win-points: 200
-      lose-points: 50
+      win-player-money: 500.0
+      lose-player-money: 100.0
+      win-guild-funds: 5000
+      lose-guild-funds: 1000
       win-pass-xp: 500
       lose-pass-xp: 100
       pass-id: ""

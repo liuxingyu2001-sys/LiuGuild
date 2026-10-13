@@ -1,5 +1,12 @@
 # 开放 API
 
+## 工会资产
+
+`GuildAPI.funds(id)` / `addFunds(id, delta)` 读取和修改本插件工会资金（points 别名），与 Vault 无关。
+`GuildAPI.bankBalance(id)` 返回银行金币整数余额；`changeBank(id, delta)` 返回 `CompletableFuture<Boolean>`，使用数据库原子增减，余额不足或溢出返回 false，数据库故障异常完成。不要在主线程 join；该接口只改银行余额，不移动玩家 Vault 钱包。旧 `addBank` 保留兼容。
+所有工会成员都可存取银行整数金币；Vault 服务缺失时拒绝交易。
+
+
 ## 门面：`com.liu.liuguild.api.GuildAPI`
 
 静态门面，任何插件可直接调用。数据以不可变视图（record）返回。

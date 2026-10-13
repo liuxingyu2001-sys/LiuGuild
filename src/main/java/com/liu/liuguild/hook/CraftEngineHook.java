@@ -36,6 +36,9 @@ public final class CraftEngineHook {
                     getCustomItemId = items.getMethod("getCustomItemId", ItemStack.class);
                 } catch (NoSuchMethodException ignored) {
                 }
+                trySetAccessible(byIdString);
+                trySetAccessible(buildBukkitItem);
+                trySetAccessible(getCustomItemId);
                 ok = true;
             } catch (Throwable t) {
                 ok = false;
@@ -47,6 +50,16 @@ public final class CraftEngineHook {
     /** CraftEngine 插件是否可用。 */
     public boolean available() {
         return ready;
+    }
+
+    private static void trySetAccessible(Method m) {
+        if (m == null) {
+            return;
+        }
+        try {
+            m.setAccessible(true);
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 按自定义物品 id 构建 ItemStack；不存在返回 null。 */

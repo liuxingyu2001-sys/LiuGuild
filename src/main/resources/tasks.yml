@@ -1,0 +1,26 @@
+# liupass 中另行创建同 task-id 的 CUSTOM 任务；该文件只绑定行为，不定义奖励。
+# pass-id 留空使用玩家默认通行证。BANK_DEPOSIT 默认关闭：存取循环可能刷进度。
+enabled: true
+bindings:
+  join:
+    event: JOIN
+    task-id: guild_join
+    pass-id: ""
+  create:
+    event: CREATE
+    task-id: guild_create
+    pass-id: ""
+  play:
+    event: WAR_PLAY
+    task-id: guild_war_play
+    pass-id: ""
+  win:
+    event: WAR_WIN
+    task-id: guild_war_win
+    pass-id: ""
+  deposit:
+    enabled: false
+    event: BANK_DEPOSIT
+    count-amount: true
+    task-id: guild_bank_deposit
+    pass-id: ""

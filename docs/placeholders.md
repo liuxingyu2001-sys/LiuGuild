@@ -1,5 +1,8 @@
 # PlaceholderAPI 变量
 
+`%liuguild_funds%` 是本插件工会资金（points 别名）；`%liuguild_bank%` / `%liuguild_bank_raw%` 分别为 Vault 银行金币格式化余额和整数余额。
+
+
 变量标识符：`liuguild`。用法：`%liuguild_<变量>%`。
 
 ## 服务端级

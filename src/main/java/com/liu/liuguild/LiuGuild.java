@@ -14,12 +14,14 @@ import com.liu.liuguild.db.DbConfig;
 import com.liu.liuguild.db.GuildRepository;
 import com.liu.liuguild.guild.GuildManager;
 import com.liu.liuguild.gui.GuiManager;
+import com.liu.liuguild.hook.GuildChatHook;
 import com.liu.liuguild.hook.ChatHook;
 import com.liu.liuguild.hook.CraftEngineHook;
 import com.liu.liuguild.hook.DungeonHook;
 import com.liu.liuguild.hook.EconomyHook;
 import com.liu.liuguild.hook.GuildPlaceholders;
 import com.liu.liuguild.hook.LuckyPeachesHook;
+import com.liu.liuguild.hook.NotBountiesHook;
 import com.liu.liuguild.hook.PapiHook;
 import com.liu.liuguild.hook.PassHook;
 import com.liu.liuguild.hook.PlayerTitleHook;
@@ -64,6 +66,7 @@ public final class LiuGuild extends JavaPlugin {
     private ModuleRegistry modules;
 
     private EconomyHook economy;
+    private GuildChatHook guildChat;
     private ChatHook chat;
     private PassHook pass;
     private CraftEngineHook craftEngine;
@@ -72,6 +75,7 @@ public final class LiuGuild extends JavaPlugin {
     private PapiHook papi;
     private PlayerTitleHook playerTitle;
     private LuckyPeachesHook luckyPeaches;
+    private NotBountiesHook notBounties;
 
     private BukkitTask heartbeatTask;
     private BukkitTask configWatchTask;
@@ -117,6 +121,7 @@ public final class LiuGuild extends JavaPlugin {
         papi = safe(PapiHook::new);
         playerTitle = safe(PlayerTitleHook::new);
         luckyPeaches = safe(LuckyPeachesHook::new);
+        notBounties = safe(() -> new NotBountiesHook(this));
 
         // 核心管理器
         guilds = new GuildManager(this);
@@ -141,6 +146,9 @@ public final class LiuGuild extends JavaPlugin {
         modules.enableAll();
         bus.startAsync();
 
+        new com.liu.liuguild.listener.GuildTaskListener(this).start();
+        guildChat = new GuildChatHook(this);
+        guildChat.start();
         GuildAPI.init(this);
         registerPapi();
         registerCommands();
@@ -155,6 +163,7 @@ public final class LiuGuild extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (guildChat != null) guildChat.close();
         if (modules != null) {
             modules.disableAll();
         }
@@ -182,8 +191,11 @@ public final class LiuGuild extends JavaPlugin {
 
     private void startTasks() {
         int heartbeat = Math.max(2, settings().main.heartbeatSeconds);
-        presenceTask = getServer().getScheduler().runTaskTimer(this,
-                () -> bus.tickPresence(Bukkit.getOnlinePlayers()), 20L * heartbeat, 20L * heartbeat);
+        presenceTask = getServer().getScheduler().runTaskTimer(this, () -> {
+            bus.tickPresence(Bukkit.getOnlinePlayers());
+            guilds.purge();
+            guildChat.refresh();
+        }, 20L * heartbeat, 20L * heartbeat);
         if (settings().main.autoReload) {
             configWatchTask = getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
                 long fp = configManager.fingerprint();
@@ -248,6 +260,8 @@ public final class LiuGuild extends JavaPlugin {
     // 便捷访问
     // =====================================================================
 
+    public ConfigManager configManager() { return configManager; }
+
     public Settings settings() {
         return configManager.settings();
     }
@@ -300,6 +314,10 @@ public final class LiuGuild extends JavaPlugin {
         return economy;
     }
 
+    public GuildChatHook guildChat() {
+        return guildChat;
+    }
+
     public ChatHook chat() {
         return chat;
     }
@@ -330,6 +348,10 @@ public final class LiuGuild extends JavaPlugin {
 
     public LuckyPeachesHook luckyPeaches() {
         return luckyPeaches;
+    }
+
+    public NotBountiesHook notBounties() {
+        return notBounties;
     }
 
     /** 本服 server-id（config.yml 或 server.yml 覆盖）。 */
@@ -430,7 +452,8 @@ public final class LiuGuild extends JavaPlugin {
                 + hook("LuckyPeaches", luckyPeaches != null && luckyPeaches.available())
                 + hook("Vault", economy != null && economy.available())
                 + hook("PAPI", papi != null)
-                + hook("PlayerTitle", playerTitle != null && playerTitle.available()));
+                + hook("PlayerTitle", playerTitle != null && playerTitle.available())
+                + hook("NotBounties", notBounties != null && notBounties.available()));
         // 模块
         out.add("&7模块: &f" + modules.ids());
         return out;

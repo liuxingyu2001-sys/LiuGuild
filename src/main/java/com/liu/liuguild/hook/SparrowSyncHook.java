@@ -39,6 +39,9 @@ public final class SparrowSyncHook {
                 if (apiObj != null) {
                     save = apiObj.getClass().getMethod("save", UUID.class);
                     restore = apiObj.getClass().getMethod("restore", UUID.class, UUID.class);
+                    // 实现类可能是包私有，允许反射调用其公有方法
+                    trySetAccessible(save);
+                    trySetAccessible(restore);
                     ok = true;
                 }
             }
@@ -49,6 +52,16 @@ public final class SparrowSyncHook {
         this.saveMethod = save;
         this.restoreMethod = restore;
         this.available = ok;
+    }
+
+    private static void trySetAccessible(Method m) {
+        if (m == null) {
+            return;
+        }
+        try {
+            m.setAccessible(true);
+        } catch (Throwable ignored) {
+        }
     }
 
     public boolean available() {

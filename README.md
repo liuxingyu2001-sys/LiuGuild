@@ -18,7 +18,7 @@
 
 ## 前置（全部软依赖，缺失自动降级）
 
-`liudungeon` · `LiuChat` · `liupass` · `CraftEngine` · `Sparrow Sync` · `LuckyPeaches` · `PlayerTitle` · `Vault` · `PlaceholderAPI`
+`liudungeon` · `LiuChat` · `liupass` · `CraftEngine` · `Sparrow Sync` · `LuckyPeaches` · `PlayerTitle` · `NotBounties` · `Vault` · `PlaceholderAPI`
 
 ## 快速开始
 

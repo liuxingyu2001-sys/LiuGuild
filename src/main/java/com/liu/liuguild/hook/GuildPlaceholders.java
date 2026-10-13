@@ -115,7 +115,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "name" -> guild.name();
             case "tag" -> guild.tag();
             case "level" -> String.valueOf(guild.level());
-            case "points" -> String.valueOf(guild.points());
+            case "points", "funds" -> String.valueOf(guild.points());
             case "members" -> String.valueOf(guild.memberCount());
             case "member_limit" -> String.valueOf(plugin.settings().guild.memberLimit(guild.level()));
             case "wins" -> String.valueOf(guild.wins());
@@ -153,7 +153,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "name" -> g.name();
             case "tag" -> g.tag();
             case "level" -> String.valueOf(g.level());
-            case "points" -> String.valueOf(g.points());
+            case "points", "funds" -> String.valueOf(g.points());
             case "members" -> String.valueOf(g.members());
             case "wins" -> String.valueOf(g.wins());
             case "losses" -> String.valueOf(g.losses());
@@ -176,6 +176,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         } catch (NumberFormatException e) {
             return "";
         }
+        if (n < 1 || n > 1000) return "";
         String field = parts[2];
         String metric = switch (field) {
             case "bank", "level", "wins", "members", "losses" -> field;
@@ -190,7 +191,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "name" -> g.name();
             case "tag" -> g.tag();
             case "level" -> String.valueOf(g.level());
-            case "points" -> String.valueOf(g.points());
+            case "points", "funds" -> String.valueOf(g.points());
             case "wins" -> String.valueOf(g.wins());
             case "losses" -> String.valueOf(g.losses());
             case "members" -> String.valueOf(g.members());

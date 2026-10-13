@@ -73,6 +73,8 @@ zh_CN:
   notice-empty: "<gray>该工会暂无公告。"
 
   # ---- 银行 ----
+  bank-transaction-failed: "<red>银行交易失败，已尝试退回款项，请稍后重试。"
+  bank-economy-unavailable: "<yellow>Vault 金币服务不可用，暂时无法存取。"
   bank-usage: "<red>用法：<white>/guild bank <deposit|withdraw> <金额></white>"
   bank-deposit: "<green>已存入 <white>{amount}</white> 到工会银行，当前余额 <white>{balance}</white>。"
   bank-withdraw: "<green>已从工会银行取出 <white>{amount}</white>，当前余额 <white>{balance}</white>。"
@@ -84,7 +86,7 @@ zh_CN:
   # ---- 信息 ----
   info-header: "<dark_gray>―――― <white>工会 <{tag}></white> {guild} <dark_gray>――――"
   info-body: "<gray>会长：<white>{leader}</white>　等级：<white>{level}</white>　成员：<white>{members}</white>/<white>{max}</white>"
-  info-points: "<gray>工会点数：<white>{points}</white>　战绩：<white>{wins}</white> 胜 <white>{losses}</white> 负　银行：<white>{bank}</white>"
+  info-points: "<gray>工会资金（点数）：<white>{points}</white>　战绩：<white>{wins}</white> 胜 <white>{losses}</white> 负　银行：<white>{bank}</white>"
   info-notice: "<gray>公告：<white>{notice}</white>"
   list-header: "<gray>工会列表（共 {count} 个）："
   list-line: "<gray>- <white>{guild}</white> <dark_gray>[{tag}]</dark_gray> 会长 <white>{leader}</white> 成员 <white>{members}</white>"
@@ -108,8 +110,8 @@ zh_CN:
   war-ended: "<gold>工会战结束！<white>{winner}</white> 获胜（{score_a} : {score_b}）"
   war-draw: "<gold>工会战平局！（{score_a} : {score_b}）"
   war-end-early: "<yellow>工会战因人数不足提前结束。"
-  war-reward-win: "<green>工会战胜利奖励：<white>{money}</white> 金币、<white>{points}</white> 工会点数。"
-  war-reward-lose: "<gray>工会战参与奖励：<white>{money}</white> 金币、<white>{points}</white> 工会点数。"
+  war-reward-win: "<green>工会战胜利奖励：<white>{money}</white> 个人金币、<white>{guild_funds}</white> 工会资金、<white>{pass_xp}</white> 通行证经验、称号 <white>{title}</white>。"
+  war-reward-lose: "<gray>工会战参与奖励：<white>{money}</white> 个人金币、<white>{guild_funds}</white> 工会资金、<white>{pass_xp}</white> 通行证经验。"
   war-need-members: "<red>你的工会在线成员不足 {min} 人，无法发起工会战。"
   war-join-usage: "<red>用法：<white>/guild war join</white>（由会长/官员在开战前发起）"
   war-not-in-war: "<red>你的工会当前没有工会战。"
@@ -117,6 +119,12 @@ zh_CN:
   war-spectate: "<gray>你以旁观者身份进入竞技场。"
   war-arena-failed: "<red>竞技场准备失败，工会战已取消。"
   war-transfer-failed: "<red>跨服传送失败，请稍后重试。"
+  war-no-participants: "<red>本场工会战至少需要双方各有一名参赛者，比赛已取消。"
+  war-join-locked: "<red>比赛开始后不允许加入本场工会战。"
+  war-lives-remaining: "<yellow>你失去一次生命，剩余 <white>{lives}</white> 次。等待复活..."
+  war-lives-eliminated: "<red>你的生命次数已耗尽，已被淘汰。"
+  war-respawned: "<green>已在己方出生点复活。"
+  war-bounty-blocked: "<yellow>工会战击杀不计入悬赏，避免利用比赛刷取悬赏奖励。"
   war-queue-broadcast: "<gold>[工会战] <white>{player}</white> 代表工会 <white>{guild}</white> 参与了 <white>{mode}</white> 匹配！"
   war-season-open: "<gold><bold>[赛季工会战]</bold> <white>{mode}</white> 已开启，报名/匹配窗口 <white>{minutes}</white> 分钟！"
   war-mode-disabled: "<red>工会战模式 <white>{mode}</white> 当前未开启。"
@@ -137,7 +145,11 @@ zh_CN:
   input-withdraw: "<gray>请在聊天栏输入要从工会银行取出的金额："
   input-invalid-number: "<red>请输入有效且大于 0 的数字。"
   input-cancelled: "<yellow>已取消输入。"
+  input-confirm: "<gray>请输入 <white>yes</white> 确认，或输入 <white>cancel</white> 取消："
   input-guild-name: "<gray>请在聊天栏输入工会名称（可带标签，格式：名称 标签）："
+  confirm-kick: "<red>确定要踢出成员 <white>{player}</white> 吗？"
+  confirm-transfer: "<red>确定将会长转让给 <white>{player}</white> 吗？（不可撤销）"
+  promote-already-officer: "<yellow>{player} 已是副会长；如需转让会长请使用 <white>Shift+左键</white>。"
 
   # ---- 图标 ----
   set-icon: "<green>工会图标已更换为 <white>{icon}</white>。"
@@ -145,6 +157,10 @@ zh_CN:
   set-icon-no-permission: "<red>你没有权限使用该图标。"
 
   # ---- 等级 ----
+  guild-chat-unavailable: "<yellow>工会频道暂不可用，请确认 LiuChat 已启用并支持频道 API。"
+  guild-chat-on: "<green>已切换到工会频道，直接聊天即可；再次 /guild chat 返回原频道。"
+  guild-chat-off: "<green>已返回之前的聊天频道。"
+  guild-chat-result: "<yellow>{result}"
   guild-level-up: "<gold>工会升级！当前等级 <white>{level}</white>。"
 
   # ---- 工会战历史 ----

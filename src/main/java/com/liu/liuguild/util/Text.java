@@ -64,4 +64,15 @@ public final class Text {
         }
         return MM_TAG.matcher(s).find() || LEGACY.matcher(s).find();
     }
+
+    /**
+     * 转义玩家可控文本，防止 MiniMessage 注入（如 <red>、<click:...>）。
+     * 转义后的文本可用于 {@link #fmt} 的占位符值。
+     */
+    public static String esc(String s) {
+        if (s == null || s.isEmpty()) {
+            return "";
+        }
+        return s.replace("\\", "\\\\").replace("<", "\\<");
+    }
 }

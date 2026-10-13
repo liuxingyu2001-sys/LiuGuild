@@ -10,6 +10,8 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -93,6 +95,7 @@ public final class Database {
 
         if (cfg.autoCreateTables) {
             createTables();
+            migrate();
         }
     }
 
@@ -204,6 +207,43 @@ public final class Database {
             st.executeUpdate(ddl);
         } catch (SQLException ignored) {
             // MySQL 不支持 IF NOT EXISTS：已存在时报错直接忽略
+        }
+    }
+
+    /**
+     * 轻量级结构升级：为老版本数据库补齐新列。
+     * MySQL 不支持 {@code ADD COLUMN IF NOT EXISTS}，因此逐列尝试并忽略「列已存在」错误。
+     */
+    private void migrate() {
+        List<String[]> columns = new ArrayList<>();
+        // {table, column, 定义}
+        columns.add(new String[]{"guilds", "icon", "`icon` VARCHAR(64)"});
+        columns.add(new String[]{"guilds", "icon_data", "`icon_data` TEXT"});
+        columns.add(new String[]{"guilds", "notice", "`notice` VARCHAR(255)"});
+        columns.add(new String[]{"guilds", "description", "`description` VARCHAR(255)"});
+        columns.add(new String[]{"guilds", "home_server", "`home_server` VARCHAR(64)"});
+        columns.add(new String[]{"guilds", "member_count", "`member_count` INT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guilds", "updated_at", "`updated_at` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guilds", "bank", "`bank` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_members", "contributed", "`contributed` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_members", "kills", "`kills` INT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_members", "deaths", "`deaths` INT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_wars", "mode", "`mode` VARCHAR(32) NOT NULL DEFAULT 'match'"});
+        columns.add(new String[]{"guild_wars", "arena_world", "`arena_world` VARCHAR(128)"});
+        columns.add(new String[]{"guild_wars", "tag_a", "`tag_a` VARCHAR(32)"});
+        columns.add(new String[]{"guild_wars", "tag_b", "`tag_b` VARCHAR(32)"});
+        try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
+            for (String[] col : columns) {
+                String ddl = "ALTER TABLE `" + t(col[0]) + "` ADD COLUMN " + col[2];
+                try {
+                    st.executeUpdate(ddl);
+                    log.info("数据库升级：已添加 " + t(col[0]) + "." + col[1]);
+                } catch (SQLException e) {
+                    // 列已存在 / 表结构差异：忽略
+                }
+            }
+        } catch (SQLException e) {
+            log.log(Level.WARNING, "数据库结构升级检查失败: " + e.getMessage());
         }
     }
 }

@@ -20,9 +20,9 @@ public final class PassHook {
         Method withPass = null;
         Method def = null;
         try {
-            Plugin p = Bukkit.getPluginManager().getPlugin("liupass");
-            if (p != null || classPresent()) {
-                Class<?> api = Class.forName("com.liupass.core.api.PassAPI");
+            Plugin p = Bukkit.getPluginManager().getPlugin("Liupass");
+            if (p != null && p.isEnabled()) {
+                Class<?> api = p.getClass().getClassLoader().loadClass("com.liupass.core.api.PassAPI");
                 withPass = api.getMethod("addXp", UUID.class, String.class, int.class);
                 def = api.getMethod("addXp", UUID.class, int.class);
             }
@@ -40,6 +40,20 @@ public final class PassHook {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    public boolean addTaskProgress(UUID uuid, String passId, String taskId, int amount) {
+        if (!available || amount <= 0) return false;
+        try {
+            Class<?> api = addXpWithPass.getDeclaringClass();
+            if (passId == null || passId.isBlank()) {
+                passId = (String) api.getMethod("getDefaultPassId", UUID.class).invoke(null, uuid);
+            }
+            if (passId == null || passId.isBlank()) return false;
+            api.getMethod("addTaskProgress", UUID.class, String.class, String.class, int.class)
+                    .invoke(null, uuid, passId, taskId, amount);
+            return true;
+        } catch (ReflectiveOperationException e) { return false; }
     }
 
     public boolean available() {

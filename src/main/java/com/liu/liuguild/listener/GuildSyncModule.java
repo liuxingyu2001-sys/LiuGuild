@@ -50,6 +50,8 @@ public final class GuildSyncModule implements GuildModule {
                 String guildId = data.get("guild");
                 if (guildId != null && !guildId.isBlank()) {
                     plugin.guilds().reloadGuild(guildId);
+                } else {
+                    plugin.guilds().reloadAll();
                 }
             }
             case "GUILD_ANNOUNCE" -> {
@@ -58,6 +60,9 @@ public final class GuildSyncModule implements GuildModule {
                     return;
                 }
                 plugin.guilds().deliverAnnounce(data.get("guild"), data.get("text"), data.get("except"));
+            }
+            case "GUILD_CHAT" -> {
+                if (plugin.guildChat() != null) plugin.guildChat().receive(data);
             }
             case "GUILD_INVITE" -> {
                 String target = data.get("target");

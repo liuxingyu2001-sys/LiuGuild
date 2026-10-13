@@ -86,6 +86,9 @@ public final class ItemUtil {
         try (ByteArrayInputStream bis = new ByteArrayInputStream(raw);
              BukkitObjectInputStream in = new BukkitObjectInputStream(bis)) {
             int len = in.readInt();
+            if (len < 0 || len > 512) {
+                return new ItemStack[0];
+            }
             ItemStack[] out = new ItemStack[len];
             for (int i = 0; i < len; i++) {
                 Object o = in.readObject();

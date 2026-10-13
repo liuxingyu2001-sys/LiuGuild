@@ -9,7 +9,13 @@
 - 模板不存在或未安装时回退到 `world` + 坐标的固定场地。
 - 结束后自动销毁动态世界。
 
-## LiuChat（跨服公告）
+## LiuChat（公告与工会频道）
+
+- `/guild chat` 切换工会频道，再执行返回原频道；`/guild chat <消息>` 单次发送。
+- 每个工会注册独立 MEMBERS 频道，接收/发送权限由成员身份自动同步；退会与踢人即时取消订阅。
+- 禁言、冷却、重复、过滤均由 LiuChat 原生审核。
+- 更新后的 LiuChat `ChannelDeliveredEvent` 才可触发跨服转发，通过 LiuGuild Redis 总线发送成品组件，远端 `deliverChannelRemote` 再检查订阅、权限与忽略列表；旧版仅本服频道。
+- 所有子服需要同时更新 LiuChat 与 LiuGuild。
 
 - `broadcastAnnouncement(Player carrier, BaseComponent...)`：工会战公告借其跨服链路广播。
 - `deliverPrivate(...)`：私聊投递。
@@ -52,8 +58,15 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
 
 ## Vault（经济）
 
-- 工会创建费、银行存取、图标更换费、工会战金币奖励。
-- 未安装时经济相关操作按 0 处理并给出提示。
+- 工会创建费、银行存取、图标更换费、工会战个人金币奖励。银行只存 Vault 金币，所有工会成员均可存取；整数金额，余额以数据库原子增减为准。
+- 工会资金对应本插件 `points`，独立于 Vault；工会战 `*-guild-funds` 奖励计入工会资金。
+- 银行缺少经济服务时拒绝交易。
+
+## NotBounties（悬赏）
+
+- 可选软依赖，通过反射监听 `BountyClaimEvent`。
+- 工会战参赛玩家的击杀会取消 NotBounties 悬赏领取，防止利用受控比赛击杀刷悬赏；普通世界击杀不受影响。
+- 缺失 NotBounties 时完全不注册监听器，不影响工会战。
 
 ## PlaceholderAPI
 

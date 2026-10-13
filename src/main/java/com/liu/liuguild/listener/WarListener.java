@@ -3,10 +3,14 @@ package com.liu.liuguild.listener;
 import com.liu.liuguild.LiuGuild;
 import com.liu.liuguild.module.GuildModule;
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 
@@ -34,19 +38,45 @@ public final class WarListener implements GuildModule, Listener {
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onLethalDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player victim)
+                || event.getFinalDamage() < victim.getHealth()) {
+            return;
+        }
+        Player attacker = null;
+        if (event instanceof EntityDamageByEntityEvent byEntity) {
+            Entity damager = byEntity.getDamager();
+            if (damager instanceof Player p) {
+                attacker = p;
+            } else if (damager instanceof Projectile projectile && projectile.getShooter() instanceof Player p) {
+                attacker = p;
+            }
+        }
+        if (plugin.war().handleLethalDamage(victim, attacker)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onDeath(PlayerDeathEvent event) {
         Player victim = event.getEntity();
-        Player killer = victim.getKiller();
-        if (killer != null && !killer.getUniqueId().equals(victim.getUniqueId())) {
-            plugin.war().onKill(killer, victim);
-        } else {
-            plugin.war().onDeath(victim);
+        if (!plugin.war().interceptDeath(event)) {
+            Player killer = victim.getKiller();
+            if (killer != null && !killer.getUniqueId().equals(victim.getUniqueId())) {
+                plugin.war().onKill(killer, victim);
+            }
+            return;
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onRespawn(PlayerRespawnEvent event) {
-        plugin.syncDelayed(() -> plugin.war().onRespawn(event.getPlayer()), 1L);
+        plugin.syncDelayed(() -> {
+            Player player = event.getPlayer();
+            if (player.isOnline()) {
+                plugin.war().onRespawn(player);
+            }
+        }, 1L);
     }
 }

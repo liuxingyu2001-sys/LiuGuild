@@ -31,6 +31,12 @@ public final class WarMode {
     public int teamSize = 10;
     public int minMembers = 1;
     public int minLevel = 1;
+    /** 每名参赛者的初始生命次数（含当前这条命）。 */
+    public int livesPerPlayer = 3;
+    /** 队伍人数不等时，双方总生命池按较小一队的人数归一。 */
+    public boolean balanceTeamLives = true;
+    /** 复活回到己方出生点；0 秒表示立即复活。 */
+    public int respawnDelaySeconds = 3;
 
     // ---- 节奏 ----
     public int prepareSeconds = 30;
@@ -49,11 +55,11 @@ public final class WarMode {
     /** 覆盖竞技场/全局的承办服；留空 = 使用竞技场或全局设置。 */
     public String dedicatedServer = "";
 
-    // ---- 奖励 ----
-    public double winMoney = 5000.0;
-    public double loseMoney = 1000.0;
-    public long winPoints = 200L;
-    public long losePoints = 50L;
+    // ---- 奖励：个人金币、工会资金、通行证经验、胜方称号 ----
+    public double winPlayerMoney = 500.0;
+    public double losePlayerMoney = 100.0;
+    public long winGuildFunds = 5000L;
+    public long loseGuildFunds = 1000L;
     public int winPassXp = 500;
     public int losePassXp = 100;
     public String passId = "";
@@ -89,6 +95,9 @@ public final class WarMode {
         m.teamSize = Math.max(1, sec.getInt("team-size", m.teamSize));
         m.minMembers = Math.max(1, sec.getInt("min-members", m.minMembers));
         m.minLevel = Math.max(1, sec.getInt("min-level", m.minLevel));
+        m.livesPerPlayer = Math.max(1, Math.min(100, sec.getInt("lives.per-player", m.livesPerPlayer)));
+        m.balanceTeamLives = sec.getBoolean("lives.balance-teams", m.balanceTeamLives);
+        m.respawnDelaySeconds = Math.max(0, Math.min(60, sec.getInt("lives.respawn-delay-seconds", m.respawnDelaySeconds)));
         m.prepareSeconds = Math.max(1, sec.getInt("prepare-seconds", m.prepareSeconds));
         m.durationSeconds = Math.max(10, sec.getInt("duration-seconds", m.durationSeconds));
         m.settleSeconds = Math.max(1, sec.getInt("settle-seconds", m.settleSeconds));
@@ -98,12 +107,14 @@ public final class WarMode {
         m.allowSpectators = sec.getBoolean("allow-spectators", m.allowSpectators);
         m.arena = sec.getString("arena", m.arena);
         m.dedicatedServer = sec.getString("dedicated-server", m.dedicatedServer);
-        m.winMoney = sec.getDouble("rewards.win-money", m.winMoney);
-        m.loseMoney = sec.getDouble("rewards.lose-money", m.loseMoney);
-        m.winPoints = sec.getLong("rewards.win-points", m.winPoints);
-        m.losePoints = sec.getLong("rewards.lose-points", m.losePoints);
-        m.winPassXp = sec.getInt("rewards.win-pass-xp", m.winPassXp);
-        m.losePassXp = sec.getInt("rewards.lose-pass-xp", m.losePassXp);
+        m.winPlayerMoney = Math.max(0, sec.getDouble("rewards.win-player-money", m.winPlayerMoney));
+        m.losePlayerMoney = Math.max(0, sec.getDouble("rewards.lose-player-money", m.losePlayerMoney));
+        m.winGuildFunds = Math.max(0, sec.getLong("rewards.win-guild-funds",
+                (long) sec.getDouble("rewards.win-money", m.winGuildFunds)));
+        m.loseGuildFunds = Math.max(0, sec.getLong("rewards.lose-guild-funds",
+                (long) sec.getDouble("rewards.lose-money", m.loseGuildFunds)));
+        m.winPassXp = Math.max(0, sec.getInt("rewards.win-pass-xp", m.winPassXp));
+        m.losePassXp = Math.max(0, sec.getInt("rewards.lose-pass-xp", m.losePassXp));
         m.passId = sec.getString("rewards.pass-id", m.passId);
         m.winTitleId = Math.max(0, sec.getInt("rewards.win-title-id", m.winTitleId));
         m.broadcastQueue = sec.getBoolean("broadcast-queue", m.broadcastQueue);
@@ -131,6 +142,9 @@ public final class WarMode {
         c.teamSize = teamSize;
         c.minMembers = minMembers;
         c.minLevel = minLevel;
+        c.livesPerPlayer = livesPerPlayer;
+        c.balanceTeamLives = balanceTeamLives;
+        c.respawnDelaySeconds = respawnDelaySeconds;
         c.prepareSeconds = prepareSeconds;
         c.durationSeconds = durationSeconds;
         c.settleSeconds = settleSeconds;
@@ -140,10 +154,10 @@ public final class WarMode {
         c.allowSpectators = allowSpectators;
         c.arena = arena;
         c.dedicatedServer = dedicatedServer;
-        c.winMoney = winMoney;
-        c.loseMoney = loseMoney;
-        c.winPoints = winPoints;
-        c.losePoints = losePoints;
+        c.winPlayerMoney = winPlayerMoney;
+        c.losePlayerMoney = losePlayerMoney;
+        c.winGuildFunds = winGuildFunds;
+        c.loseGuildFunds = loseGuildFunds;
         c.winPassXp = winPassXp;
         c.losePassXp = losePassXp;
         c.passId = passId;
