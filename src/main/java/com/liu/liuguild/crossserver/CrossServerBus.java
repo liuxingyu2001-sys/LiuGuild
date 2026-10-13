@@ -233,22 +233,34 @@ public final class CrossServerBus {
     }
 
     public boolean isQueued(String guildId) {
-        Double score = bridge.withJedis(jedis -> jedis.zscore(bridge.keyWarQueue(), guildId));
-        return score != null;
+        Boolean queued = bridge.withJedis(jedis -> {
+            if (!jedis.exists(bridge.keyWarQueueMeta(guildId))) {
+                // 元数据已过期（如所在子服崩溃）：清理残留在有序集合中的条目。
+                jedis.zrem(bridge.keyWarQueue(), guildId);
+                return false;
+            }
+            return jedis.zscore(bridge.keyWarQueue(), guildId) != null;
+        });
+        return Boolean.TRUE.equals(queued);
     }
 
-    /** 队列快照（按入队时间升序）：List of [guildId, metaMap]。 */
+    /** 队列快照（按入队时间升序）：List of [guildId, metaMap]。同时清理已过期的条目。 */
     public List<Map<String, String>> queueSnapshot() {
         List<Map<String, String>> out = new ArrayList<>();
         bridge.withJedis(jedis -> {
             List<String> ids = new ArrayList<>(jedis.zrange(bridge.keyWarQueue(), 0, -1));
+            List<String> stale = new ArrayList<>();
             for (String id : ids) {
                 Map<String, String> meta = jedis.hgetAll(bridge.keyWarQueueMeta(id));
                 if (meta.isEmpty()) {
+                    stale.add(id);
                     continue;
                 }
                 meta.put("guildId", id);
                 out.add(meta);
+            }
+            if (!stale.isEmpty()) {
+                jedis.zrem(bridge.keyWarQueue(), stale.toArray(new String[0]));
             }
             return null;
         });

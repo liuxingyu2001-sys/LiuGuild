@@ -29,3 +29,13 @@ settings:
 # 本服在群组中的唯一标识（每台子服必须不同）。
 # 建议留空并在 plugins/LiuGuild/server.yml 里覆盖。
 server-id: ""
+
+# 可选插件钩子（未安装对应插件时自动跳过，不影响启动）。
+hooks:
+  mcmmo:
+    # mcMMO 兼容总开关，默认开启。
+    enabled: true
+    # 工会战期间静默屏蔽 mcMMO 技能/能力（对参赛者生效，保证公平竞技）。
+    suppress-abilities-in-war: true
+    # 工会战期间静默屏蔽 mcMMO 技能经验（默认关闭）。
+    suppress-xp-in-war: false

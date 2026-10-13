@@ -76,6 +76,7 @@ public final class LiuGuild extends JavaPlugin {
     private PlayerTitleHook playerTitle;
     private LuckyPeachesHook luckyPeaches;
     private NotBountiesHook notBounties;
+    private com.liu.liuguild.hook.McMmoHook mcmmo;
 
     private BukkitTask heartbeatTask;
     private BukkitTask configWatchTask;
@@ -122,6 +123,7 @@ public final class LiuGuild extends JavaPlugin {
         playerTitle = safe(PlayerTitleHook::new);
         luckyPeaches = safe(LuckyPeachesHook::new);
         notBounties = safe(() -> new NotBountiesHook(this));
+        mcmmo = safe(() -> new com.liu.liuguild.hook.McMmoHook(this));
 
         // 核心管理器
         guilds = new GuildManager(this);
@@ -147,6 +149,7 @@ public final class LiuGuild extends JavaPlugin {
         bus.startAsync();
 
         new com.liu.liuguild.listener.GuildTaskListener(this).start();
+        if (mcmmo != null) mcmmo.register();
         guildChat = new GuildChatHook(this);
         guildChat.start();
         GuildAPI.init(this);
@@ -352,6 +355,10 @@ public final class LiuGuild extends JavaPlugin {
 
     public NotBountiesHook notBounties() {
         return notBounties;
+    }
+
+    public com.liu.liuguild.hook.McMmoHook mcmmo() {
+        return mcmmo;
     }
 
     /** 本服 server-id（config.yml 或 server.yml 覆盖）。 */

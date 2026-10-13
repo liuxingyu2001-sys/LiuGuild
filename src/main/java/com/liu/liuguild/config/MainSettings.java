@@ -23,6 +23,14 @@ public final class MainSettings {
     /** Redis 不可用时是否自动降级为单服模式。 */
     public boolean localFallback = true;
 
+    // ---- 可选插件钩子 ----
+    /** mcMMO 兼容总开关。 */
+    public boolean mcmmoEnabled = true;
+    /** 工会战期间静默屏蔽 mcMMO 技能/能力。 */
+    public boolean mcmmoSuppressAbilities = true;
+    /** 工会战期间静默屏蔽 mcMMO 技能经验。 */
+    public boolean mcmmoSuppressXp = false;
+
     public static MainSettings parse(FileConfiguration c) {
         MainSettings s = new MainSettings();
         s.language = c.getString("settings.language", s.language);
@@ -40,6 +48,9 @@ public final class MainSettings {
         s.redisChannel = sanitize(c.getString("cross-server.redis.channel", s.redisChannel), "liuguild");
         s.transferEnabled = c.getBoolean("cross-server.transfer.enabled", s.transferEnabled);
         s.heartbeatSeconds = clamp(c.getInt("cross-server.heartbeat-seconds", s.heartbeatSeconds), 2, 60);
+        s.mcmmoEnabled = c.getBoolean("hooks.mcmmo.enabled", s.mcmmoEnabled);
+        s.mcmmoSuppressAbilities = c.getBoolean("hooks.mcmmo.suppress-abilities-in-war", s.mcmmoSuppressAbilities);
+        s.mcmmoSuppressXp = c.getBoolean("hooks.mcmmo.suppress-xp-in-war", s.mcmmoSuppressXp);
         return s;
     }
 

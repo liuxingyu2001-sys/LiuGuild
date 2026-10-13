@@ -21,6 +21,18 @@
 - `deliverPrivate(...)`：私聊投递。
 - 仅在主线程调用；未安装时回退到 Bukkit 广播。
 
+## mcMMO（技能静默屏蔽）
+
+对应 mcMMO 2.2.x，仅使用其公开事件，不修改 mcMMO 本体。
+
+- 工会战期间对**参赛者**静默屏蔽 mcMMO 技能/能力：取消 `McMMOPlayerAbilityActivateEvent`。
+- 可选屏蔽技能经验：将 `McMMOPlayerPreXpGainEvent` 的经验置 0（默认关闭）。
+- 配置在 `config.yml` 的 `hooks.mcmmo`：
+  - `enabled`（默认 `true`）总开关；
+  - `suppress-abilities-in-war`（默认 `true`）；
+  - `suppress-xp-in-war`（默认 `false`）。
+- 旁观者与未参赛玩家不受影响；未安装 mcMMO 时完全跳过。
+
 ## liupass（通行证经验）
 
 - `addXp(UUID, int)` / `addXp(UUID, String passId, int)`：工会战胜利/失败按模式配置发放通行证经验。
