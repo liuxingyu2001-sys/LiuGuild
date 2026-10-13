@@ -687,6 +687,7 @@ public final class WarManager implements GuildModule {
                             }
                             arena = world;
                             war.arenaWorld(world.worldName());
+                            applyWorldSettings(def, world.world());
                             beginPrepare(war);
                         });
                     });
@@ -701,8 +702,53 @@ public final class WarManager implements GuildModule {
                 cancelWar(war, "war-arena-failed");
                 return;
             }
+            applyWorldSettings(def, world);
             war.arenaWorld(world.getName());
             beginPrepare(war);
+        }
+    }
+
+    /** 应用竞技场世界设置（gamerule / 时间 / 天气 / 难度），全部可自定义。 */
+    @SuppressWarnings({"unchecked", "rawtypes", "deprecation"})
+    private void applyWorldSettings(ArenaDef def, World world) {
+        if (def == null || world == null) {
+            return;
+        }
+        ArenaDef.TempWorld tw = def.tempWorld;
+        try {
+            for (Map.Entry<String, Boolean> e : tw.gamerules.entrySet()) {
+                org.bukkit.GameRule rule = org.bukkit.GameRule.getByName(e.getKey());
+                if (rule != null) {
+                    world.setGameRule(rule, e.getValue());
+                } else {
+                    plugin.getLogger().warning("未知 gamerule: " + e.getKey() + "（竞技场 " + def.id + "）");
+                }
+            }
+            if (tw.time >= 0) {
+                world.setTime(tw.time);
+            }
+            if (tw.weather != null && !tw.weather.isBlank()) {
+                switch (tw.weather.toLowerCase(java.util.Locale.ROOT)) {
+                    case "clear" -> {
+                        world.setStorm(false);
+                        world.setThundering(false);
+                    }
+                    case "rain" -> {
+                        world.setStorm(true);
+                        world.setThundering(false);
+                    }
+                    case "thunder" -> {
+                        world.setStorm(true);
+                        world.setThundering(true);
+                    }
+                    default -> plugin.getLogger().warning("未知天气: " + tw.weather);
+                }
+            }
+            if (tw.difficulty != null && !tw.difficulty.isBlank()) {
+                world.setDifficulty(org.bukkit.Difficulty.valueOf(tw.difficulty.toUpperCase(java.util.Locale.ROOT)));
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("应用竞技场世界设置失败（" + def.id + "）: " + t.getMessage());
         }
     }
 
@@ -1045,7 +1091,7 @@ public final class WarManager implements GuildModule {
 
     private void leaveLocal(UUID uuid) {
         Player p = plugin.player(uuid);
-        returnHome(uuid, p);
+        finishTeleport(uuid, p);
         restoreSnapshot(uuid, p);
         if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
             if (p != null) {
@@ -1067,7 +1113,7 @@ public final class WarManager implements GuildModule {
     private void leaveSpectator(UUID uuid) {
         spectators.remove(uuid);
         Player p = plugin.player(uuid);
-        returnHome(uuid, p);
+        finishTeleport(uuid, p);
         restoreSnapshot(uuid, p);
         if (p != null && plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
             plugin.luckyPeaches().exit(p);
@@ -1088,6 +1134,47 @@ public final class WarManager implements GuildModule {
             player.teleport(home);
         } else if (player.getLocation().distanceSquared(home) > 4.0) {
             player.teleport(home);
+        }
+    }
+
+    /** 战后处理：优先统一集合点，其次按配置自动返回原位。 */
+    private void finishTeleport(UUID uuid, Player player) {
+        if (player == null) {
+            return;
+        }
+        ArenaDef def = currentArena != null ? currentArena
+                : plugin.settings().arena(mode(conf().defaultMode).arena);
+        ArenaDef.AfterWar aw = def.afterWar;
+
+        Location destination = null;
+        if (aw.endSpawnEnabled) {
+            World world = aw.endSpawnWorld != null && !aw.endSpawnWorld.isBlank()
+                    ? Bukkit.getWorld(aw.endSpawnWorld)
+                    : arenaWorld();
+            if (world == null) {
+                world = arenaWorld();
+            }
+            if (world != null) {
+                destination = aw.endSpawn.toLocation(world);
+            }
+        } else if (aw.autoReturn) {
+            destination = returnLoc.get(uuid);
+        }
+
+        if (destination == null) {
+            return; // 不返回也不设集合点：保留在原位（仅当世界被保留时安全）
+        }
+        final Location target = destination;
+        // 仅当世界不会被销毁（固定世界）时才延迟，避免玩家滞留在被销毁的世界
+        long delay = arena == null ? Math.max(0, aw.returnDelaySeconds) * 20L : 0L;
+        if (delay > 0) {
+            plugin.syncDelayed(() -> {
+                if (player.isOnline()) {
+                    player.teleport(target);
+                }
+            }, delay);
+        } else {
+            player.teleport(target);
         }
     }
 

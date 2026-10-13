@@ -9,6 +9,10 @@
 #            留空则使用 world + 下方坐标的固定场地
 #  spawn-* : 精确坐标与朝向（x / y / z / yaw / pitch）
 #  管理员可用 /guildadmin arena <id> setspawn <a|b|spec> 现场设置坐标
+#
+#  临时世界（temporary-world）：environment / keep-on-end / name-format /
+#    gamerules / time / weather / difficulty 均可自定义。
+#  战后（after-war）：auto-return / return-delay-seconds / end-spawn（可指定世界）。
 # ==========================================================
 
 # 动态创建竞技场世界前是否预热区块
@@ -30,6 +34,41 @@ arenas:
     spawn-a:         { x: 0.5,  y: 70.0, z: 0.5,  yaw: 0.0,   pitch: 0.0 }
     spawn-b:         { x: 20.5, y: 70.0, z: 0.5,  yaw: 180.0, pitch: 0.0 }
     spawn-spectator: { x: 10.5, y: 80.0, z: 10.5, yaw: 0.0,   pitch: 30.0 }
+
+    # 临时（动态）世界设置：仅在 template 生效且安装 liudungeon 时使用
+    temporary-world:
+      # 结束后是否保留世界（false = 销毁）
+      keep-on-end: false
+      # 环境：NORMAL / NETHER / THE_END
+      environment: NORMAL
+      # 动态世界名格式，{id} 替换为竞技场 id
+      name-format: "guild_arena_{id}"
+      # 只能通过 liudungeon 模板决定地形；以下为可选的附加设置
+      time: -1                 # 固定世界时间（-1 = 不修改）
+      weather: ""              # clear / rain / thunder（空 = 不修改）
+      difficulty: ""           # PEACEFUL / EASY / NORMAL / HARD（空 = 不修改）
+      gamerules:               # 战斗期间应用的 gamerule
+        doDaylightCycle: false
+        doWeatherCycle: false
+        doMobSpawning: false
+        keepInventory: true
+        fallDamage: false
+
+    # 战斗结束后的返回 / 集合行为
+    after-war:
+      # 自动把玩家送回参赛前位置
+      auto-return: true
+      # 返回前延迟（秒）；仅固定世界生效（动态世界销毁前会立即返回）
+      return-delay-seconds: 0
+      # 统一集合点（优先级高于 auto-return）
+      end-spawn:
+        enabled: false
+        world: ""              # 留空 = 使用竞技场世界
+        x: 0.5
+        y: 70.0
+        z: 0.5
+        yaw: 0.0
+        pitch: 0.0
 
   # -------------------- 动态场地：liudungeon 模板 --------------------
   # dungeon:

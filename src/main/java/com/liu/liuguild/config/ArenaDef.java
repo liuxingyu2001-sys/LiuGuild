@@ -30,6 +30,43 @@ public final class ArenaDef {
     public Spawn spawnB = new Spawn(20.5, 70, 0.5, 180, 0);
     public Spawn spawnSpectator = new Spawn(10.5, 80, 10.5, 0, 30);
 
+    /** 临时（动态）世界设置，仅在 template 生效且有 liudungeon 时使用。 */
+    public final TempWorld tempWorld = new TempWorld();
+    /** 战斗结束后的返回 / 集合行为。 */
+    public final AfterWar afterWar = new AfterWar();
+
+    /** 临时世界（动态模板）设置。 */
+    public static final class TempWorld {
+        /** 结束后是否保留该世界（false = 销毁）。 */
+        public boolean keepOnEnd = false;
+        /** 环境：NORMAL / NETHER / THE_END。 */
+        public String environment = "NORMAL";
+        /** 动态世界名格式，{id} 会被替换为竞技场 id。 */
+        public String nameFormat = "guild_arena_{id}";
+        /** 战斗期间应用的 gamerule（键为 gamerule 名称）。 */
+        public final java.util.Map<String, Boolean> gamerules = new java.util.LinkedHashMap<>();
+        /** 固定世界时间（-1 = 不修改）。 */
+        public long time = -1;
+        /** 天气：clear / rain / thunder（空 = 不修改）。 */
+        public String weather = "";
+        /** 难度：PEACEFUL / EASY / NORMAL / HARD（空 = 不修改）。 */
+        public String difficulty = "";
+    }
+
+    /** 战后行为。 */
+    public static final class AfterWar {
+        /** 是否自动把玩家送回参赛前位置。 */
+        public boolean autoReturn = true;
+        /** 返回前延迟（秒）。 */
+        public int returnDelaySeconds = 0;
+        /** 是否启用统一集合点（优先级高于 auto-return）。 */
+        public boolean endSpawnEnabled = false;
+        /** 集合点世界名；留空 = 使用竞技场世界。 */
+        public String endSpawnWorld = "";
+        /** 统一集合点坐标。 */
+        public Spawn endSpawn = new Spawn(0.5, 70, 0.5, 0, 0);
+    }
+
     public static ArenaDef parse(String id, ConfigurationSection sec) {
         ArenaDef a = new ArenaDef();
         a.id = id;
@@ -44,7 +81,41 @@ public final class ArenaDef {
         a.spawnA = readSpawn(sec.getConfigurationSection("spawn-a"), a.spawnA);
         a.spawnB = readSpawn(sec.getConfigurationSection("spawn-b"), a.spawnB);
         a.spawnSpectator = readSpawn(sec.getConfigurationSection("spawn-spectator"), a.spawnSpectator);
+        readTempWorld(sec.getConfigurationSection("temporary-world"), a.tempWorld);
+        readAfterWar(sec.getConfigurationSection("after-war"), a.afterWar);
         return a;
+    }
+
+    private static void readTempWorld(ConfigurationSection sec, TempWorld tw) {
+        if (sec == null) {
+            return;
+        }
+        tw.keepOnEnd = sec.getBoolean("keep-on-end", tw.keepOnEnd);
+        tw.environment = sec.getString("environment", tw.environment);
+        tw.nameFormat = sec.getString("name-format", tw.nameFormat);
+        tw.time = sec.getLong("time", tw.time);
+        tw.weather = sec.getString("weather", tw.weather);
+        tw.difficulty = sec.getString("difficulty", tw.difficulty);
+        ConfigurationSection rules = sec.getConfigurationSection("gamerules");
+        if (rules != null) {
+            for (String key : rules.getKeys(false)) {
+                tw.gamerules.put(key, rules.getBoolean(key));
+            }
+        }
+    }
+
+    private static void readAfterWar(ConfigurationSection sec, AfterWar aw) {
+        if (sec == null) {
+            return;
+        }
+        aw.autoReturn = sec.getBoolean("auto-return", aw.autoReturn);
+        aw.returnDelaySeconds = Math.max(0, sec.getInt("return-delay-seconds", aw.returnDelaySeconds));
+        ConfigurationSection end = sec.getConfigurationSection("end-spawn");
+        if (end != null) {
+            aw.endSpawnEnabled = end.getBoolean("enabled", aw.endSpawnEnabled);
+            aw.endSpawnWorld = end.getString("world", aw.endSpawnWorld);
+            aw.endSpawn = readSpawn(end, aw.endSpawn);
+        }
     }
 
     public boolean hasTemplate() {
