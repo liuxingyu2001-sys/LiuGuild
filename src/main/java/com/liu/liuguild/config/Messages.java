@@ -1,0 +1,104 @@
+package com.liu.liuguild.config;
+
+import com.liu.liuguild.util.Text;
+import net.kyori.adventure.text.Component;
+import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.plugin.Plugin;
+
+import java.io.File;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.util.HashMap;
+import java.util.Map;
+
+/** messages.yml 加载与渲染（支持多语言段）。 */
+public final class Messages {
+
+    private final Plugin plugin;
+    private final File root;
+    private volatile String language = "zh_CN";
+    private volatile Map<String, String> table = new HashMap<>();
+
+    public Messages(Plugin plugin, File root) {
+        this.plugin = plugin;
+        this.root = root;
+    }
+
+    /** 若共享目录里没有 messages.yml 则复制内置默认。 */
+    public void copyDefault() {
+        File target = new File(root, "messages.yml");
+        if (target.exists()) {
+            return;
+        }
+        try (InputStream in = plugin.getResource("messages.yml")) {
+            if (in == null) {
+                return;
+            }
+            root.mkdirs();
+            Files.copy(in, target.toPath());
+        } catch (Exception e) {
+            plugin.getLogger().warning("复制 messages.yml 失败: " + e.getMessage());
+        }
+    }
+
+    public void reload(String language) {
+        this.language = language == null || language.isBlank() ? "zh_CN" : language;
+        Map<String, String> map = new HashMap<>();
+        File file = new File(root, "messages.yml");
+        YamlConfiguration yml = file.exists()
+                ? YamlConfiguration.loadConfiguration(file)
+                : YamlConfiguration.loadConfiguration(
+                        new java.io.InputStreamReader(java.util.Objects.requireNonNull(
+                                plugin.getResource("messages.yml")), java.nio.charset.StandardCharsets.UTF_8));
+        ConfigurationSection sec = yml.getConfigurationSection(this.language);
+        if (sec == null) {
+            sec = yml.getConfigurationSection("zh_CN");
+        }
+        if (sec != null) {
+            for (String key : sec.getKeys(true)) {
+                if (sec.isConfigurationSection(key)) {
+                    continue;
+                }
+                Object v = sec.get(key);
+                if (v != null) {
+                    map.put(key, String.valueOf(v));
+                }
+            }
+        }
+        this.table = map;
+    }
+
+    public String language() {
+        return language;
+    }
+
+    public String raw(String key) {
+        String v = table.get(key);
+        return v == null ? key : v;
+    }
+
+    public Component component(String key, Object... kv) {
+        return Text.fmt(raw(key), kv);
+    }
+
+    /** 带前缀（prefix）的组件。 */
+    public Component prefixed(String key, Object... kv) {
+        return Text.fmt(raw("prefix") + raw(key), kv);
+    }
+
+    public void send(CommandSender to, String key, Object... kv) {
+        if (to == null) {
+            return;
+        }
+        to.sendMessage(prefixed(key, kv));
+    }
+
+    public void sendRaw(CommandSender to, String key, Object... kv) {
+        if (to == null) {
+            return;
+        }
+        to.sendMessage(component(key, kv));
+    }
+}

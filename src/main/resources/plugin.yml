@@ -1,0 +1,59 @@
+name: LiuGuild
+version: '${project.version}'
+main: com.liu.liuguild.LiuGuild
+api-version: '1.21'
+authors: [liuxingyu2001]
+description: 工会插件 —— 工会管理 / 跨服工会战 / 竞技场 / 奖励
+website: 'https://github.com/liuxingyu2001'
+folia-supported: false
+
+# 软依赖：缺少任意一个都不影响主流程启动，仅对应功能降级
+softdepend:
+  - liudungeon
+  - LiuChat
+  - liupass
+  - Vault
+  - PlaceholderAPI
+  - LuckPerms
+
+# 依赖库交给 Paper 自己下载并挂到本插件类加载器，不打进 jar。
+# 版本刻意与服务器 libraries/ 里已有坐标保持一致，避免重复下载与版本冲突。
+libraries:
+  - com.zaxxer:HikariCP:5.1.0
+  - com.mysql:mysql-connector-j:8.0.33
+  - org.xerial:sqlite-jdbc:3.49.1.0
+  - redis.clients:jedis:4.3.1
+  - org.apache.commons:commons-pool2:2.11.1
+
+commands:
+  guild:
+    description: 工会主命令
+    usage: /guild help
+    aliases: [g, gh, gonghui]
+  guildadmin:
+    description: 工会管理命令
+    usage: /guildadmin help
+    permission: liuguild.admin
+
+permissions:
+  liuguild.use:
+    description: 使用工会基础功能
+    default: true
+  liuguild.create:
+    description: 创建工会
+    default: true
+  liuguild.create.free:
+    description: 免创建费用
+    default: op
+  liuguild.war:
+    description: 发起 / 参与工会战（仍需会长或官员身份）
+    default: true
+  liuguild.admin:
+    description: 工会管理总权限
+    default: op
+    children:
+      liuguild.admin.reload: true
+      liuguild.admin.disband: true
+      liuguild.admin.setlevel: true
+      liuguild.admin.setpoints: true
+      liuguild.admin.forceend: true

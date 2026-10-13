@@ -1,0 +1,124 @@
+# ==========================================================
+#  LiuGuild 消息文件（MiniMessage 格式）
+#  占位符用 {name} 形式，发送前做字符串替换。
+#  多语言：在下方并列新增语言段（如 en_US），并用 settings.language 选择。
+# ==========================================================
+zh_CN:
+  prefix: "<gradient:#3AA0FF:#8AD4FF><bold>工会</bold></gradient> <dark_gray>»</dark_gray> "
+  no-permission: "<red>你没有权限执行该操作。"
+  players-only: "<red>该命令只能由玩家执行。"
+  unknown-command: "<red>未知子命令，输入 <white>/guild help</white> 查看帮助。"
+  reload-done: "<green>配置已重载。"
+
+  # ---- 通用 ----
+  not-in-guild: "<red>你还没有加入任何工会。"
+  already-in-guild: "<red>你已加入工会 <white>{guild}</white>。"
+  guild-not-found: "<red>找不到工会 <white>{name}</white>。"
+  player-not-found: "<red>找不到玩家 <white>{player}</white>。"
+  target-not-in-guild: "<red>该玩家不在你的工会里。"
+  no-permission-rank: "<red>你在工会中的职位不足以执行该操作。"
+  cooldown: "<red>操作过于频繁，请 <white>{seconds}</white> 秒后再试。"
+
+  # ---- 创建 / 解散 ----
+  create-usage: "<red>用法：<white>/guild create <名称> <标签></white>"
+  create-name-invalid: "<red>工会名称长度需在 {min}~{max} 个字符之间（不含颜色代码）。"
+  create-tag-invalid: "<red>工会标签长度需在 {min}~{max} 个字符之间（不含颜色代码）。"
+  create-name-taken: "<red>工会名称 <white>{name}</white> 已被占用。"
+  create-tag-taken: "<red>工会标签 <white>{tag}</white> 已被占用。"
+  create-cost-missing: "<red>创建工会需要 <white>{cost}</white>，你的余额不足。"
+  create-success: "<green>工会 <white>{guild}</white> 创建成功！"
+  disband-confirm: "<red>解散工会不可恢复，确认请输入 <white>/guild disband confirm</white>。"
+  disband-success: "<yellow>工会 <white>{guild}</white> 已解散。"
+  disband-broadcast: "<gray>工会 <white>{guild}</white> 已被会长解散。"
+
+  # ---- 加入 / 邀请 ----
+  join-usage: "<red>用法：<white>/guild join <名称></white>"
+  join-closed: "<red>工会 <white>{guild}</white> 当前不开放加入，请联系管理员邀请。"
+  join-full: "<red>工会 <white>{guild}</white> 成员已满。"
+  join-success: "<green>你加入了工会 <white>{guild}</white>。"
+  join-notify-members: "<gray>玩家 <white>{player}</white> 加入了工会。"
+  invite-usage: "<red>用法：<white>/guild invite <玩家></white>"
+  invite-sent: "<green>已向 <white>{player}</white> 发出工会邀请。"
+  invite-received: "<green>你收到来自工会 <white>{guild}</white> 的邀请，输入 <white>/guild accept {guild}</white> 加入。"
+  invite-none: "<red>你没有来自该工会的邀请。"
+  invite-expired: "<red>该邀请已过期。"
+  accept-success: "<green>你接受了 <white>{guild}</white> 的邀请。"
+  accept-notify-members: "<gray>玩家 <white>{player}</white> 通过邀请加入了工会。"
+  deny-success: "<yellow>你拒绝了 <white>{guild}</white> 的邀请。"
+
+  # ---- 退出 / 踢人 ----
+  leave-success: "<yellow>你退出了工会 <white>{guild}</white>。"
+  leave-notify-members: "<gray>玩家 <white>{player}</white> 退出了工会。"
+  leave-leader-denied: "<red>会长不能直接退出，请先转让会长或解散工会。"
+  kick-usage: "<red>用法：<white>/guild kick <玩家></white>"
+  kick-success: "<yellow>已将 <white>{player}</white> 移出工会。"
+  kick-notify: "<red>你已被移出工会 <white>{guild}</white>。"
+  kick-leader-denied: "<red>不能踢出会长。"
+
+  # ---- 职位 ----
+  promote-success: "<green>已将 <white>{player}</white> 提升为 <white>{rank}</white>。"
+  demote-success: "<green>已将 <white>{player}</white> 降级为 <white>{rank}</white>。"
+  promote-notify: "<green>你在工会中的职位变为 <white>{rank}</white>。"
+  transfer-success: "<green>已将会长转让给 <white>{player}</white>。"
+  transfer-notify: "<green>你已成为工会 <white>{guild}</white> 的会长。"
+
+  # ---- 设置 ----
+  set-usage: "<red>用法：<white>/guild set <open|notice|desc> <内容></white>"
+  set-open: "<green>工会加入方式已设置为 <white>{value}</white>。"
+  set-notice: "<green>工会公告已更新。"
+  set-desc: "<green>工会简介已更新。"
+  set-failed: "<red>设置失败，请检查输入。"
+  notice-empty: "<gray>该工会暂无公告。"
+
+  # ---- 银行 ----
+  bank-usage: "<red>用法：<white>/guild bank <deposit|withdraw> <金额></white>"
+  bank-deposit: "<green>已存入 <white>{amount}</white> 到工会银行，当前余额 <white>{balance}</white>。"
+  bank-withdraw: "<green>已从工会银行取出 <white>{amount}</white>，当前余额 <white>{balance}</white>。"
+  bank-insufficient: "<red>工会银行余额不足。"
+  bank-money-insufficient: "<red>你的余额不足。"
+  bank-disabled: "<red>工会银行未启用。"
+  bank-notify: "<gray>玩家 <white>{player}</white> {action}了 <white>{amount}</white>。"
+
+  # ---- 信息 ----
+  info-header: "<dark_gray>―――― <white>工会 <{tag}></white> {guild} <dark_gray>――――"
+  info-body: "<gray>会长：<white>{leader}</white>　等级：<white>{level}</white>　成员：<white>{members}</white>/<white>{max}</white>"
+  info-points: "<gray>工会点数：<white>{points}</white>　战绩：<white>{wins}</white> 胜 <white>{losses}</white> 负　银行：<white>{bank}</white>"
+  info-notice: "<gray>公告：<white>{notice}</white>"
+  list-header: "<gray>工会列表（共 {count} 个）："
+  list-line: "<gray>- <white>{guild}</white> <dark_gray>[{tag}]</dark_gray> 会长 <white>{leader}</white> 成员 <white>{members}</white>"
+  stats-line: "<gray>{guild}：等级 <white>{level}</white>　点数 <white>{points}</white>　战绩 <white>{wins}</white>/<white>{losses}</white>"
+  top-header: "<gold>工会排行榜 —— {category}"
+  top-line: "<gray>#{rank} <white>{guild}</white> <dark_gray>-</dark_gray> <white>{value}</white>"
+
+  # ---- 工会战 ----
+  war-disabled: "<red>工会战当前未开启。"
+  war-queue-joined: "<green>已加入跨服工会战匹配队列，等待对手…"
+  war-queue-left: "<yellow>已退出匹配队列。"
+  war-queue-timeout: "<red>匹配超时，已自动退出队列。"
+  war-already-queued: "<red>你的工会已经在匹配队列中。"
+  war-not-queued: "<red>你的工会不在匹配队列中。"
+  war-in-progress: "<red>你的工会正在工会战中。"
+  war-match-found: "<gold>匹配成功！对手：<white>{enemy}</white>，{seconds} 秒后开战。"
+  war-countdown: "<gold>工会战即将开始：<white>{seconds}</white> 秒"
+  war-started: "<red><bold>工会战开始！<white>{guild_a}</white> VS <white>{guild_b}</white></red>"
+  war-score: "<gray>[工会战] <white>{guild_a}</white> <yellow>{score_a}</yellow> : <yellow>{score_b}</yellow> <white>{guild_b}</white>"
+  war-kill: "<gray>{killer} 击杀了 {victim} <dark_gray>(+{points})</dark_gray>"
+  war-ended: "<gold>工会战结束！<white>{winner}</white> 获胜（{score_a} : {score_b}）"
+  war-draw: "<gold>工会战平局！（{score_a} : {score_b}）"
+  war-end-early: "<yellow>工会战因人数不足提前结束。"
+  war-reward-win: "<green>工会战胜利奖励：<white>{money}</white> 金币、<white>{points}</white> 工会点数。"
+  war-reward-lose: "<gray>工会战参与奖励：<white>{money}</white> 金币、<white>{points}</white> 工会点数。"
+  war-need-members: "<red>你的工会在线成员不足 {min} 人，无法发起工会战。"
+  war-join-usage: "<red>用法：<white>/guild war join</white>（由会长/官员在开战前发起）"
+  war-not-in-war: "<red>你的工会当前没有工会战。"
+  war-joined: "<green>你已加入出战名单，进入竞技场。"
+  war-spectate: "<gray>你以旁观者身份进入竞技场。"
+  war-arena-failed: "<red>竞技场准备失败，工会战已取消。"
+  war-transfer-failed: "<red>跨服传送失败，请稍后重试。"
+
+  # ---- 管理 ----
+  admin-usage: "<red>用法：<white>/guildadmin <reload|disband|setlevel|setpoints|forceend|info> ...</white>"
+  admin-disband: "<yellow>已强制解散工会 <white>{guild}</white>。"
+  admin-setlevel: "<green>已将工会 <white>{guild}</white> 等级设为 <white>{level}</white>。"
+  admin-setpoints: "<green>已将工会 <white>{guild}</white> 点数设为 <white>{points}</white>。"
+  admin-forceend: "<green>已强制结束工会战 <white>{war}</white>。"
