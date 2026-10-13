@@ -107,6 +107,32 @@ class GuildRepositoryTest {
     }
 
     @Test
+    void malformedMemberRowIsSkippedInsteadOfBreakingLoad() throws Exception {
+        String id = UUID.randomUUID().toString();
+        Guild g = guild(id, "Epsilon", "EP");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", id, GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+
+        try (var c = db.source().getConnection();
+             var ps = c.prepareStatement("INSERT INTO `guild_members` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)")) {
+            ps.setString(1, "not-a-uuid");
+            ps.setString(2, "Corrupt");
+            ps.setString(3, id);
+            ps.setString(4, "MEMBER");
+            ps.setLong(5, System.currentTimeMillis());
+            ps.setLong(6, 0);
+            ps.setInt(7, 0);
+            ps.setInt(8, 0);
+            ps.executeUpdate();
+        }
+
+        // The corrupt row must not throw nor be returned.
+        assertEquals(1, repo.loadMembers(id).size());
+        assertEquals(1, repo.loadMembers().size());
+    }
+
+    @Test
     void homesPersistAndDeletePerSlot() throws Exception {
         String id = UUID.randomUUID().toString();
         Guild g = guild(id, "Delta", "DE");

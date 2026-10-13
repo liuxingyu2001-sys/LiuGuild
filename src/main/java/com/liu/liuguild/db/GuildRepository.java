@@ -256,7 +256,10 @@ public final class GuildRepository {
              PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                out.add(mapMember(rs));
+                GuildMember member = mapMember(rs);
+                if (member != null) {
+                    out.add(member);
+                }
             }
         }
         return out;
@@ -270,7 +273,10 @@ public final class GuildRepository {
             ps.setString(1, guildId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    out.add(mapMember(rs));
+                    GuildMember member = mapMember(rs);
+                    if (member != null) {
+                        out.add(member);
+                    }
                 }
             }
         }
@@ -482,13 +488,25 @@ public final class GuildRepository {
     // 映射
     // =====================================================================
 
+    /** 容错解析 UUID；格式非法时返回 null 而不抛异常。 */
+    private static UUID parseUuid(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     private Guild mapGuild(ResultSet rs) throws SQLException {
         String leader = rs.getString("leader_uuid");
         Guild g = new Guild(
                 rs.getString("guild_id"),
                 rs.getString("name"),
                 rs.getString("tag"),
-                leader == null || leader.isBlank() ? null : UUID.fromString(leader),
+                leader == null || leader.isBlank() ? null : parseUuid(leader),
                 rs.getString("leader_name"),
                 rs.getString("description"),
                 rs.getString("notice"),
@@ -510,8 +528,13 @@ public final class GuildRepository {
     }
 
     private GuildMember mapMember(ResultSet rs) throws SQLException {
+        UUID uuid = parseUuid(rs.getString("player_uuid"));
+        if (uuid == null) {
+            // 脏数据：无法解析 UUID 的成员行直接跳过（否则会拖垮整份缓存加载）
+            return null;
+        }
         return new GuildMember(
-                UUID.fromString(rs.getString("player_uuid")),
+                uuid,
                 rs.getString("player_name"),
                 rs.getString("guild_id"),
                 GuildRank.parse(rs.getString("rank")),

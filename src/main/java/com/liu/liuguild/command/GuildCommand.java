@@ -134,7 +134,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(player, "not-in-guild");
             return;
         }
-        if (!g.leaderUuid().equals(player.getUniqueId())) {
+        if (g.leaderUuid() == null || !g.leaderUuid().equals(player.getUniqueId())) {
             plugin.messages().send(player, "no-permission-rank");
             return;
         }
