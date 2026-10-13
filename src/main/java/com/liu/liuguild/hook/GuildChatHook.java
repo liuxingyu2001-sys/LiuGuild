@@ -29,6 +29,8 @@ public final class GuildChatHook implements Listener {
     private final Set<String> owned = new HashSet<>();
     private final Map<UUID, PermissionAttachment> attachments = new HashMap<>();
     private final Map<UUID, String> previous = new HashMap<>();
+    /** 上次同步时的「在线玩家→频道」签名；无变化时跳过重复的反射订阅。 */
+    private volatile String lastSignature = null;
 
     public GuildChatHook(LiuGuild plugin) { this.plugin = plugin; }
 
@@ -122,8 +124,37 @@ public final class GuildChatHook implements Listener {
 
     /** Main thread: reconcile membership, including changes received from other servers. */
     public void refresh() {
-        if (!available()) return;
+        if (!available()) {
+            return;
+        }
+        String current = signature();
+        if (current.equals(lastSignature)) {
+            return;
+        }
         try {
+            reconcile();
+            lastSignature = current;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            plugin.getLogger().warning("同步工会频道失败: " + e.getMessage());
+        }
+    }
+
+    /** 在线玩家与所属工会的轻量签名，用于避免每心跳重复反射同步。 */
+    private String signature() {
+        StringBuilder sb = new StringBuilder();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+            sb.append(player.getUniqueId()).append('=');
+            if (guild != null) {
+                sb.append(guild.id()).append(':').append(guild.name());
+            }
+            sb.append(';');
+        }
+        return sb.toString();
+    }
+
+    private void reconcile() throws ReflectiveOperationException {
+        {
             Set<String> needed = new HashSet<>();
             for (Player player : Bukkit.getOnlinePlayers()) {
                 Guild guild = plugin.guilds().guildOf(player.getUniqueId());
@@ -166,8 +197,6 @@ public final class GuildChatHook implements Listener {
                     for (PermissionAttachment attachment : attachments.values()) attachment.unsetPermission(permission(channel));
                 }
             }
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            plugin.getLogger().warning("同步工会频道失败: " + e.getMessage());
         }
     }
 
@@ -232,6 +261,7 @@ public final class GuildChatHook implements Listener {
         for (Player player : Bukkit.getOnlinePlayers()) forget(player);
         HandlerList.unregisterAll(this);
         owned.clear();
+        lastSignature = null;
         api = null;
     }
 }

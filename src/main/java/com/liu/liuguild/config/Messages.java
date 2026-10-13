@@ -47,27 +47,40 @@ public final class Messages {
         this.language = language == null || language.isBlank() ? "zh_CN" : language;
         Map<String, String> map = new HashMap<>();
         File file = new File(root, "messages.yml");
-        YamlConfiguration yml = file.exists()
-                ? YamlConfiguration.loadConfiguration(file)
-                : YamlConfiguration.loadConfiguration(
-                        new java.io.InputStreamReader(java.util.Objects.requireNonNull(
-                                plugin.getResource("messages.yml")), java.nio.charset.StandardCharsets.UTF_8));
+        // 先铺内置默认，再用用户文件覆盖：新增键在旧配置里也能正常显示，不会回退成键名。
+        try (java.io.InputStream in = plugin.getResource("messages.yml")) {
+            if (in != null) {
+                YamlConfiguration defaults = YamlConfiguration.loadConfiguration(
+                        new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+                collect(defaults, map);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("读取内置 messages.yml 失败: " + e.getMessage());
+        }
+        if (file.exists()) {
+            collect(YamlConfiguration.loadConfiguration(file), map);
+        }
+        this.table = map;
+    }
+
+    /** 把指定语言的键值写入 map（用户文件后写入，自然覆盖内置默认）。 */
+    private void collect(YamlConfiguration yml, Map<String, String> map) {
         ConfigurationSection sec = yml.getConfigurationSection(this.language);
         if (sec == null) {
             sec = yml.getConfigurationSection("zh_CN");
         }
-        if (sec != null) {
-            for (String key : sec.getKeys(true)) {
-                if (sec.isConfigurationSection(key)) {
-                    continue;
-                }
-                Object v = sec.get(key);
-                if (v != null) {
-                    map.put(key, String.valueOf(v));
-                }
+        if (sec == null) {
+            return;
+        }
+        for (String key : sec.getKeys(true)) {
+            if (sec.isConfigurationSection(key)) {
+                continue;
+            }
+            Object v = sec.get(key);
+            if (v != null) {
+                map.put(key, String.valueOf(v));
             }
         }
-        this.table = map;
     }
 
     public String language() {
