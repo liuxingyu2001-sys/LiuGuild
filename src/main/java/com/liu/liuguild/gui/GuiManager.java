@@ -96,6 +96,11 @@ public final class GuiManager implements GuildModule, Listener {
             openList(player, 0);
             return;
         }
+        // 优先使用可选的 Sparrow UI 引擎；失败则回退内置 GUI。
+        com.liu.liuguild.hook.SparrowUiHook sparrow = plugin.sparrowUi();
+        if (sparrow != null && sparrow.openMain(player, g)) {
+            return;
+        }
         MenuDef def = menu("main");
         if (def == null) {
             return;
@@ -364,12 +369,14 @@ public final class GuiManager implements GuildModule, Listener {
             if (action == null) {
                 return;
             }
-            currentClick = event;
+            clickRight = event.isRightClick();
+            clickShift = event.isShiftClick();
             try {
                 sound(player, Sound.UI_BUTTON_CLICK, 0.4f, 1.4f);
-                handle(player, holder, action, event);
+                handle(player, holder, action);
             } finally {
-                currentClick = null;
+                clickRight = false;
+                clickShift = false;
             }
         }
     }
@@ -381,7 +388,7 @@ public final class GuiManager implements GuildModule, Listener {
         }
     }
 
-    private void handle(Player player, Holder holder, String action, InventoryClickEvent event) {
+    private void handle(Player player, Holder holder, String action) {
         Guild g = plugin.guilds().guildOf(player.getUniqueId());
         switch (action) {
             case "noop" -> {
@@ -391,7 +398,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "war" -> openWar(player, require(g, player));
             case "settings" -> openSettings(player, require(g, player));
             case "list" -> openList(player, 0);
-            case "bank" -> bankAction(player, g, event.isRightClick());
+            case "bank" -> bankAction(player, g, clickRight);
             case "home" -> {
                 if (g == null) {
                     plugin.messages().send(player, "not-in-guild");
@@ -402,7 +409,7 @@ public final class GuiManager implements GuildModule, Listener {
                     plugin.messages().send(player, "home-unavailable");
                     return;
                 }
-                plugin.guildHome().command(player, event.isRightClick()
+                plugin.guildHome().command(player, clickRight
                         ? new String[]{"home", "set"}
                         : new String[]{"home"});
             }
@@ -570,7 +577,7 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private boolean isShiftClick() {
-        return currentClick != null && currentClick.isShiftClick();
+        return clickShift;
     }
 
     private void sound(Player player, Sound sound, float volume, float pitch) {
@@ -591,11 +598,29 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private boolean isRightClick() {
-        return currentClick != null && currentClick.isRightClick();
+        return clickRight;
     }
 
-    /** 记录当前点击事件（主线程串行，可安全暂存）。 */
-    private InventoryClickEvent currentClick;
+    /** 当前点击的右键 / Shift 状态（主线程串行，可由外部引擎在分发前设置）。 */
+    private boolean clickRight;
+    private boolean clickShift;
+
+    /**
+     * 供外部 GUI 引擎（如 Sparrow UI）复用的动作入口。
+     *
+     * @param guildId 工会 id，可为空
+     * @param page    页码（用于翻页动作）
+     */
+    public void runAction(Player player, String guildId, int page, String action, boolean right, boolean shift) {
+        clickRight = right;
+        clickShift = shift;
+        try {
+            handle(player, new Holder("external", guildId == null ? "" : guildId, page), action);
+        } finally {
+            clickRight = false;
+            clickShift = false;
+        }
+    }
 
     private void bankAction(Player player, Guild g, boolean withdraw) {
         if (g == null) {
@@ -738,6 +763,11 @@ public final class GuiManager implements GuildModule, Listener {
         return ph;
     }
 
+    /** 供外部界面引擎复用的占位符。 */
+    public Map<String, String> placeholdersFor(Guild g) {
+        return placeholders(g);
+    }
+
     private Map<String, String> basePlaceholders() {
         return new LinkedHashMap<>();
     }
@@ -756,7 +786,7 @@ public final class GuiManager implements GuildModule, Listener {
         return Math.max(0, Math.min(53, slot));
     }
 
-    private static String actionId(String buttonId) {
+    public static String actionId(String buttonId) {
         return switch (buttonId) {
             case "info" -> "noop";
             case "leave" -> "leave";

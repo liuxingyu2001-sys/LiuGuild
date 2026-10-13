@@ -15,16 +15,18 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [kit.md](kit.md) | 统一装备：多套装、快照保存、公平血量 |
 | [gui.md](gui.md) | GUI 菜单与按钮配置、点击操作 |
 | [home.md](home.md) | 工会驻地（HuskHomes 传送） |
+| [cleanup.md](cleanup.md) | 僵尸工会清理（自动/手动） |
 | [api.md](api.md) | 开放 API 与 Bukkit 事件 |
 | [placeholders.md](placeholders.md) | PlaceholderAPI 变量 |
 | [craftengine.md](craftengine.md) | CraftEngine 物品/图标集成 |
 | [hooks.md](hooks.md) | 软依赖钩子（liudungeon / LiuChat / liupass / Sparrow Sync / LuckyPeaches / PlayerTitle / NotBounties / mcMMO） |
+| [gui.md](gui.md) | GUI 菜单、Sparrow UI 界面引擎 |
 | [import.md](import.md) | 旧版 PlayerGuild 数据导入 |
 | [review-report.md](review-report.md) | 五轮深度审查报告（发现、修复、验证、遗留） |
 
 ## 快速开始
 
-1. 把 `Liu-LiuGuild-<version>.jar` 放入 `plugins/`。
+1. 把 `LiuGuild-<version>.jar` 放入 `plugins/`。
 2. 启动服务器，生成配置（`plugins/LiuGuild/`）。
 3. **单服**：`database.yml` 保持 `sqlite` 即可。
    **跨服工会战**：所有子服改用同一 `mysql`，并配置相同的 `cross-server.yml`（Redis）。
@@ -42,7 +44,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 
 ```bash
 mvn clean package -Dlicense.enabled=false
-# 产物：target/Liu-LiuGuild-<version>.jar
+# 产物：target/LiuGuild-<version>.jar
 ```
 
 - Java 21 / Paper API 1.21.1。

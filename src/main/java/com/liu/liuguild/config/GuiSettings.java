@@ -10,6 +10,8 @@ import java.util.Map;
 public final class GuiSettings {
 
     public ButtonDef filler;
+    /** 界面引擎：legacy（内置）/ auto（优先 Sparrow UI）/ sparrow（强制）。 */
+    public String engine = "auto";
     public final Map<String, MenuDef> menus = new LinkedHashMap<>();
 
     public static GuiSettings parse(FileConfiguration c) {
@@ -19,8 +21,9 @@ public final class GuiSettings {
             return s;
         }
         s.filler = ButtonDef.parse(root.getConfigurationSection("filler"), -1);
+        s.engine = root.getString("engine", s.engine);
         for (String key : root.getKeys(false)) {
-            if ("filler".equals(key)) {
+            if ("filler".equals(key) || "engine".equals(key)) {
                 continue;
             }
             ConfigurationSection menu = root.getConfigurationSection(key);

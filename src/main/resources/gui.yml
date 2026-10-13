@@ -5,6 +5,8 @@
 # ==========================================================
 
 gui:
+  # 界面引擎：legacy = 内置库存 GUI；auto = 优先 Sparrow UI，失败自动回退；sparrow = 强制 Sparrow UI
+  engine: auto
   # 通用填充物
   filler:
     enabled: true

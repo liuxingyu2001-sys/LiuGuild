@@ -30,6 +30,10 @@
             <id>placeholderapi</id>
             <url>https://repo.extendedclip.com/content/repositories/placeholderapi/</url>
         </repository>
+        <repository>
+            <id>momirealms</id>
+            <url>https://repo.momirealms.net/snapshots</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -121,6 +125,14 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- ===== Sparrow UI：随插件打包并 relocate（见 shade 配置） ===== -->
+        <dependency>
+            <groupId>net.momirealms</groupId>
+            <artifactId>sparrow-ui</artifactId>
+            <version>beta.38</version>
+            <scope>compile</scope>
+        </dependency>
+
         <!-- ===== 测试 ===== -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -165,6 +177,39 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
+            </plugin>
+            <!-- 把 Sparrow UI 打入插件并重定位，避免与其他插件副本冲突 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <relocations>
+                                <relocation>
+                                    <pattern>net.momirealms.sparrow.ui</pattern>
+                                    <shadedPattern>com.liu.liuguild.libs.sparrow.ui</shadedPattern>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

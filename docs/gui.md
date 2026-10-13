@@ -1,7 +1,23 @@
 # GUI
 
 所有菜单在 `gui.yml` 中配置。材质支持原生物质或 `CE:命名空间:id`（CraftEngine）。
-名称与 Lore 支持 `{占位符}` 与 PAPI `%xxx%`，渲染时替换（MiniMessage 格式）。
+名称与 Lore 支持 `{占位符}` 与 PAPI `%xxx%`，渲染时替换（同时支持 MiniMessage 与 `&` legacy 颜色）。
+
+## 界面引擎
+
+```yaml
+gui:
+  engine: auto   # legacy | auto | sparrow
+```
+
+- `legacy`：使用内置库存 GUI（与旧版一致）。
+- `auto`（默认）：优先使用 **Sparrow UI** 引擎渲染主菜单，初始化或渲染失败时自动回退内置 GUI。
+- `sparrow`：强制使用 Sparrow UI（仍会在失败时回退）。
+
+Sparrow UI（`beta.38`）是面向 Paper/Folia 的响应式库存 UI 库，已随 LiuGuild 打包，并 relocate 到
+`com.liu.liuguild.libs.sparrow.ui`，因此无需在服务端单独安装，也不会与其它携带该库的插件冲突。
+
+> 若主菜单出现异常，将自动降级为内置 GUI 并写入日志；要彻底关闭该引擎请把 `engine` 设为 `legacy`。
 
 ## 通用结构
 

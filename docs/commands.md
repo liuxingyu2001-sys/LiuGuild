@@ -65,6 +65,7 @@
 | `/guildadmin setpoints <工会> <点数>` | 设置点数 |
 | `/guildadmin forceend [warId]` | 强制结束工会战 |
 | `/guildadmin info <工会>` | 工会详情 |
+| `/guildadmin cleanup [dry\|confirm]` | 清理僵尸工会（默认试运行） |
 
 ## 权限
 
