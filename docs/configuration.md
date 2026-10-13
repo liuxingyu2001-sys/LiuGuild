@@ -94,7 +94,7 @@ local-fallback: true     # Redis 不可用时降级为单服
 
 - `gui.yml`：所有菜单标题、行数、按钮槽位、材质、名称、Lore。
 - `icons.yml`：工会图标定义（支持 `CE:命名空间:id`）。
-- `messages.yml`：按语言段组织（内置 `zh_CN`），占位符用 `{name}`，MiniMessage 格式。
+- `messages.yml`：按语言段组织（内置 `zh_CN`），占位符用 `{name}`，同时支持 MiniMessage 与 `&` legacy 颜色代码（含 `&#RRGGBB`）。占位符值默认按纯文本插入以防注入。
 
 ## 热重载
 

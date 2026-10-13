@@ -262,6 +262,10 @@ public final class WarManager implements GuildModule {
 
     /** 指定模式发起匹配。 */
     public void queue(Player player, Guild guild, String modeKey) {
+        if (!player.hasPermission("liuguild.war")) {
+            plugin.messages().send(player, "no-permission");
+            return;
+        }
         WarMode mode = mode(modeKey);
         if (!conf().enabled) {
             plugin.messages().send(player, "war-disabled");
@@ -897,6 +901,10 @@ public final class WarManager implements GuildModule {
     // =====================================================================
 
     public void join(Player player) {
+        if (!player.hasPermission("liuguild.war")) {
+            plugin.messages().send(player, "no-permission");
+            return;
+        }
         Guild guild = plugin.guilds().guildOf(player.getUniqueId());
         if (guild == null) {
             plugin.messages().send(player, "not-in-guild");

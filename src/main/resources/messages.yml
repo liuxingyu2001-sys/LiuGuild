@@ -146,6 +146,7 @@ zh_CN:
   input-deposit: "<gray>请在聊天栏输入要存入工会银行的金额："
   input-withdraw: "<gray>请在聊天栏输入要从工会银行取出的金额："
   input-invalid-number: "<red>请输入有效且大于 0 的数字。"
+  input-too-long: "<red>内容过长，最多 {max} 个字符（含颜色代码）。"
   input-cancelled: "<yellow>已取消输入。"
   input-confirm: "<gray>请输入 <white>yes</white> 确认，或输入 <white>cancel</white> 取消："
   input-guild-name: "<gray>请在聊天栏输入工会名称（可带标签，格式：名称 标签）："

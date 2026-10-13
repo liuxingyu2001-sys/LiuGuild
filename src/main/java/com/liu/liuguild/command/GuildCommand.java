@@ -37,6 +37,10 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(sender, "players-only");
             return true;
         }
+        if (!player.hasPermission("liuguild.use")) {
+            plugin.messages().send(player, "no-permission");
+            return true;
+        }
         if (args.length == 0) {
             plugin.gui().openMain(player);
             return true;
@@ -101,6 +105,10 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
     }
 
     private void create(Player player, String[] args) {
+        if (!player.hasPermission("liuguild.create")) {
+            plugin.messages().send(player, "no-permission");
+            return;
+        }
         if (args.length < 2) {
             plugin.messages().send(player, "create-usage");
             return;
@@ -272,14 +280,10 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 plugin.messages().send(player, "set-open", "value", open ? "开放" : "邀请");
             }
             case "notice" -> {
-                g.notice(value);
-                plugin.guilds().saveGuild(g);
-                plugin.messages().send(player, "set-notice");
+                plugin.guilds().setNotice(player, g, value);
             }
             case "desc", "description" -> {
-                g.description(value);
-                plugin.guilds().saveGuild(g);
-                plugin.messages().send(player, "set-desc");
+                plugin.guilds().setDescription(player, g, value);
             }
             default -> plugin.messages().send(player, "set-usage");
         }
@@ -320,7 +324,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 "members", g.memberCount(), "max", plugin.settings().guild.memberLimit(g.level()));
         plugin.messages().sendRaw(player, "info-points", "points", g.points(), "wins", g.wins(),
                 "losses", g.losses(), "bank", plugin.economy().format(g.bank()));
-        plugin.messages().sendRaw(player, "info-notice", "notice", g.notice().isBlank() ? "无" : Text.esc(g.notice()));
+        plugin.messages().sendRawRich(player, "info-notice", "notice", g.notice().isBlank() ? "无" : Text.sanitizeToMini(g.notice()));
     }
 
     private void list(Player player, String[] args) {
@@ -378,6 +382,10 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
     private void war(Player player, String[] args) {
         Guild g = plugin.guilds().guildOf(player.getUniqueId());
         String action = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "status";
+        if (!player.hasPermission("liuguild.war")) {
+            plugin.messages().send(player, "no-permission");
+            return;
+        }
         switch (action) {
             case "queue" -> {
                 if (g != null) {

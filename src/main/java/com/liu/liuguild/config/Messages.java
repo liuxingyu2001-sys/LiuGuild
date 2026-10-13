@@ -101,4 +101,16 @@ public final class Messages {
         }
         to.sendMessage(component(key, kv));
     }
+
+    /** 富文本版本：占位符值允许携带颜色格式（用于玩家自定义公告/简介）。 */
+    public Component componentRich(String key, Object... kv) {
+        return Text.fmtRich(raw(key), kv);
+    }
+
+    public void sendRawRich(CommandSender to, String key, Object... kv) {
+        if (to == null) {
+            return;
+        }
+        to.sendMessage(componentRich(key, kv));
+    }
 }

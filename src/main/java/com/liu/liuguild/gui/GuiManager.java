@@ -480,9 +480,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "set:notice" -> {
                 if (g != null && plugin.guilds().canManageSettings(player, g)) {
                     chatInput.request(player, plugin.messages().prefixed("input-notice"), text -> {
-                        g.notice(text);
-                        plugin.guilds().saveGuild(g);
-                        plugin.messages().send(player, "set-notice");
+                        plugin.guilds().setNotice(player, g, text);
                         openSettings(player, g);
                     });
                 }
@@ -490,9 +488,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "set:desc" -> {
                 if (g != null && plugin.guilds().canManageSettings(player, g)) {
                     chatInput.request(player, plugin.messages().prefixed("input-desc"), text -> {
-                        g.description(text);
-                        plugin.guilds().saveGuild(g);
-                        plugin.messages().send(player, "set-desc");
+                        plugin.guilds().setDescription(player, g, text);
                         openSettings(player, g);
                     });
                 }
@@ -715,8 +711,8 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("wins", String.valueOf(g.wins()));
         ph.put("losses", String.valueOf(g.losses()));
         ph.put("bank", plugin.economy().format(g.bank()));
-        ph.put("notice", g.notice().isBlank() ? "无" : Text.esc(g.notice()));
-        ph.put("description", g.description().isBlank() ? "无" : Text.esc(g.description()));
+        ph.put("notice", g.notice().isBlank() ? "无" : Text.sanitizeToMini(g.notice()));
+        ph.put("description", g.description().isBlank() ? "无" : Text.sanitizeToMini(g.description()));
         ph.put("icon", g.icon());
         ph.put("open", g.open() ? "开放" : "邀请");
         return ph;

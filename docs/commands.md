@@ -66,11 +66,21 @@
 
 | 权限 | 默认 | 说明 |
 |---|---|---|
-| `liuguild.use` | true | 基础功能 |
-| `liuguild.create` | true | 创建工会 |
+| `liuguild.use` | true | 基础功能（`/guild` 全部子命令） |
+| `liuguild.create` | true | 创建工会（命令与 GUI 均校验） |
 | `liuguild.create.free` | op | 免创建费 |
-| `liuguild.war` | true | 参与工会战（仍需会长/官员身份） |
+| `liuguild.war` | true | 参与 / 排队 / 进入工会战（仍需会长或官员身份） |
 | `liuguild.admin` | op | 管理总权限 |
 | `liuguild.admin.reload` / `.status` / `.import` / `.arena` / `.kit` / `.mode` / `.disband` / `.setlevel` / `.setpoints` / `.forceend` | op | 管理子权限 |
 
 > 指令均带 Tab 补全：子命令、工会名、在线玩家、模式、场地、套装、坐标点均可补全。
+
+## 文本格式
+
+所有消息、GUI 名称与 Lore、工会战模式名与描述、以及玩家填写的工会公告/简介同时支持：
+
+- MiniMessage：`<red>`、`<gradient:#3AA0FF:#8AD4FF>`、`<bold>` 等；
+- 旧版颜色代码：`&a` / `§a`、`&l` 等；
+- RGB：`&#FF0000` / `§#FF0000`。
+
+消息占位符（`{player}`、`{guild}` 等）默认按纯文本插入，玩家昵称/工会名不会注入颜色、点击或悬浮事件。玩家填写的公告/简介允许颜色与装饰，但其中的点击/悬浮/插入事件会被自动剥离，且长度上限为 255 字符（含颜色代码）。

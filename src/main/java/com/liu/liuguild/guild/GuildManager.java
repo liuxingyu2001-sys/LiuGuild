@@ -194,6 +194,10 @@ public final class GuildManager {
     // =====================================================================
 
     public boolean create(Player player, String name, String tag) {
+        if (!player.hasPermission("liuguild.create")) {
+            plugin.messages().send(player, "no-permission");
+            return false;
+        }
         GuildSettings c = conf();
         String cleanName = Text.clean(name);
         String cleanTag = Text.clean(tag);
@@ -617,6 +621,35 @@ public final class GuildManager {
                 plugin.getLogger().warning("保存工会失败: " + e.getMessage());
             }
         });
+    }
+
+    /** 公告/简介列宽上限（与建表 VARCHAR(255) 一致）。 */
+    public static final int TEXT_FIELD_MAX = 255;
+
+    /** 设置公告；长度为 0 时清空。超长返回 false 并提示。 */
+    public boolean setNotice(Player actor, Guild g, String value) {
+        String v = value == null ? "" : value;
+        if (v.length() > TEXT_FIELD_MAX) {
+            plugin.messages().send(actor, "input-too-long", "max", TEXT_FIELD_MAX);
+            return false;
+        }
+        g.notice(v);
+        saveGuild(g);
+        plugin.messages().send(actor, "set-notice");
+        return true;
+    }
+
+    /** 设置简介；长度为 0 时清空。超长返回 false 并提示。 */
+    public boolean setDescription(Player actor, Guild g, String value) {
+        String v = value == null ? "" : value;
+        if (v.length() > TEXT_FIELD_MAX) {
+            plugin.messages().send(actor, "input-too-long", "max", TEXT_FIELD_MAX);
+            return false;
+        }
+        g.description(v);
+        saveGuild(g);
+        plugin.messages().send(actor, "set-desc");
+        return true;
     }
 
     // =====================================================================

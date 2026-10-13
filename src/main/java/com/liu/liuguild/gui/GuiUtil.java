@@ -97,15 +97,15 @@ public final class GuiUtil {
 
     public static Component render(Player viewer, String text, Map<String, String> ph) {
         String out = text == null ? "" : text;
-        if (ph != null) {
-            out = Text.replace(out, flatten(ph));
-        }
         LiuGuild plugin = LiuGuild.get();
         if (plugin != null && plugin.papi() != null && viewer != null) {
             out = plugin.papi().apply(viewer, out);
         }
-        return Text.mm(out);
+        return Text.fmtSelective(out, RICH_KEYS, flatten(ph));
     }
+
+    /** 允许携带颜色格式的占位符；其余（玩家名/工会名等）按纯文本插入，避免注入。 */
+    private static final java.util.Set<String> RICH_KEYS = java.util.Set.of("notice", "description");
 
     private static Object[] flatten(Map<String, String> ph) {
         Object[] arr = new Object[ph.size() * 2];

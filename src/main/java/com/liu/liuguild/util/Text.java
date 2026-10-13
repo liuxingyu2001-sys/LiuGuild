@@ -1,33 +1,109 @@
 package com.liu.liuguild.util;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
-/** MiniMessage 文本工具。 */
+/**
+ * 统一文本渲染工具。
+ *
+ * <p>所有模板同时支持三种书写方式，并可在同一段文本中混用：</p>
+ * <ul>
+ *   <li>MiniMessage：{@code <red>}、{@code <gradient:...>}、{@code <click:...>} 等；</li>
+ *   <li>旧版颜色代码：{@code &a}/{@code §a}、{@code &l} 等；</li>
+ *   <li>RGB 颜色：{@code &#FF0000} / {@code §#FF0000}。</li>
+ * </ul>
+ *
+ * <p>占位符使用 {@code {key}} 形式。{@link #fmt} 默认把占位符值当作纯文本插入，
+ * 因此玩家昵称、工会名等含 {@code <} / {@code &} 的内容不会注入格式或点击事件；
+ * 确实需要富文本时使用 {@link #fmtRich}。</p>
+ */
 public final class Text {
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
 
-    /** 去掉 MiniMessage 标签与旧版颜色代码，用于校验名称纯文本长度。 */
+    /** 去掉 MiniMessage 标签与旧版颜色代码，用于名称纯文本长度校验。 */
     private static final Pattern MM_TAG = Pattern.compile("<[^>]*>");
-    private static final Pattern LEGACY = Pattern.compile("[&\u00a7][0-9a-fk-orA-FK-OR]");
+    private static final Pattern LEGACY = Pattern.compile("(?i)(?:&|\u00a7)(?:#[0-9a-f]{6}|[0-9a-fk-or])");
+
+    /** 旧版单字符颜色/格式代码 -> MiniMessage 标签。 */
+    private static final String LEGACY_CODES = "0123456789abcdefklmnor";
+    private static final String[] LEGACY_TAGS = {
+            "<black>", "<dark_blue>", "<dark_green>", "<dark_aqua>", "<dark_red>", "<dark_purple>",
+            "<gold>", "<gray>", "<dark_gray>", "<blue>", "<green>", "<aqua>", "<red>", "<light_purple>",
+            "<yellow>", "<white>", "<obfuscated>", "<bold>", "<strikethrough>", "<underlined>",
+            "<italic>", "<reset>"
+    };
 
     private Text() {
     }
 
+    /**
+     * 解析含 MiniMessage 与旧版颜色代码的文本。
+     */
     public static Component mm(String s) {
-        return MM.deserialize(s == null ? "" : s);
+        return MM.deserialize(legacyToMini(s));
     }
 
-    /** 支持 {占位符} 的 MiniMessage 解析（先把占位符替换掉再解析）。 */
+    /**
+     * 渲染带 {@code {key}} 占位符的模板；占位符值按纯文本插入（防注入）。
+     * 参数形式为 {@code key1, value1, key2, value2 ...}。
+     */
     public static Component fmt(String template, Object... kv) {
-        return MM.deserialize(replace(template, kv));
+        return render(template, false, kv);
     }
 
-    /** 把 {key} 替换为 value；kv 为 key1, value1, key2, value2 ... */
+    /** 与 {@link #fmt} 相同，但占位符值允许携带 MiniMessage / 旧版颜色（用于配置内的富文本）。 */
+    public static Component fmtRich(String template, Object... kv) {
+        return render(template, true, kv);
+    }
+
+    /**
+     * 选择性富文本：仅 {@code richKeys} 中的占位符按格式解析，其余按纯文本插入。
+     * 用于 GUI 模板中既显示玩家名（需转义）又显示公告（允许颜色）的场景。
+     */
+    public static Component fmtSelective(String template, java.util.Set<String> richKeys, Object... kv) {
+        String source = legacyToMini(template == null ? "" : template);
+        List<TagResolver> resolvers = new ArrayList<>();
+        if (kv != null) {
+            for (int i = 0; i + 1 < kv.length; i += 2) {
+                String key = String.valueOf(kv[i]);
+                String value = kv[i + 1] == null ? "" : String.valueOf(kv[i + 1]);
+                source = source.replace("{" + key + "}", "<" + key + ">");
+                resolvers.add(richKeys != null && richKeys.contains(key)
+                        ? Placeholder.parsed(key, legacyToMini(value))
+                        : Placeholder.unparsed(key, value));
+            }
+        }
+        return MM.deserialize(source, TagResolver.resolver(resolvers));
+    }
+
+    private static Component render(String template, boolean richValues, Object... kv) {
+        String source = legacyToMini(template == null ? "" : template);
+        List<TagResolver> resolvers = new ArrayList<>();
+        if (kv != null) {
+            for (int i = 0; i + 1 < kv.length; i += 2) {
+                String key = String.valueOf(kv[i]);
+                String value = kv[i + 1] == null ? "" : String.valueOf(kv[i + 1]);
+                // 只替换模板中真实存在的 {key} 标记，避免误伤其它文本。
+                source = source.replace("{" + key + "}", "<" + key + ">");
+                resolvers.add(richValues
+                        ? Placeholder.parsed(key, legacyToMini(value))
+                        : Placeholder.unparsed(key, value));
+            }
+        }
+        return MM.deserialize(source, TagResolver.resolver(resolvers));
+    }
+
+    /** 把 {key} 替换为 value 的旧式字符串替换（仅用于非组件场景，如日志）。 */
     public static String replace(String template, Object... kv) {
         if (template == null) {
             return "";
@@ -47,32 +123,101 @@ public final class Text {
         return PlainTextComponentSerializer.plainText().serialize(c);
     }
 
-    /** 清除所有格式标记后的纯文本。 */
+    /** 清除所有格式标记后的纯文本（用于名称长度校验）。 */
     public static String clean(String s) {
         if (s == null) {
             return "";
         }
-        String out = MM_TAG.matcher(s).replaceAll("");
+        String out = s.replaceAll("(?i)(?:&|\u00a7)#[0-9a-f]{6}", "");
+        out = MM_TAG.matcher(out).replaceAll("");
         out = LEGACY.matcher(out).replaceAll("");
         return out.trim();
     }
 
-    /** 是否包含非法格式标记（颜色/标签），用于名称校验。 */
+    /** 是否包含颜色/格式标记（用于禁止名称使用颜色与标签）。 */
     public static boolean hasFormatting(String s) {
-        if (s == null) {
-            return false;
-        }
-        return MM_TAG.matcher(s).find() || LEGACY.matcher(s).find();
+        return s != null && (MM_TAG.matcher(s).find() || LEGACY.matcher(s).find());
     }
 
     /**
-     * 转义玩家可控文本，防止 MiniMessage 注入（如 <red>、<click:...>）。
-     * 转义后的文本可用于 {@link #fmt} 的占位符值。
+     * 转义玩家可控文本，防止 MiniMessage 注入（如 {@code <red>}、{@code <click:...>}）。
+     * 仅在需要把玩家文本拼进字符串再交给 MiniMessage 时使用。
      */
     public static String esc(String s) {
         if (s == null || s.isEmpty()) {
             return "";
         }
         return s.replace("\\", "\\\\").replace("<", "\\<");
+    }
+
+    /**
+     * 校验玩家自定义文本：保留颜色与装饰格式，但清除点击/悬浮/插入等交互事件，
+     * 返回可安全交给 {@link #fmtRich} 的 MiniMessage 字符串。
+     */
+    public static String sanitizeToMini(String s) {
+        if (s == null || s.isEmpty()) {
+            return "";
+        }
+        return MM.serialize(stripEvents(mm(s)));
+    }
+
+    private static Component stripEvents(Component component) {
+        List<Component> children = new ArrayList<>();
+        for (Component child : component.children()) {
+            children.add(stripEvents(child));
+        }
+        return component.children(children).clickEvent(null).hoverEvent(null).insertion(null);
+    }
+
+    /**
+     * 把旧版 {@code &}/{@code §} 颜色代码转换为 MiniMessage 标签，
+     * 保留 MiniMessage 原生标签与普通文本。
+     */
+    static String legacyToMini(String s) {
+        if (s == null || s.isEmpty()) {
+            return "";
+        }
+        if (s.indexOf('&') < 0 && s.indexOf('\u00a7') < 0) {
+            return s;
+        }
+        StringBuilder out = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if ((c == '&' || c == '\u00a7') && i + 1 < s.length()) {
+                char next = s.charAt(i + 1);
+                if (next == '#' && i + 8 <= s.length() && isHex(s, i + 2, i + 8)) {
+                    out.append("<#").append(s, i + 2, i + 8).append('>');
+                    i += 7;
+                    continue;
+                }
+                int idx = LEGACY_CODES.indexOf(Character.toLowerCase(next));
+                if (idx >= 0) {
+                    out.append(LEGACY_TAGS[idx]);
+                    i++;
+                    continue;
+                }
+            }
+            out.append(c);
+        }
+        return out.toString();
+    }
+
+    private static boolean isHex(String s, int from, int to) {
+        for (int i = from; i < to; i++) {
+            if (Character.digit(s.charAt(i), 16) < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 是否需要对文本做旧版代码转换（供外部判断）。 */
+    public static boolean hasLegacyCode(String s) {
+        return s != null && LEGACY.matcher(s).find();
+    }
+
+    /** 便捷：把颜色值解析为 Adventure 颜色（供占位符/图标等复用）。 */
+    public static TextColor color(String s) {
+        return TextColor.fromHexString(s == null ? "" : s.trim().toLowerCase(Locale.ROOT));
     }
 }
