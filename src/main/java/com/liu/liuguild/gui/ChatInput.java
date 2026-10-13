@@ -47,6 +47,10 @@ public final class ChatInput implements Listener {
         }
         event.setCancelled(true);
         String message = event.getMessage();
+        if (message.equalsIgnoreCase("cancel") || message.equalsIgnoreCase("取消")) {
+            plugin.messages().send(player, "input-cancelled");
+            return;
+        }
         plugin.sync(() -> cb.accept(message));
     }
 }

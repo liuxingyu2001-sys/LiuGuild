@@ -93,6 +93,7 @@ public final class GuiManager implements GuildModule, Listener {
         Guild g = plugin.guilds().guildOf(player.getUniqueId());
         if (g == null) {
             plugin.messages().send(player, "not-in-guild");
+            openList(player, 0);
             return;
         }
         MenuDef def = menu("main");
@@ -188,6 +189,14 @@ public final class GuiManager implements GuildModule, Listener {
             }
             inv.setItem(i, item);
             holder.actions.put(i, "list_entry:" + g.id());
+        }
+        for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
+            if ("create".equals(e.getKey()) && self != null) {
+                continue;
+            }
+            ButtonDef b = e.getValue();
+            inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
+            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
         }
         addBack(inv, holder, def, ph, player, "back:main", page, "list", guilds.size(), perPage);
         player.openInventory(inv);
@@ -390,6 +399,22 @@ public final class GuiManager implements GuildModule, Listener {
                 }
             }
             case "back:main" -> openMain(player);
+            case "list:create" -> {
+                if (plugin.guilds().guildOf(player.getUniqueId()) != null) {
+                    plugin.messages().send(player, "already-in-guild", "guild", plugin.guilds().guildOf(player.getUniqueId()).name());
+                    return;
+                }
+                chatInput.request(player, plugin.messages().prefixed("input-guild-name"), text -> {
+                    String trimmed = text.trim();
+                    if (trimmed.isEmpty()) {
+                        return;
+                    }
+                    String[] parts = trimmed.split("\\s+", 2);
+                    String name = parts[0];
+                    String tag = parts.length > 1 ? parts[1] : name;
+                    plugin.guilds().create(player, name, tag);
+                });
+            }
             case "back:settings" -> openSettings(player, require(g, player));
             case "admin:status" -> {
                 player.closeInventory();
@@ -713,6 +738,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin_kit" -> "admin:kit";
             case "admin_reload" -> "admin:reload";
             case "close" -> "close";
+            case "create" -> "list:create";
             default -> buttonId;
         };
     }

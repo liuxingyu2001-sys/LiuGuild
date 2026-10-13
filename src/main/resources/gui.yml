@@ -102,6 +102,12 @@ gui:
       slot: 49
       material: ARROW
       name: "<white>返回"
+      # 仅当玩家未入会时显示
+    create:
+      slot: 47
+      material: NETHER_STAR
+      name: "<green>创建工会"
+      lore: ["<gray>点击后在聊天栏输入工会名称"]
 
   # ---------------- 工会设置菜单 ----------------
   settings:
