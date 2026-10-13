@@ -134,6 +134,30 @@ public final class WarManager implements GuildModule {
 
     @Override
     public void disable() {
+        cancelTasks();
+        // 关服/插件卸载：绝不结算奖励。取消进行中的工会战并还原玩家与竞技场。
+        GuildWar war = current;
+        if (war != null) {
+            war.state(WarState.CANCELLED);
+            try {
+                plugin.repo().updateWar(war);
+            } catch (Exception e) {
+                plugin.getLogger().warning("取消工会战写库失败: " + e.getMessage());
+            }
+            cleanup(war);
+        }
+    }
+
+    @Override
+    public void reload() {
+        // 配置热重载只重启定时任务，不结算、不取消正在进行的工会战。
+        cancelTasks();
+        if (conf().enabled) {
+            enable(plugin);
+        }
+    }
+
+    private void cancelTasks() {
         if (queueTask != null) {
             queueTask.cancel();
             queueTask = null;
@@ -146,15 +170,6 @@ public final class WarManager implements GuildModule {
             seasonTask.cancel();
             seasonTask = null;
         }
-        if (current != null) {
-            forceEnd(current.id());
-        }
-    }
-
-    @Override
-    public void reload() {
-        disable();
-        enable(plugin);
     }
 
     public GuildWar currentWar() {
@@ -1009,6 +1024,7 @@ public final class WarManager implements GuildModule {
 
     private void leaveLocal(UUID uuid) {
         Player p = plugin.player(uuid);
+        returnHome(uuid, p);
         restoreSnapshot(uuid, p);
         if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
             if (p != null) {
@@ -1030,14 +1046,28 @@ public final class WarManager implements GuildModule {
     private void leaveSpectator(UUID uuid) {
         spectators.remove(uuid);
         Player p = plugin.player(uuid);
-        if (p != null) {
-            p.setGameMode(org.bukkit.GameMode.SURVIVAL);
-        }
+        returnHome(uuid, p);
         restoreSnapshot(uuid, p);
         if (p != null && plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
             plugin.luckyPeaches().exit(p);
         }
         returnLoc.remove(uuid);
+    }
+
+    /** 把玩家传送回参赛前的位置（竞技场世界销毁前必须执行）。 */
+    private void returnHome(UUID uuid, Player player) {
+        if (player == null) {
+            return;
+        }
+        Location home = returnLoc.get(uuid);
+        if (home == null || home.getWorld() == null) {
+            return;
+        }
+        if (!player.getWorld().equals(home.getWorld())) {
+            player.teleport(home);
+        } else if (player.getLocation().distanceSquared(home) > 4.0) {
+            player.teleport(home);
+        }
     }
 
     private void teleportToSpawn(Player player, GuildWar war, String side) {
@@ -1179,28 +1209,12 @@ public final class WarManager implements GuildModule {
         eliminated.clear();
         List<UUID> a = new ArrayList<>(war.rosterA());
         List<UUID> b = new ArrayList<>(war.rosterB());
-        int baseLives = Math.max(1, mode.livesPerPlayer);
-        int totalLives = mode.balanceTeamLives
-                ? Math.max(Math.max(a.size(), b.size()), Math.min(a.size(), b.size()) * baseLives)
-                : -1;
-        int totalA = mode.balanceTeamLives ? totalLives : a.size() * baseLives;
-        int totalB = mode.balanceTeamLives ? totalLives : b.size() * baseLives;
-        distributeLives(a, totalA, livesRemaining);
-        distributeLives(b, totalB, livesRemaining);
+        int[] pools = WarMath.teamLifePools(mode.balanceTeamLives, mode.livesPerPlayer, a.size(), b.size());
+        livesRemaining.putAll(WarMath.distributeLives(a, pools[0]));
+        livesRemaining.putAll(WarMath.distributeLives(b, pools[1]));
         if (a.size() != b.size() && mode.balanceTeamLives) {
-            plugin.getLogger().info("工会战 " + war.id() + " 人数平衡生命：A " + a.size() + " 人/" + totalA
-                    + " 命，B " + b.size() + " 人/" + totalB + " 命。");
-        }
-    }
-
-    private static void distributeLives(List<UUID> players, int total, Map<UUID, Integer> output) {
-        if (players.isEmpty()) {
-            return;
-        }
-        int each = total / players.size();
-        int extra = total % players.size();
-        for (int i = 0; i < players.size(); i++) {
-            output.put(players.get(i), each + (i < extra ? 1 : 0));
+            plugin.getLogger().info("工会战 " + war.id() + " 人数平衡生命：A " + a.size() + " 人/" + pools[0]
+                    + " 命，B " + b.size() + " 人/" + pools[1] + " 命。");
         }
     }
 
