@@ -36,6 +36,20 @@ public final class GuildSettings {
     public int homeWarmupSeconds = 3;
     public boolean homeDenyInWar = true;
 
+    // ---- 僵尸工会清理 ----
+    /** 自动定期清理开关。 */
+    public boolean cleanupEnabled = false;
+    /** 多久无活动判定为不活跃（天）。 */
+    public int cleanupInactiveDays = 30;
+    /** 自动检查间隔（分钟）。 */
+    public int cleanupIntervalMinutes = 360;
+    /** 仅清理成员数不超过该值的工会（0 = 不限）。 */
+    public int cleanupMaxMembers = 0;
+    /** 试运行：只记录不删除。 */
+    public boolean cleanupDryRun = false;
+    /** 删除时是否全服广播。 */
+    public boolean cleanupBroadcast = true;
+
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
         s.nameMin = Math.max(1, c.getInt("guild.name.min-length", s.nameMin));
@@ -65,7 +79,36 @@ public final class GuildSettings {
         s.homeCooldownSeconds = Math.max(0, c.getInt("guild.home.cooldown-seconds", s.homeCooldownSeconds));
         s.homeWarmupSeconds = Math.max(0, c.getInt("guild.home.warmup-seconds", s.homeWarmupSeconds));
         s.homeDenyInWar = c.getBoolean("guild.home.deny-in-war", s.homeDenyInWar);
+        s.cleanupEnabled = c.getBoolean("guild.cleanup.enabled", s.cleanupEnabled);
+        s.cleanupInactiveDays = Math.max(1, c.getInt("guild.cleanup.inactive-days", s.cleanupInactiveDays));
+        s.cleanupIntervalMinutes = Math.max(1, c.getInt("guild.cleanup.interval-minutes", s.cleanupIntervalMinutes));
+        s.cleanupMaxMembers = Math.max(0, c.getInt("guild.cleanup.max-members", s.cleanupMaxMembers));
+        s.cleanupDryRun = c.getBoolean("guild.cleanup.dry-run", s.cleanupDryRun);
+        s.cleanupBroadcast = c.getBoolean("guild.cleanup.broadcast", s.cleanupBroadcast);
         return s;
+    }
+
+    /**
+     * 纯函数：判定工会是否为“不活跃”，可用于清理僵尸工会。
+     *
+     * @param now          当前时间
+     * @param lastActiveAt 最后一次活跃时间
+     * @param inactiveDays 多少天无活动算不活跃
+     * @param memberCount  成员数
+     * @param maxMembers   仅清理不超过该成员数的工会（0 = 不限）
+     * @param onlineCount  当前在线成员数
+     */
+    public static boolean isInactive(long now, long lastActiveAt, int inactiveDays,
+                                     int memberCount, int maxMembers, int onlineCount) {
+        if (onlineCount > 0) {
+            return false;
+        }
+        if (maxMembers > 0 && memberCount > maxMembers) {
+            return false;
+        }
+        long cutoff = now - Math.max(1, inactiveDays) * 86_400_000L;
+        long since = lastActiveAt > 0 ? lastActiveAt : 0;
+        return since < cutoff;
     }
 
     /** 当前等级可用的驻地数量。 */

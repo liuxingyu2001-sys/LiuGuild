@@ -31,6 +31,8 @@ public final class Guild {
     private volatile String homeServer;
     /** 反规范化成员数：成员未加载时用于列表展示。 */
     private volatile int memberCount;
+    /** 最后一次活跃时间（成员登录或工会数据变更），用于清理僵尸工会。 */
+    private volatile long lastActiveAt = System.currentTimeMillis();
 
     private final Map<UUID, GuildMember> members = new ConcurrentHashMap<>();
 
@@ -153,6 +155,22 @@ public final class Guild {
 
     public void touch() {
         this.updatedAt = System.currentTimeMillis();
+    }
+
+    public long lastActiveAt() {
+        return lastActiveAt;
+    }
+
+    public void lastActiveAt(long lastActiveAt) {
+        this.lastActiveAt = lastActiveAt;
+    }
+
+    /** 标记为最近活跃（仅前进，不回退）。 */
+    public void touchActive() {
+        long now = System.currentTimeMillis();
+        if (now > lastActiveAt) {
+            this.lastActiveAt = now;
+        }
     }
 
     public long points() {

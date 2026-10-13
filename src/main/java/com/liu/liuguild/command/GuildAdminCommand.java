@@ -25,7 +25,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBS = List.of(
             "help", "reload", "status", "import", "arena", "kit", "mode", "war",
-            "disband", "setlevel", "setpoints", "forceend", "info", "gui");
+            "disband", "setlevel", "setpoints", "forceend", "info", "gui", "cleanup");
 
     private final LiuGuild plugin;
 
@@ -61,6 +61,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "setpoints" -> setPoints(sender, args);
             case "forceend" -> forceEnd(sender, args);
             case "info" -> info(sender, args);
+            case "cleanup" -> cleanup(sender, args);
             case "gui" -> {
                 if (sender instanceof Player p) {
                     plugin.gui().openAdmin(p);
@@ -91,6 +92,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "mode list|info <模式>|start <模式>", "工会战模式 / 开启赛季");
         adminLine(sender, "war list", "进行中的工会战与队列");
         adminLine(sender, "disband|setlevel|setpoints|forceend|info <工会>", "工会与工会战管理");
+        adminLine(sender, "cleanup [dry|confirm]", "清理不活跃（僵尸）工会");
     }
 
     private void adminLine(CommandSender sender, String cmd, String desc) {
@@ -445,6 +447,34 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(cn("&7图标: &f" + g.icon() + " &7开放: &f" + g.open()
                 + " &7创建: &f" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm")
                         .format(new java.util.Date(g.createdAt()))));
+    }
+
+    private void cleanup(CommandSender sender, String[] args) {
+        String mode = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "scan";
+        var conf = plugin.settings().guild;
+        boolean dry = switch (mode) {
+            case "confirm", "apply", "run" -> false;
+            default -> true;
+        };
+        var targets = plugin.guilds().purgeInactive(dry);
+        sender.sendMessage(cn("&6===== 不活跃工会清理 ====="));
+        sender.sendMessage(cn("&7判定：连续 &f" + conf.cleanupInactiveDays + " &7天无活动且无人在线"
+                + (conf.cleanupMaxMembers > 0 ? "，成员数≤&f" + conf.cleanupMaxMembers : "")));
+        sender.sendMessage(cn("&7模式：" + (dry ? "&e试运行（未删除）" : "&c已执行删除")
+                + " &7命中：&f" + targets.size()));
+        int shown = 0;
+        for (Guild g : targets) {
+            if (shown++ >= 15) {
+                sender.sendMessage(cn("&8…还有 " + (targets.size() - 15) + " 个"));
+                break;
+            }
+            long days = (System.currentTimeMillis() - g.lastActiveAt()) / 86_400_000L;
+            sender.sendMessage(cn("&7- &f" + g.name() + " &8[" + g.tag() + "] &7成员=&f" + g.memberCount()
+                    + " &7最后活跃=&f" + days + " 天前"));
+        }
+        if (dry && !targets.isEmpty()) {
+            sender.sendMessage(cn("&7确认删除请执行：&f/guildadmin cleanup confirm"));
+        }
     }
 
     private Guild find(String key) {

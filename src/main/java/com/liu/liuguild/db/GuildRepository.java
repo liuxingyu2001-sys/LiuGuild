@@ -86,7 +86,7 @@ public final class GuildRepository {
 
     /** Atomically inserts a guild and its leader. */
     public void insertGuildWithLeader(Guild guild, GuildMember leader) throws SQLException {
-        String guildSql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String guildSql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         String memberSql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
@@ -109,6 +109,7 @@ public final class GuildRepository {
         ps.setString(6, g.description()); ps.setString(7, g.notice()); ps.setString(8, g.icon()); ps.setString(9, g.iconData());
         ps.setInt(10, g.open() ? 1 : 0); ps.setLong(11, g.createdAt()); ps.setLong(12, g.updatedAt()); ps.setLong(13, g.points());
         ps.setInt(14, g.level()); ps.setInt(15, g.wins()); ps.setInt(16, g.losses()); ps.setLong(17, g.bank()); ps.setString(18, g.homeServer()); ps.setInt(19, g.memberCount());
+        ps.setLong(20, g.lastActiveAt());
     }
 
     private void bindMember(PreparedStatement ps, GuildMember m) throws SQLException {
@@ -116,7 +117,7 @@ public final class GuildRepository {
         ps.setLong(5, m.joinedAt()); ps.setLong(6, m.contributed()); ps.setInt(7, m.kills()); ps.setInt(8, m.deaths());
     }
     public boolean insertGuild(Guild g) throws SQLException {
-        String sql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String sql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
             bindGuild(ps, g);
             return ps.executeUpdate() > 0;
@@ -126,7 +127,7 @@ public final class GuildRepository {
     public void updateGuild(Guild g) throws SQLException {
         String sql = "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
                 + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,`points`=?,`level`=?,`wins`=?,`losses`=?,"
-                + "`home_server`=?,`member_count`=? WHERE `guild_id`=?";
+                + "`home_server`=?,`member_count`=?,`last_active_at`=? WHERE `guild_id`=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, g.name());
@@ -145,7 +146,8 @@ public final class GuildRepository {
             ps.setInt(14, g.losses());
             ps.setString(15, g.homeServer());
             ps.setInt(16, g.memberCount());
-            ps.setString(17, g.id());
+            ps.setLong(17, g.lastActiveAt());
+            ps.setString(18, g.id());
             ps.executeUpdate();
         }
     }
@@ -502,6 +504,8 @@ public final class GuildRepository {
                 rs.getInt("member_count"),
                 rs.getString("icon"));
         g.iconData(rs.getString("icon_data"));
+        long active = rs.getLong("last_active_at");
+        g.lastActiveAt(active > 0 ? active : g.createdAt());
         return g;
     }
 

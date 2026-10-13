@@ -82,6 +82,7 @@ public final class LiuGuild extends JavaPlugin {
     private BukkitTask heartbeatTask;
     private BukkitTask configWatchTask;
     private BukkitTask presenceTask;
+    private BukkitTask cleanupTask;
     private volatile long configFingerprint;
 
     public static LiuGuild get() {
@@ -184,6 +185,9 @@ public final class LiuGuild extends JavaPlugin {
         if (presenceTask != null) {
             presenceTask.cancel();
         }
+        if (cleanupTask != null) {
+            cleanupTask.cancel();
+        }
         if (database != null) {
             database.shutdown();
         }
@@ -201,6 +205,11 @@ public final class LiuGuild extends JavaPlugin {
             guilds.purge();
             guildChat.refresh();
         }, 20L * heartbeat, 20L * heartbeat);
+        if (settings().guild.cleanupEnabled) {
+            long ticks = Math.max(20L * 60L, settings().guild.cleanupIntervalMinutes * 60L * 20L);
+            cleanupTask = getServer().getScheduler().runTaskTimer(this,
+                    () -> guilds.autoCleanup(), ticks, ticks);
+        }
         if (settings().main.autoReload) {
             configWatchTask = getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
                 long fp = configManager.fingerprint();

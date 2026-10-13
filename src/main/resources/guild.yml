@@ -54,3 +54,17 @@ guild:
     warmup-seconds: 3
     # 工会战期间是否禁止使用驻地
     deny-in-war: true
+  # 僵尸工会清理（不活跃工会）
+  cleanup:
+    # 自动定期清理开关（默认关闭，建议先用 dry-run 确认）
+    enabled: false
+    # 判定标准：连续多少天无活动且无人在线
+    inactive-days: 30
+    # 自动检查间隔（分钟）
+    interval-minutes: 360
+    # 仅清理成员数不超过该值的工会（0 = 不限；用于保护大型工会）
+    max-members: 0
+    # 试运行：只记录不删除
+    dry-run: false
+    # 清理时是否全服广播
+    broadcast: false

@@ -280,6 +280,56 @@ public final class GuildManager {
         });
     }
 
+    // =====================================================================
+    // 僵尸工会清理
+    // =====================================================================
+
+    /** 找出当前符合“不活跃”判定、可被清理的工会（需在主线程调用）。 */
+    public List<Guild> findInactiveGuilds() {
+        GuildSettings c = conf();
+        long now = System.currentTimeMillis();
+        List<Guild> out = new ArrayList<>();
+        for (Guild g : guilds.values()) {
+            int online = onlineMembers(g).size();
+            if (GuildSettings.isInactive(now, g.lastActiveAt(), c.cleanupInactiveDays,
+                    g.memberCount(), c.cleanupMaxMembers, online)) {
+                out.add(g);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 清理不活跃工会。
+     *
+     * @param dryRun true 时只返回命中列表，不删除
+     * @return 命中（或已删除）的工会列表
+     */
+    public List<Guild> purgeInactive(boolean dryRun) {
+        List<Guild> targets = findInactiveGuilds();
+        if (dryRun) {
+            return targets;
+        }
+        for (Guild g : targets) {
+            disband(g, conf().cleanupBroadcast, GuildDisbandEvent.Cause.INACTIVE);
+        }
+        return targets;
+    }
+
+    /** 自动清理入口（只能在主线程调用）；未启用或无命中时返回空列表。 */
+    public List<Guild> autoCleanup() {
+        GuildSettings c = conf();
+        if (!c.cleanupEnabled) {
+            return List.of();
+        }
+        List<Guild> targets = purgeInactive(c.cleanupDryRun);
+        if (!targets.isEmpty()) {
+            plugin.getLogger().info("不活跃工会清理（" + (c.cleanupDryRun ? "dry-run" : "已执行")
+                    + "，阈值 " + c.cleanupInactiveDays + " 天）：" + targets.size() + " 个");
+        }
+        return targets;
+    }
+
     public void disband(Guild g, boolean broadcast) {
         disband(g, broadcast, GuildDisbandEvent.Cause.PLAYER);
     }
@@ -640,6 +690,7 @@ public final class GuildManager {
 
     public void saveGuild(Guild g) {
         g.touch();
+        g.touchActive();
         plugin.async(() -> {
             try {
                 plugin.repo().updateGuild(g);
