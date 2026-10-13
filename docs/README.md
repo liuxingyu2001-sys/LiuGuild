@@ -19,6 +19,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [craftengine.md](craftengine.md) | CraftEngine 物品/图标集成 |
 | [hooks.md](hooks.md) | 软依赖钩子（liudungeon / LiuChat / liupass / Sparrow Sync / LuckyPeaches / PlayerTitle / NotBounties / mcMMO） |
 | [import.md](import.md) | 旧版 PlayerGuild 数据导入 |
+| [review-report.md](review-report.md) | 五轮深度审查报告（发现、修复、验证、遗留） |
 
 ## 快速开始
 
