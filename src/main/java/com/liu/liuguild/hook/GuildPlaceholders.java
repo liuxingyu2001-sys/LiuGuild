@@ -116,6 +116,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "tag" -> guild.tag();
             case "level" -> String.valueOf(guild.level());
             case "points", "funds" -> String.valueOf(guild.points());
+            case "home_slots" -> String.valueOf(plugin.settings().guild.homeSlots(guild.level()));
             case "members" -> String.valueOf(guild.memberCount());
             case "member_limit" -> String.valueOf(plugin.settings().guild.memberLimit(guild.level()));
             case "wins" -> String.valueOf(guild.wins());

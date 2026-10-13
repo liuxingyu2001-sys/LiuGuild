@@ -370,6 +370,17 @@ public final class GuildManager {
 
     public void invite(Player actor, Guild g, String targetName) {
         GuildSettings c = conf();
+        GuildMember actorM = g.member(actor.getUniqueId());
+        if (actorM == null) {
+            plugin.messages().send(actor, "not-in-guild");
+            return;
+        }
+        boolean leader = actorM.rank() == GuildRank.LEADER;
+        boolean officer = actorM.rank() == GuildRank.OFFICER && c.officerInvite;
+        if (!leader && !officer) {
+            plugin.messages().send(actor, "no-permission-rank");
+            return;
+        }
         long now = System.currentTimeMillis();
         Long last = inviteCooldown.get(actor.getUniqueId());
         if (last != null && now - last < c.inviteCooldownSeconds * 1000L) {

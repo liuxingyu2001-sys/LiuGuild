@@ -25,7 +25,7 @@ gui:
           - "<gray>会长：<white>{leader}"
           - "<gray>等级：<white>{level} <dark_gray>/ {max_level}"
           - "<gray>成员：<white>{members}<gray>/<white>{member_limit}"
-          - "<gray>点数：<white>{points}"
+          - "<gray>工会资金：<white>{points}"
           - "<gray>战绩：<white>{wins} 胜 {losses} 负"
           - "<gray>银行：<white>{bank}"
           - ""
@@ -45,6 +45,11 @@ gui:
         material: GOLD_INGOT
         name: "<white>工会银行"
         lore: ["<gray>余额：<white>{bank}", "<gray>左键存入 / 右键取出"]
+      home:
+        slot: 26
+        material: COMPASS
+        name: "<white>工会驻地"
+        lore: ["<gray>可用槽位：<white>{home_slots}", "<gray>左键传送 / 右键设置"]
       settings:
         slot: 30
         material: REDSTONE_TORCH
@@ -95,7 +100,7 @@ gui:
         - "<gray>会长：<white>{leader}"
         - "<gray>等级：<white>{level}"
         - "<gray>成员：<white>{members}"
-        - "<gray>点数：<white>{points}"
+        - "<gray>工会资金：<white>{points}"
         - "<gray>战绩：<white>{wins} 胜 {losses} 负"
         - ""
         - "<yellow>左键申请加入"

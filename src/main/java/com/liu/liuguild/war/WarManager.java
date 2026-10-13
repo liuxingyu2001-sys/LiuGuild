@@ -281,6 +281,14 @@ public final class WarManager implements GuildModule {
             plugin.messages().send(player, "no-permission");
             return;
         }
+        GuildMember actor = guild.member(player.getUniqueId());
+        boolean leader = actor != null && actor.rank() == com.liu.liuguild.model.GuildRank.LEADER;
+        boolean officer = actor != null && actor.rank() == com.liu.liuguild.model.GuildRank.OFFICER
+                && plugin.settings().guild.officerDeclareWar;
+        if (!leader && !officer) {
+            plugin.messages().send(player, "no-permission-rank");
+            return;
+        }
         WarMode mode = mode(modeKey);
         if (!conf().enabled) {
             plugin.messages().send(player, "war-disabled");

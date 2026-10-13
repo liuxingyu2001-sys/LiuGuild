@@ -1,5 +1,7 @@
 # PlaceholderAPI 变量
 
+`%liuguild_home_slots%`：当前等级可用的工会驻地数量。
+
 `%liuguild_funds%` 是本插件工会资金（points 别名）；`%liuguild_bank%` / `%liuguild_bank_raw%` 分别为 Vault 银行金币格式化余额和整数余额。
 
 

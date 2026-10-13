@@ -392,6 +392,20 @@ public final class GuiManager implements GuildModule, Listener {
             case "settings" -> openSettings(player, require(g, player));
             case "list" -> openList(player, 0);
             case "bank" -> bankAction(player, g, event.isRightClick());
+            case "home" -> {
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    return;
+                }
+                player.closeInventory();
+                if (plugin.guildHome() == null) {
+                    plugin.messages().send(player, "home-unavailable");
+                    return;
+                }
+                plugin.guildHome().command(player, event.isRightClick()
+                        ? new String[]{"home", "set"}
+                        : new String[]{"home"});
+            }
             case "leave" -> {
                 if (g != null) {
                     plugin.guilds().leave(player);
@@ -711,6 +725,7 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("wins", String.valueOf(g.wins()));
         ph.put("losses", String.valueOf(g.losses()));
         ph.put("bank", plugin.economy().format(g.bank()));
+        ph.put("home_slots", String.valueOf(plugin.settings().guild.homeSlots(g.level())));
         ph.put("notice", g.notice().isBlank() ? "无" : Text.sanitizeToMini(g.notice()));
         ph.put("description", g.description().isBlank() ? "无" : Text.sanitizeToMini(g.description()));
         ph.put("icon", g.icon());
