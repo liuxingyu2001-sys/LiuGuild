@@ -310,22 +310,37 @@ public final class WarManager implements GuildModule {
             plugin.messages().send(player, "war-need-members", "min", mode.minMembers);
             return;
         }
-        if (isQueued(guild.id())) {
-            plugin.messages().send(player, "war-already-queued");
-            return;
-        }
         if (plugin.bus().isReady()) {
-            plugin.bus().queueGuild(guild.id(), CrossServerBus.map(
-                    "name", guild.name(), "tag", guild.tag(), "server", plugin.serverId(),
-                    "mode", mode.key, "leader", player.getName()));
+            // Redis 操作是阻塞 IO，放异步线程，避免卡主线程。
+            plugin.async(() -> {
+                if (isQueued(guild.id())) {
+                    plugin.sync(() -> plugin.messages().send(player, "war-already-queued"));
+                    return;
+                }
+                plugin.bus().queueGuild(guild.id(), CrossServerBus.map(
+                        "name", guild.name(), "tag", guild.tag(), "server", plugin.serverId(),
+                        "mode", mode.key, "leader", player.getName()));
+                plugin.sync(() -> announceQueued(player, guild, mode));
+            });
         } else {
+            if (isQueued(guild.id())) {
+                plugin.messages().send(player, "war-already-queued");
+                return;
+            }
             localQueue.add(guild.id());
             localQueuedAt.put(guild.id(), System.currentTimeMillis());
             localMode.put(guild.id(), mode.key);
+            announceQueued(player, guild, mode);
+        }
+    }
+
+    /** 入队成功后的本地提示与广播（必须在主线程）。 */
+    private void announceQueued(Player player, Guild guild, WarMode mode) {
+        if (!player.isOnline()) {
+            return;
         }
         plugin.messages().send(player, "war-queue-joined", "mode", mode.display);
         plugin.guilds().notifyGuild(guild.id(), plugin.messages().component("war-queue-joined", "mode", mode.display), player.getUniqueId());
-        // 全服广播提示：让其他玩家看到有人在匹配
         if (mode.broadcastQueue) {
             plugin.guilds().broadcastAll(plugin.messages().component("war-queue-broadcast",
                     "player", player.getName(), "guild", guild.name(), "mode", mode.display));
@@ -333,29 +348,27 @@ public final class WarManager implements GuildModule {
     }
 
     public void leaveQueue(Player player, Guild guild) {
-        if (!isQueued(guild.id())) {
-            plugin.messages().send(player, "war-not-queued");
+        if (plugin.bus().isReady()) {
+            plugin.async(() -> {
+                boolean queued = isQueued(guild.id());
+                if (queued) {
+                    plugin.bus().dequeueGuild(guild.id());
+                }
+                plugin.sync(() -> plugin.messages().send(player, queued ? "war-queue-left" : "war-not-queued"));
+            });
             return;
         }
-        if (plugin.bus().isReady()) {
-            plugin.bus().dequeueGuild(guild.id());
-        } else {
-            localQueue.remove(guild.id());
-            localQueuedAt.remove(guild.id());
-            localMode.remove(guild.id());
-        }
-        plugin.messages().send(player, "war-queue-left");
+        boolean queued = localQueue.remove(guild.id());
+        localQueuedAt.remove(guild.id());
+        localMode.remove(guild.id());
+        plugin.messages().send(player, queued ? "war-queue-left" : "war-not-queued");
     }
 
     /** 该工会当前排队选择的模式 key；未排队返回 null。 */
     public String queuedMode(String guildId) {
         if (plugin.bus().isReady()) {
-            for (Map<String, String> meta : plugin.bus().queueSnapshot()) {
-                if (guildId.equals(meta.get("guildId"))) {
-                    return meta.getOrDefault("mode", conf().defaultMode);
-                }
-            }
-            return null;
+            String mode = plugin.bus().queuedMode(guildId);
+            return mode == null ? null : (mode.isBlank() ? conf().defaultMode : mode);
         }
         return localMode.get(guildId);
     }
@@ -363,7 +376,7 @@ public final class WarManager implements GuildModule {
     /** 当前匹配队列中的工会数量。 */
     public int queueSize() {
         if (plugin.bus().isReady()) {
-            return plugin.bus().queueSnapshot().size();
+            return plugin.bus().queueCount();
         }
         return localQueue.size();
     }

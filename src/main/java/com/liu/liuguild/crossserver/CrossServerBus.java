@@ -244,6 +244,17 @@ public final class CrossServerBus {
         return Boolean.TRUE.equals(queued);
     }
 
+    /** 队列中的工会数量（单次 ZCARD，避免拉取整份队列）。 */
+    public int queueCount() {
+        Long n = bridge.withJedis(jedis -> jedis.zcard(bridge.keyWarQueue()));
+        return n == null ? 0 : n.intValue();
+    }
+
+    /** 某工会排队时选择的模式；未排队返回 null（单次 HGET）。 */
+    public String queuedMode(String guildId) {
+        return bridge.withJedis(jedis -> jedis.hget(bridge.keyWarQueueMeta(guildId), "mode"));
+    }
+
     /** 队列快照（按入队时间升序）：List of [guildId, metaMap]。同时清理已过期的条目。 */
     public List<Map<String, String>> queueSnapshot() {
         List<Map<String, String>> out = new ArrayList<>();
