@@ -219,11 +219,10 @@ public final class GuildManager {
             plugin.messages().send(player, "create-tag-taken", "tag", cleanTag);
             return false;
         }
-        if (c.createCost > 0 && !player.hasPermission("liuguild.create.free")) {
-            if (!plugin.economy().has(player, c.createCost)) {
-                plugin.messages().send(player, "create-cost-missing", "cost", plugin.economy().format(c.createCost));
-                return false;
-            }
+        if (c.createCost > 0 && !player.hasPermission("liuguild.create.free")
+                && !plugin.economy().has(player, c.createCost)) {
+            plugin.messages().send(player, "create-cost-missing", "cost", plugin.economy().format(c.createCost));
+            return false;
         }
 
         String id = UUID.randomUUID().toString();
@@ -234,7 +233,6 @@ public final class GuildManager {
         GuildMember leader = new GuildMember(player.getUniqueId(), player.getName(), id,
                 GuildRank.LEADER, now, 0, 0, 0);
         g.putMember(leader);
-
         boolean charged = c.createCost <= 0 || player.hasPermission("liuguild.create.free")
                 || plugin.economy().withdraw(player, c.createCost);
         if (!charged) {
@@ -248,27 +246,34 @@ public final class GuildManager {
         plugin.async(() -> {
             try {
                 if (plugin.repo().nameOrTagTaken(cleanName, cleanTag, id)) {
-                    plugin.sync(() -> {
-                        guilds.remove(id);
-                        memberIndex.remove(player.getUniqueId());
-                        rebuildIndexes();
-                        plugin.messages().send(player, "create-name-taken", "name", cleanName);
-                        if (c.createCost > 0 && !player.hasPermission("liuguild.create.free")) {
-                            plugin.economy().deposit(player, c.createCost);
-                        }
-                    });
+                    rollbackCreate(player, g, id, c, "create-name-taken");
                     return;
                 }
-                plugin.repo().insertGuild(g);
-                plugin.repo().insertMember(leader);
+                plugin.repo().insertGuildWithLeader(g, leader);
                 plugin.broadcastGuildChange(id);
+                plugin.sync(() -> {
+                    plugin.messages().send(player, "create-success", "guild", cleanName);
+                    Bukkit.getPluginManager().callEvent(new GuildCreateEvent(g, player));
+                });
             } catch (Exception e) {
                 plugin.getLogger().warning("创建工会写库失败: " + e.getMessage());
+                rollbackCreate(player, g, id, c, "create-failed");
             }
         });
-        plugin.messages().send(player, "create-success", "guild", cleanName);
-        Bukkit.getPluginManager().callEvent(new GuildCreateEvent(g, player));
         return true;
+    }
+
+    private void rollbackCreate(Player player, Guild guild, String id, GuildSettings settings, String message) {
+        plugin.sync(() -> {
+            guilds.remove(id, guild);
+            memberIndex.remove(player.getUniqueId(), id);
+            rebuildIndexes();
+            if (settings.createCost > 0 && !player.hasPermission("liuguild.create.free")
+                    && !plugin.economy().deposit(player, settings.createCost)) {
+                plugin.getLogger().severe("工会创建回滚退款失败: 玩家=" + player.getUniqueId() + " guild=" + id);
+            }
+            plugin.messages().send(player, message, "name", guild.name());
+        });
     }
 
     public void disband(Guild g, boolean broadcast) {
@@ -329,19 +334,34 @@ public final class GuildManager {
 
         plugin.async(() -> {
             try {
-                plugin.repo().insertMember(m);
-                plugin.repo().updateGuild(g);
+                if (!plugin.repo().insertMemberAndIncrement(m)) {
+                    rollbackJoin(player, g, "already-in-guild");
+                    return;
+                }
                 plugin.broadcastMemberChange(player.getUniqueId(), g.id());
-                plugin.broadcastGuildChange(g.id());
+            plugin.broadcastGuildChange(g.id());
+            plugin.sync(() -> {
+                plugin.messages().send(player, viaInvite ? "accept-success" : "join-success", "guild", g.name());
+                announceGuild(g.id(), plugin.messages().component(viaInvite ? "accept-notify-members" : "join-notify-members", "player", player.getName()), player.getUniqueId());
+                Bukkit.getPluginManager().callEvent(new GuildJoinEvent(g, player, viaInvite));
+            });
             } catch (Exception e) {
                 plugin.getLogger().warning("加入工会写库失败: " + e.getMessage());
+                rollbackJoin(player, g, "operation-failed");
             }
         });
 
-        plugin.messages().send(player, viaInvite ? "accept-success" : "join-success", "guild", g.name());
-        announceGuild(g.id(), plugin.messages().component("join-notify-members", "player", player.getName()), player.getUniqueId());
-        Bukkit.getPluginManager().callEvent(new GuildJoinEvent(g, player, viaInvite));
+
         return true;
+    }
+
+    private void rollbackJoin(Player player, Guild guild, String message) {
+        plugin.sync(() -> {
+            guild.removeMember(player.getUniqueId());
+            memberIndex.remove(player.getUniqueId(), guild.id());
+            plugin.guilds().reloadGuild(guild.id());
+            plugin.messages().send(player, message, "guild", guild.name());
+        });
     }
 
     public void invite(Player actor, Guild g, String targetName) {

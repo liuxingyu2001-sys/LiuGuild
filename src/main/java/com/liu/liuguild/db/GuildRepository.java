@@ -84,31 +84,41 @@ public final class GuildRepository {
         }
     }
 
+    /** Atomically inserts a guild and its leader. */
+    public void insertGuildWithLeader(Guild guild, GuildMember leader) throws SQLException {
+        String guildSql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String memberSql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)";
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try (PreparedStatement gs = c.prepareStatement(guildSql); PreparedStatement ms = c.prepareStatement(memberSql)) {
+                bindGuild(gs, guild);
+                bindMember(ms, leader);
+                gs.executeUpdate();
+                ms.executeUpdate();
+                c.commit();
+            } catch (SQLException e) {
+                try { c.rollback(); } catch (SQLException ignored) { }
+                throw e;
+            } finally { c.setAutoCommit(true); }
+        }
+    }
+
+    private void bindGuild(PreparedStatement ps, Guild g) throws SQLException {
+        ps.setString(1, g.id()); ps.setString(2, g.name()); ps.setString(3, g.tag());
+        ps.setString(4, g.leaderUuid() == null ? null : g.leaderUuid().toString()); ps.setString(5, g.leaderName());
+        ps.setString(6, g.description()); ps.setString(7, g.notice()); ps.setString(8, g.icon()); ps.setString(9, g.iconData());
+        ps.setInt(10, g.open() ? 1 : 0); ps.setLong(11, g.createdAt()); ps.setLong(12, g.updatedAt()); ps.setLong(13, g.points());
+        ps.setInt(14, g.level()); ps.setInt(15, g.wins()); ps.setInt(16, g.losses()); ps.setLong(17, g.bank()); ps.setString(18, g.homeServer()); ps.setInt(19, g.memberCount());
+    }
+
+    private void bindMember(PreparedStatement ps, GuildMember m) throws SQLException {
+        ps.setString(1, m.uuid().toString()); ps.setString(2, m.name()); ps.setString(3, m.guildId()); ps.setString(4, m.rank().name());
+        ps.setLong(5, m.joinedAt()); ps.setLong(6, m.contributed()); ps.setInt(7, m.kills()); ps.setInt(8, m.deaths());
+    }
     public boolean insertGuild(Guild g) throws SQLException {
-        String sql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,"
-                + "`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,"
-                + "`bank`,`home_server`,`member_count`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-        try (Connection c = db.source().getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, g.id());
-            ps.setString(2, g.name());
-            ps.setString(3, g.tag());
-            ps.setString(4, g.leaderUuid() == null ? null : g.leaderUuid().toString());
-            ps.setString(5, g.leaderName());
-            ps.setString(6, g.description());
-            ps.setString(7, g.notice());
-            ps.setString(8, g.icon());
-            ps.setString(9, g.iconData());
-            ps.setInt(10, g.open() ? 1 : 0);
-            ps.setLong(11, g.createdAt());
-            ps.setLong(12, g.updatedAt());
-            ps.setLong(13, g.points());
-            ps.setInt(14, g.level());
-            ps.setInt(15, g.wins());
-            ps.setInt(16, g.losses());
-            ps.setLong(17, g.bank());
-            ps.setString(18, g.homeServer());
-            ps.setInt(19, g.memberCount());
+        String sql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            bindGuild(ps, g);
             return ps.executeUpdate() > 0;
         }
     }
@@ -215,24 +225,50 @@ public final class GuildRepository {
         return out;
     }
 
-    /** 插入成员；玩家已在别的工会时返回 false（主键冲突）。 */
+    /** Insert a member and update the denormalized member count in one transaction. */
+    public boolean insertMemberAndIncrement(GuildMember member) throws SQLException {
+        String insert = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)";
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try (PreparedStatement ps = c.prepareStatement(insert)) {
+                bindMember(ps, member);
+                ps.executeUpdate();
+                try (PreparedStatement update = c.prepareStatement("UPDATE `" + db.t("guilds") + "` SET `member_count`=`member_count`+1 WHERE `guild_id`=?")) {
+                    update.setString(1, member.guildId());
+                    if (update.executeUpdate() != 1) throw new SQLException("Guild disappeared during member join");
+                }
+                c.commit();
+                return true;
+            } catch (SQLException e) {
+                try { c.rollback(); } catch (SQLException ignored) { }
+                // Duplicate player UUID: SQLite/MySQL report this differently, so verify directly.
+                if (memberExists(c, member.uuid())) {
+                    return false;
+                }
+                throw e;
+            } finally { c.setAutoCommit(true); }
+        }
+    }
+
+    private boolean memberExists(Connection c, UUID uuid) {
+        try (PreparedStatement ps = c.prepareStatement("SELECT 1 FROM `" + db.t("guild_members") + "` WHERE `player_uuid`=?")) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+    /** Legacy import member insert. */
     public boolean insertMember(GuildMember m) throws SQLException {
-        String sql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,"
-                + "`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)";
-        try (Connection c = db.source().getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, m.uuid().toString());
-            ps.setString(2, m.name());
-            ps.setString(3, m.guildId());
-            ps.setString(4, m.rank().name());
-            ps.setLong(5, m.joinedAt());
-            ps.setLong(6, m.contributed());
-            ps.setInt(7, m.kills());
-            ps.setInt(8, m.deaths());
+        String sql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)";
+        try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            bindMember(ps, m);
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
-            // 主键冲突 = 该玩家已在某工会
-            return false;
+            if (e.getSQLState() != null && e.getSQLState().startsWith("23")) return false;
+            throw e;
         }
     }
 
