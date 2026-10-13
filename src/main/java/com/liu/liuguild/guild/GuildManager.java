@@ -142,15 +142,34 @@ public final class GuildManager {
     }
 
     public List<Guild> top(String column, int limit) {
+        List<Guild> list = topSorted(column);
+        return list.subList(0, Math.min(Math.max(0, limit), list.size()));
+    }
+
+    /** 按列缓存的全量排序列表；排行榜占位符会被高频调用，避免每次重新排序。 */
+    private static final long TOP_CACHE_MS = 3000L;
+    private final Map<String, Object[]> topCache = new ConcurrentHashMap<>();
+
+    private List<Guild> topSorted(String column) {
+        String key = column == null ? "points" : column;
+        long now = System.currentTimeMillis();
+        Object[] cached = topCache.get(key);
+        if (cached != null && now - (Long) cached[1] < TOP_CACHE_MS) {
+            @SuppressWarnings("unchecked")
+            List<Guild> hit = (List<Guild>) cached[0];
+            return hit;
+        }
         List<Guild> list = new ArrayList<>(guilds.values());
-        switch (column) {
+        switch (key) {
             case "level" -> list.sort((a, b) -> Integer.compare(b.level(), a.level()));
             case "wins" -> list.sort((a, b) -> Integer.compare(b.wins(), a.wins()));
+            case "losses" -> list.sort((a, b) -> Integer.compare(b.losses(), a.losses()));
             case "bank" -> list.sort((a, b) -> Long.compare(b.bank(), a.bank()));
             case "members" -> list.sort((a, b) -> Integer.compare(b.memberCount(), a.memberCount()));
             default -> list.sort((a, b) -> Long.compare(b.points(), a.points()));
         }
-        return list.subList(0, Math.min(limit, list.size()));
+        topCache.put(key, new Object[]{list, now});
+        return list;
     }
 
     /** 失效某工会缓存：从内存移除，下次访问前由异步 reloadGuild 补回。 */
