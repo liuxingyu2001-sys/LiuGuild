@@ -37,8 +37,9 @@ public final class GuildManager {
     private static final MiniMessage MM = MiniMessage.miniMessage();
 
     private final LiuGuild plugin;
-    private final Map<String, Guild> guilds = new ConcurrentHashMap<>();
-    private final Map<UUID, String> memberIndex = new ConcurrentHashMap<>();
+    // 缓存引用可整体原子替换，避免重载期间出现短暂的“无工会”状态。
+    private volatile Map<String, Guild> guilds = new ConcurrentHashMap<>();
+    private volatile Map<UUID, String> memberIndex = new ConcurrentHashMap<>();
     private final Map<String, String> nameIndex = new ConcurrentHashMap<>();
     private final Map<String, String> tagIndex = new ConcurrentHashMap<>();
     private final Map<UUID, Invite> invites = new ConcurrentHashMap<>();
@@ -85,10 +86,8 @@ public final class GuildManager {
                     g.putMember(m);
                     idx.put(m.uuid(), m.guildId());
                 }
-                guilds.clear();
-                guilds.putAll(fresh);
-                memberIndex.clear();
-                memberIndex.putAll(idx);
+                guilds = fresh;
+                memberIndex = idx;
                 rebuildIndexes();
                 plugin.sync(() -> { if (plugin.guildChat() != null) plugin.guildChat().refresh(); });
             } catch (Exception e) {
@@ -172,14 +171,30 @@ public final class GuildManager {
         plugin.async(() -> {
             try {
                 Guild g = plugin.repo().loadGuild(guildId);
-                Guild old = guilds.remove(guildId);
-                if (old != null) for (UUID uuid : old.memberMap().keySet()) memberIndex.remove(uuid, guildId);
-                if (g != null) {
-                    for (GuildMember m : plugin.repo().loadMembers(guildId)) {
-                        g.putMember(m);
-                        memberIndex.put(m.uuid(), guildId);
+                if (g == null) {
+                    Guild old = guilds.remove(guildId);
+                    if (old != null) {
+                        for (UUID uuid : old.memberMap().keySet()) {
+                            memberIndex.remove(uuid, guildId);
+                        }
                     }
-                    guilds.put(guildId, g);
+                    rebuildIndexes();
+                    return;
+                }
+                for (GuildMember m : plugin.repo().loadMembers(guildId)) {
+                    g.putMember(m);
+                }
+                // 先构建完整的新对象，再原子替换，过程中不会出现“查不到工会”。
+                Guild old = guilds.put(guildId, g);
+                if (old != null) {
+                    for (UUID uuid : old.memberMap().keySet()) {
+                        if (!g.hasMember(uuid)) {
+                            memberIndex.remove(uuid, guildId);
+                        }
+                    }
+                }
+                for (GuildMember m : g.members()) {
+                    memberIndex.put(m.uuid(), guildId);
                 }
                 rebuildIndexes();
                 plugin.sync(() -> { if (plugin.guildChat() != null) plugin.guildChat().refresh(); });
