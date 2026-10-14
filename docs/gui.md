@@ -65,7 +65,7 @@ gui:
 
 | key | 说明 | 点击操作 |
 |---|---|---|
-| `main` | 工会主菜单 | 成员 / 工会战 / 银行 / 设置 / 列表 / 退出 |
+| `main` | 工会主菜单 | 成员 / 工会战 / 银行 / 签到 / 设置 / 列表 / 退出 |
 | `members` | 成员列表（分页） | 左键晋升 / 右键降级 / Shift+左键踢出 |
 | `list` | 工会列表（分页） | 左键申请加入 |
 | `war` | 工会战（动态列出各模式） | 点击某模式参与匹配；含退出/战况/历史/返回 |
@@ -81,13 +81,15 @@ gui:
 | `members` | 打开成员菜单 |
 | `war` | 打开工会战菜单 |
 | `bank` | 左键存入 / 右键取出（聊天栏输入金额） |
+| `checkin` | 每日签到（连续奖励） |
 | `settings` | 打开设置菜单 |
 | `list` | 打开工会列表 |
 | `leave` | 退出工会 |
 | `toggle_open` | 切换加入方式 |
 | `notice` / `desc` | 聊天栏输入公告/简介 |
 | `icon` | 打开图标菜单 |
-| `admin_status` / `admin_modes` / `admin_arena` / `admin_kit` | 管理面板各页 |
+| `admin_status` / `admin_modes` / `admin_arena` / `admin_guilds` / `admin_wars` / `admin_kits` | 管理面板各页 |
+| `admin_verify` / `admin_cleanup` | 数据校验 / 僵尸工会清理 |
 | `admin_reload` | 重载配置 |
 | `close` | 关闭菜单 |
 | `back` | 返回上级 |
@@ -103,7 +105,8 @@ gui:
 `{mode_fair}` `{mode_health}` `{mode_arena}` `{mode_schedule}` `{mode_duration}`。
 
 其它：`{count}` `{state}` `{enemy}` `{score}` `{enemy_score}` `{icon_name}` `{icon_cost}`
-`{history_count}`；管理面板：`{server}` `{storage}` `{cross}` `{guild_count}` `{queue}` `{live_wars}`。
+`{history_count}`；签到：`{checkin_streak}` `{checkin_state}`；
+管理面板：`{server}` `{storage}` `{cross}` `{guild_count}` `{queue}` `{live_wars}`。
 
 ## 扩展
 

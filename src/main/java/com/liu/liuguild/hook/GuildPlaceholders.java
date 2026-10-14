@@ -141,6 +141,12 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "online" -> String.valueOf(plugin.guilds().onlineMembers(guild).size());
             case "kills" -> member == null ? "0" : String.valueOf(member.kills());
             case "deaths" -> member == null ? "0" : String.valueOf(member.deaths());
+            case "checkin_streak" -> member == null ? "0" : String.valueOf(member.checkinStreak());
+            case "checkin_state" -> member == null ? ""
+                    : (plugin.settings().guild.checkinEnabled
+                    && com.liu.liuguild.config.GuildSettings.alreadyCheckedIn(
+                            com.liu.liuguild.util.TimeUtil.todayEpochDay(), member.lastCheckin())
+                    ? "已签到" : "未签到");
             case "contributed" -> member == null ? "0" : plugin.economy().format(member.contributed());
             default -> "";
         };

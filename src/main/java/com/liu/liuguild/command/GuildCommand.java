@@ -23,7 +23,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBS = List.of(
             "help", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
-            "kick", "promote", "demote", "transfer", "seticon", "set", "bank", "home", "info", "list", "top", "war", "chat");
+            "kick", "promote", "demote", "transfer", "seticon", "set", "bank", "home", "info", "list", "top", "war", "chat", "checkin");
 
     private final LiuGuild plugin;
 
@@ -75,6 +75,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             case "top" -> top(player, args);
             case "chat", "c" -> plugin.guildChat().chat(player, args.length > 1
                     ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : "");
+            case "checkin", "sign", "qiandao" -> plugin.guilds().checkin(player);
             case "war" -> war(player, args);
             default -> plugin.messages().send(player, "unknown-command");
         }
@@ -99,6 +100,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "驻地", "/guild home [槽位]", "传送到工会驻地（需 HuskHomes）");
         helpLine(player, "驻地", "/guild home set [槽位]", "把当前位置设为工会驻地");
         helpLine(player, "驻地", "/guild home del [槽位]", "删除工会驻地");
+        helpLine(player, "日常", "/guild checkin", "每日签到领取工会资金");
         helpLine(player, "信息", "/guild info", "查看工会信息");
         helpLine(player, "信息", "/guild list", "浏览全服工会");
         helpLine(player, "信息", "/guild top points", "查看排行榜");

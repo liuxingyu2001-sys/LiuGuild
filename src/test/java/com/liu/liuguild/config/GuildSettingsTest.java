@@ -60,4 +60,29 @@ class GuildSettingsTest {
         long now = 1_000 * DAY;
         assertTrue(GuildSettings.isInactive(now, 0, 30, 3, 0, 0));
     }
+
+    @Test
+    void checkinStreakIncrementsOnlyOnConsecutiveDays() {
+        assertEquals(1, GuildSettings.nextStreak(100, 0, 0));
+        assertEquals(5, GuildSettings.nextStreak(100, 100, 5)); // 同一天，保持不变
+        assertEquals(6, GuildSettings.nextStreak(101, 100, 5)); // 连签
+        assertEquals(1, GuildSettings.nextStreak(103, 100, 5)); // 断签重置
+    }
+
+    @Test
+    void checkinAlreadyCheckedInOnlySameDay() {
+        assertTrue(GuildSettings.alreadyCheckedIn(200, 200));
+        assertFalse(GuildSettings.alreadyCheckedIn(200, 199));
+        assertFalse(GuildSettings.alreadyCheckedIn(200, 0));
+    }
+
+    @Test
+    void checkinRewardAddsCappedStreakBonus() {
+        // 第 1 天：无额外奖励
+        assertEquals(10, GuildSettings.checkinReward(10, 5, 50, 1));
+        // 第 3 天：+5*(3-1)=10
+        assertEquals(20, GuildSettings.checkinReward(10, 5, 50, 3));
+        // 连续奖励封顶 50
+        assertEquals(60, GuildSettings.checkinReward(10, 5, 50, 100));
+    }
 }

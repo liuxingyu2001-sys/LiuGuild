@@ -109,6 +109,11 @@ public final class GuiManager implements GuildModule, Listener {
             return;
         }
         Map<String, String> ph = placeholders(g);
+        GuildMember self = g.member(player.getUniqueId());
+        ph.put("checkin_streak", String.valueOf(self == null ? 0 : self.checkinStreak()));
+        ph.put("checkin_state", !plugin.settings().guild.checkinEnabled ? "未开启"
+                : (self != null && com.liu.liuguild.config.GuildSettings.alreadyCheckedIn(
+                        com.liu.liuguild.util.TimeUtil.todayEpochDay(), self.lastCheckin()) ? "已签到" : "未签到"));
         Holder holder = new Holder("main", g.id(), 0);
         Inventory inv = create(holder, def, ph, player);
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
@@ -407,6 +412,10 @@ public final class GuiManager implements GuildModule, Listener {
             case "war" -> openWar(player, require(g, player));
             case "settings" -> openSettings(player, require(g, player));
             case "list" -> openList(player, 0);
+            case "checkin" -> {
+                player.closeInventory();
+                plugin.guilds().checkin(player);
+            }
             case "bank" -> bankAction(player, g, clickRight);
             case "home" -> {
                 if (g == null) {

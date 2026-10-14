@@ -23,6 +23,11 @@ public final class TimeUtil {
         return System.currentTimeMillis();
     }
 
+    /** 当前本地时区的 epoch day（用于每日签到等按日判定）。 */
+    public static long todayEpochDay() {
+        return LocalDateTime.now(ZONE).toLocalDate().toEpochDay();
+    }
+
     /** 剩余毫秒 → 向上取整的秒数。 */
     public static long secondsLeft(long untilMillis) {
         return Math.max(0, (untilMillis - System.currentTimeMillis() + 999) / 1000);

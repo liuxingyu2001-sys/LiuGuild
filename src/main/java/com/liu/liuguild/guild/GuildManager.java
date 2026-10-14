@@ -1057,6 +1057,59 @@ public final class GuildManager {
         saveGuild(g);
     }
 
+    /**
+     * 每日工会签到：以本地自然日为准，连续签到获得额外工会资金。
+     */
+    public void checkin(Player player) {
+        if (player == null) {
+            return;
+        }
+        Guild g = guildOf(player.getUniqueId());
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        GuildSettings c = conf();
+        if (!c.checkinEnabled) {
+            plugin.messages().send(player, "checkin-disabled");
+            return;
+        }
+        GuildMember m = g.member(player.getUniqueId());
+        if (m == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        long today = com.liu.liuguild.util.TimeUtil.todayEpochDay();
+        if (GuildSettings.alreadyCheckedIn(today, m.lastCheckin())) {
+            plugin.messages().send(player, "checkin-already");
+            return;
+        }
+        int streak = GuildSettings.nextStreak(today, m.lastCheckin(), m.checkinStreak());
+        m.lastCheckin(today);
+        m.checkinStreak(streak);
+        saveMemberAsync(m);
+
+        long reward = GuildSettings.checkinReward(c.checkinPoints, c.checkinStreakBonus,
+                c.checkinMaxStreakBonus, streak);
+        if (reward > 0) {
+            addPoints(g, reward);
+        }
+        if (c.checkinMoney > 0 && plugin.economy().available()) {
+            plugin.economy().deposit(player, c.checkinMoney);
+        }
+        plugin.messages().send(player, "checkin-success", "streak", streak, "points", reward,
+                "money", plugin.economy().format(c.checkinMoney), "guild", g.name());
+        if (c.checkinBroadcast) {
+            notifyGuild(g.id(), plugin.messages().component("checkin-broadcast",
+                    "player", player.getName(), "streak", streak, "points", reward),
+                    player.getUniqueId());
+        }
+        try {
+            player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 0.6f, 1.4f);
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 管理员强制设置等级（不触发升级事件）。 */
     public void setLevel(Guild g, int level) {
         if (g == null) {

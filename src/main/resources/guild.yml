@@ -54,6 +54,19 @@ guild:
     warmup-seconds: 3
     # 工会战期间是否禁止使用驻地
     deny-in-war: true
+  # 每日工会签到
+  checkin:
+    enabled: true
+    # 每日签到获得工会资金（点数）
+    points: 10
+    # 每日签到获得个人金币（需经济插件，0 = 不发）
+    money: 0.0
+    # 每连续签到 1 天的额外工会资金
+    streak-bonus: 5
+    # 连续奖励上限
+    max-streak-bonus: 50
+    # 是否向全会成员广播签到
+    broadcast: true
   # 僵尸工会清理（不活跃工会）
   cleanup:
     # 自动定期清理开关（默认关闭，建议先用 dry-run 确认）

@@ -168,6 +168,8 @@ public final class Database {
                     + "`contributed` BIGINT NOT NULL DEFAULT 0,"
                     + "`kills` INT NOT NULL DEFAULT 0,"
                     + "`deaths` INT NOT NULL DEFAULT 0,"
+                    + "`last_checkin` BIGINT NOT NULL DEFAULT 0,"
+                    + "`checkin_streak` INT NOT NULL DEFAULT 0,"
                     + "PRIMARY KEY (`player_uuid`)"
                     + ")" + engine);
 
@@ -252,6 +254,8 @@ public final class Database {
         columns.add(new String[]{"guild_members", "contributed", "`contributed` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guild_members", "kills", "`kills` INT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guild_members", "deaths", "`deaths` INT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_members", "last_checkin", "`last_checkin` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_members", "checkin_streak", "`checkin_streak` INT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guild_wars", "mode", "`mode` VARCHAR(32) NOT NULL DEFAULT 'match'"});
         columns.add(new String[]{"guild_wars", "arena_world", "`arena_world` VARCHAR(128)"});
         columns.add(new String[]{"guild_wars", "tag_a", "`tag_a` VARCHAR(32)"});

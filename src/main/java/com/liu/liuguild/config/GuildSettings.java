@@ -50,6 +50,19 @@ public final class GuildSettings {
     /** 删除时是否全服广播。 */
     public boolean cleanupBroadcast = true;
 
+    // ---- 工会签到 ----
+    public boolean checkinEnabled = true;
+    /** 每日签到奖励的工会资金（点数）。 */
+    public long checkinPoints = 10; 
+    /** 每日签到奖励的个人金币（需要经济插件）。 */
+    public double checkinMoney = 0.0;
+    /** 每连续签到 1 天的额外工会资金。 */
+    public long checkinStreakBonus = 5;
+    /** 连续奖励上限。 */
+    public long checkinMaxStreakBonus = 50;
+    /** 是否全服广播签到。 */
+    public boolean checkinBroadcast = true;
+
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
         s.nameMin = Math.max(1, c.getInt("guild.name.min-length", s.nameMin));
@@ -85,7 +98,47 @@ public final class GuildSettings {
         s.cleanupMaxMembers = Math.max(0, c.getInt("guild.cleanup.max-members", s.cleanupMaxMembers));
         s.cleanupDryRun = c.getBoolean("guild.cleanup.dry-run", s.cleanupDryRun);
         s.cleanupBroadcast = c.getBoolean("guild.cleanup.broadcast", s.cleanupBroadcast);
+        s.checkinEnabled = c.getBoolean("guild.checkin.enabled", s.checkinEnabled);
+        s.checkinPoints = Math.max(0, c.getLong("guild.checkin.points", s.checkinPoints));
+        s.checkinMoney = Math.max(0, c.getDouble("guild.checkin.money", s.checkinMoney));
+        s.checkinStreakBonus = Math.max(0, c.getLong("guild.checkin.streak-bonus", s.checkinStreakBonus));
+        s.checkinMaxStreakBonus = Math.max(0, c.getLong("guild.checkin.max-streak-bonus", s.checkinMaxStreakBonus));
+        s.checkinBroadcast = c.getBoolean("guild.checkin.broadcast", s.checkinBroadcast);
         return s;
+    }
+
+    /**
+     * 纯函数：根据“今天”与“上次签到”计算签到后的连续天数。
+     *
+     * @param today      今天的 epoch day（本地时区）
+     * @param lastDay    上次签到 epoch day（0 = 从未签到）
+     * @param lastStreak 上次的连续天数
+     * @return 新的连续天数
+     */
+    public static int nextStreak(long today, long lastDay, int lastStreak) {
+        if (lastDay <= 0) {
+            return 1;
+        }
+        if (today == lastDay) {
+            return Math.max(1, lastStreak);
+        }
+        if (today == lastDay + 1) {
+            return Math.max(1, lastStreak) + 1;
+        }
+        return 1;
+    }
+
+    /** 纯函数：今天是否已经签到。 */
+    public static boolean alreadyCheckedIn(long today, long lastDay) {
+        return lastDay > 0 && lastDay == today;
+    }
+
+    /**
+     * 纯函数：计算签到可获得的工会资金（含连续奖励，封顶）。
+     */
+    public static long checkinReward(long basePoints, long streakBonus, long maxStreakBonus, int streak) {
+        long bonus = Math.min(Math.max(0, maxStreakBonus), Math.max(0, streakBonus) * Math.max(0, streak - 1));
+        return Math.max(0, basePoints) + bonus;
     }
 
     /**

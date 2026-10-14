@@ -20,6 +20,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [gui.md](gui.md) | GUI 菜单与按钮配置、点击操作 |
 | [home.md](home.md) | 工会驻地（HuskHomes 传送） |
 | [cleanup.md](cleanup.md) | 僵尸工会清理（自动/手动） |
+| [checkin.md](checkin.md) | 工会每日签到（连续奖励） |
 | [api.md](api.md) | 开放 API 与 Bukkit 事件 |
 | [placeholders.md](placeholders.md) | PlaceholderAPI 变量 |
 | [craftengine.md](craftengine.md) | CraftEngine 物品/图标集成 |

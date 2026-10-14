@@ -26,6 +26,7 @@
 | `/guild home set [槽位]` | 设置工会驻地（会长/副会长） |
 | `/guild home del [槽位]` | 删除工会驻地（会长/副会长） |
 | `/guild home list` | 查看驻地槽位 |
+| `/guild checkin` | 每日签到领取工会资金（别名 `sign`） |
 | `/guild info [工会]` | 查看工会信息 |
 | `/guild list [页码]` | 工会列表 |
 | `/guild top <points\|bank\|level\|wins>` | 排行榜 |

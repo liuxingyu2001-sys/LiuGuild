@@ -52,6 +52,11 @@ gui:
         material: COMPASS
         name: "<white>工会驻地"
         lore: ["<gray>可用槽位：<white>{home_slots}", "<gray>左键传送 / 右键设置"]
+      checkin:
+        slot: 28
+        material: CLOCK
+        name: "<white>每日签到"
+        lore: ["<gray>连续签到：<white>{checkin_streak} 天", "<gray>今日：<white>{checkin_state}", "", "<yellow>点击签到"]
       settings:
         slot: 30
         material: REDSTONE_TORCH

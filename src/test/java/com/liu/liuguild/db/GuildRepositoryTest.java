@@ -179,6 +179,30 @@ class GuildRepositoryTest {
     }
 
     @Test
+    void checkinFieldsPersistThroughUpdateAndFlush() throws Exception {
+        String id = UUID.randomUUID().toString();
+        Guild g = guild(id, "Checkin", "CK");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", id, GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+
+        leader.lastCheckin(20000L);
+        leader.checkinStreak(7);
+        repo.updateMember(leader);
+
+        GuildMember loaded = repo.loadMembers(id).get(0);
+        assertEquals(20000L, loaded.lastCheckin());
+        assertEquals(7, loaded.checkinStreak());
+
+        leader.lastCheckin(20001L);
+        leader.checkinStreak(8);
+        repo.flushAll(java.util.List.of(g), java.util.List.of(leader));
+        GuildMember afterFlush = repo.loadMembers(id).get(0);
+        assertEquals(20001L, afterFlush.lastCheckin());
+        assertEquals(8, afterFlush.checkinStreak());
+    }
+
+    @Test
     void homesPersistAndDeletePerSlot() throws Exception {
         String id = UUID.randomUUID().toString();
         Guild g = guild(id, "Delta", "DE");

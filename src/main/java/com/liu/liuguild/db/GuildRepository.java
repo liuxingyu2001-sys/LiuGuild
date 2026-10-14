@@ -113,7 +113,7 @@ public final class GuildRepository {
     /** Atomically inserts a guild and its leader. */
     public void insertGuildWithLeader(Guild guild, GuildMember leader) throws SQLException {
         String guildSql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-        String memberSql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)";
+        String memberSql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`,`last_checkin`,`checkin_streak`) VALUES (?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try (PreparedStatement gs = c.prepareStatement(guildSql); PreparedStatement ms = c.prepareStatement(memberSql)) {
@@ -141,6 +141,7 @@ public final class GuildRepository {
     private void bindMember(PreparedStatement ps, GuildMember m) throws SQLException {
         ps.setString(1, m.uuid().toString()); ps.setString(2, m.name()); ps.setString(3, m.guildId()); ps.setString(4, m.rank().name());
         ps.setLong(5, m.joinedAt()); ps.setLong(6, m.contributed()); ps.setInt(7, m.kills()); ps.setInt(8, m.deaths());
+        ps.setLong(9, m.lastCheckin()); ps.setInt(10, m.checkinStreak());
     }
     public boolean insertGuild(Guild g) throws SQLException {
         String sql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
@@ -193,7 +194,7 @@ public final class GuildRepository {
             return;
         }
         String memberSql = "UPDATE `" + db.t("guild_members") + "` SET `player_name`=?,`guild_id`=?,`rank`=?,"
-                + "`contributed`=?,`kills`=?,`deaths`=? WHERE `player_uuid`=?";
+                + "`contributed`=?,`kills`=?,`deaths`=?,`last_checkin`=?,`checkin_streak`=? WHERE `player_uuid`=?";
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try (PreparedStatement gs = c.prepareStatement(guildUpdateSql());
@@ -364,7 +365,7 @@ public final class GuildRepository {
 
     /** Insert a member and update the denormalized member count in one transaction. */
     public boolean insertMemberAndIncrement(GuildMember member) throws SQLException {
-        String insert = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)";
+        String insert = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`,`last_checkin`,`checkin_streak`) VALUES (?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try (PreparedStatement ps = c.prepareStatement(insert)) {
@@ -399,7 +400,7 @@ public final class GuildRepository {
     }
     /** Legacy import member insert. */
     public boolean insertMember(GuildMember m) throws SQLException {
-        String sql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`) VALUES (?,?,?,?,?,?,?,?)";
+        String sql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`,`last_checkin`,`checkin_streak`) VALUES (?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
             bindMember(ps, m);
             return ps.executeUpdate() > 0;
@@ -411,7 +412,7 @@ public final class GuildRepository {
 
     public void updateMember(GuildMember m) throws SQLException {
         String sql = "UPDATE `" + db.t("guild_members") + "` SET `player_name`=?,`guild_id`=?,`rank`=?,"
-                + "`contributed`=?,`kills`=?,`deaths`=? WHERE `player_uuid`=?";
+                + "`contributed`=?,`kills`=?,`deaths`=?,`last_checkin`=?,`checkin_streak`=? WHERE `player_uuid`=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             bindMemberUpdate(ps, m);
@@ -426,7 +427,9 @@ public final class GuildRepository {
         ps.setLong(4, m.contributed());
         ps.setInt(5, m.kills());
         ps.setInt(6, m.deaths());
-        ps.setString(7, m.uuid().toString());
+        ps.setLong(7, m.lastCheckin());
+        ps.setInt(8, m.checkinStreak());
+        ps.setString(9, m.uuid().toString());
     }
 
     public void deleteMember(UUID uuid) throws SQLException {
@@ -616,7 +619,7 @@ public final class GuildRepository {
             // 脏数据：无法解析 UUID 的成员行直接跳过（否则会拖垮整份缓存加载）
             return null;
         }
-        return new GuildMember(
+        GuildMember m = new GuildMember(
                 uuid,
                 rs.getString("player_name"),
                 rs.getString("guild_id"),
@@ -625,6 +628,13 @@ public final class GuildRepository {
                 rs.getLong("contributed"),
                 rs.getInt("kills"),
                 rs.getInt("deaths"));
+        try {
+            m.lastCheckin(rs.getLong("last_checkin"));
+            m.checkinStreak(rs.getInt("checkin_streak"));
+        } catch (SQLException ignored) {
+            // 旧库尚未补列时忽略（migrate 会补齐）
+        }
+        return m;
     }
 
     private GuildWar mapWar(ResultSet rs) throws SQLException {

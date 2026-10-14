@@ -13,6 +13,10 @@ public final class GuildMember {
     private volatile long contributed;
     private volatile int kills;
     private volatile int deaths;
+    /** 上次签到所在日（epoch day，本地时区）；0 = 从未签到。 */
+    private volatile long lastCheckin;
+    /** 连续签到天数。 */
+    private volatile int checkinStreak;
 
     public GuildMember(UUID uuid, String name, String guildId, GuildRank rank,
                        long joinedAt, long contributed, int kills, int deaths) {
@@ -80,5 +84,21 @@ public final class GuildMember {
 
     public void addDeath() {
         this.deaths++;
+    }
+
+    public long lastCheckin() {
+        return lastCheckin;
+    }
+
+    public void lastCheckin(long lastCheckin) {
+        this.lastCheckin = lastCheckin;
+    }
+
+    public int checkinStreak() {
+        return checkinStreak;
+    }
+
+    public void checkinStreak(int checkinStreak) {
+        this.checkinStreak = Math.max(0, checkinStreak);
     }
 }

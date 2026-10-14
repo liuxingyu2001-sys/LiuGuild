@@ -36,7 +36,9 @@ class GuiPlaceholderTest {
             // settings / icons
             "icon_name", "icon_cost",
             // admin
-            "guild_count", "queue", "live_wars", "server", "storage", "cross");
+            "guild_count", "queue", "live_wars", "server", "storage", "cross",
+            // checkin
+            "checkin_streak", "checkin_state");
 
     private static final Pattern TOKEN = Pattern.compile("\\{([A-Za-z0-9_]+)}");
 
