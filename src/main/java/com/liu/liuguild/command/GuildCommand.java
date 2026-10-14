@@ -76,6 +76,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             case "chat", "c" -> plugin.guildChat().chat(player, args.length > 1
                     ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : "");
             case "checkin", "sign", "qiandao" -> plugin.guilds().checkin(player);
+            case "rename" -> rename(player, args);
             case "war" -> war(player, args);
             default -> plugin.messages().send(player, "unknown-command");
         }
@@ -95,6 +96,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "成员", "/guild kick <玩家>", "踢出成员");
         helpLine(player, "成员", "/guild transfer <玩家>", "转让会长");
         helpLine(player, "设置", "/guild seticon <图标>", "更换工会图标");
+        helpLine(player, "设置", "/guild rename <新名称> [新标签]", "给工会改名字");
         helpLine(player, "设置", "/guild set notice <内容>", "修改工会公告");
         helpLine(player, "银行", "/guild bank deposit <金额>", "存入工会银行");
         helpLine(player, "驻地", "/guild home [槽位]", "传送到工会驻地（需 HuskHomes）");
@@ -301,8 +303,23 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    private void bank(Player player, String[] args) {
+    /** /guild rename <新名称> [新标签] —— 仅会长，受开关/冷却/费用限制。 */
+    private void rename(Player player, String[] args) {
         Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        if (args.length < 2) {
+            plugin.messages().send(player, "rename-usage");
+            return;
+        }
+        String newName = args[1];
+        String newTag = args.length > 2 ? args[2] : null;
+        plugin.guilds().rename(player, g, newName, newTag);
+    }
+
+    private void bank(Player player, String[] args) {        Guild g = plugin.guilds().guildOf(player.getUniqueId());
         if (g == null) {
             plugin.messages().send(player, "not-in-guild");
             return;

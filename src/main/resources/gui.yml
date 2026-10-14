@@ -35,37 +35,37 @@ gui:
           - ""
           - "<yellow>公告：<white>{notice}"
       members:
-        slot: 20
+        slot: 19
         material: PLAYER_HEAD
         name: "<white>成员列表"
         lore: ["<gray>查看并管理工会成员"]
       war:
-        slot: 22
+        slot: 20
         material: NETHERITE_SWORD
         name: "<white>工会战"
         lore: ["<gray>匹配 / 查看战况 / 历史战绩"]
       bank:
-        slot: 24
+        slot: 21
         material: GOLD_INGOT
         name: "<white>工会银行"
         lore: ["<gray>余额：<white>{bank}", "<gray>左键存入 / 右键取出"]
       home:
-        slot: 26
+        slot: 22
         material: COMPASS
         name: "<white>工会驻地"
         lore: ["<gray>可用槽位：<white>{home_slots}", "<gray>左键传送 / 右键设置"]
       checkin:
-        slot: 28
+        slot: 23
         material: CLOCK
         name: "<white>每日签到"
-        lore: ["<gray>连续签到：<white>{checkin_streak} 天", "<gray>今日：<white>{checkin_state}", "", "<yellow>点击签到"]
+        lore: ["<gray>连续签到：<white>{checkin_streak} 天", "<gray>今日：<white>{checkin_state}", "<gray>消耗：<white>{checkin_cost}", "", "<yellow>点击签到"]
       settings:
-        slot: 30
+        slot: 24
         material: REDSTONE_TORCH
         name: "<white>工会设置"
-        lore: ["<gray>图标 / 公告 / 简介 / 加入方式"]
+        lore: ["<gray>图标 / 公告 / 简介 / 改名字 / 加入方式"]
       list:
-        slot: 32
+        slot: 25
         material: WRITABLE_BOOK
         name: "<white>工会列表"
         lore: ["<gray>浏览全服工会"]
@@ -153,28 +153,40 @@ gui:
   # ---------------- 工会设置菜单 ----------------
   settings:
     title: "<white>工会设置 <dark_gray>· {guild}"
-    rows: 4
+    rows: 5
     buttons:
-      icon:
+      rename:
         slot: 10
+        material: NAME_TAG
+        name: "<white>工会改名字"
+        lore:
+          - "<gray>当前名称：<white>{guild}"
+          - "<gray>当前标签：<white>{tag}"
+          - "<gray>可同时修改名称与标签"
+          - "<gray>冷却：<white>{rename_cooldown}"
+          - "<gray>费用：<white>{rename_cost}"
+          - ""
+          - "<yellow>点击后在铁砧界面输入新名称"
+      icon:
+        slot: 12
         material: SHIELD
         name: "<white>更换图标"
         lore: ["<gray>当前：<white>{icon_name}", "<gray>费用：<white>{icon_cost}"]
       toggle_open:
-        slot: 12
+        slot: 14
         material: OAK_DOOR
         name: "<white>加入方式：<yellow>{open}"
         lore: ["<gray>点击切换 开放 / 邀请"]
       notice:
-        slot: 14
+        slot: 16
         material: PAPER
         name: "<white>修改公告"
-        lore: ["<gray>当前：<white>{notice}", "<gray>点击后在聊天栏输入新公告"]
+        lore: ["<gray>当前：<white>{notice}", "<gray>点击后输入新公告"]
       desc:
-        slot: 16
+        slot: 28
         material: WRITABLE_BOOK
         name: "<white>修改简介"
-        lore: ["<gray>当前：<white>{description}", "<gray>点击后在聊天栏输入新简介"]
+        lore: ["<gray>当前：<white>{description}", "<gray>点击后输入新简介"]
       back:
         slot: 31
         material: ARROW
@@ -236,7 +248,7 @@ gui:
   # ---------------- 管理菜单 ----------------
   admin:
     title: "<gold><bold>LiuGuild</bold></gold> <dark_gray>· 管理面板"
-    rows: 5
+    rows: 6
     buttons:
       admin_status:
         slot: 10
@@ -251,48 +263,48 @@ gui:
           - "<gray>进行中：<white>{live_wars}"
           - ""
           - "<yellow>点击查看详细状态"
-      admin_modes:
-        slot: 12
-        material: NETHERITE_SWORD
-        name: "<white>工会战模式"
-        lore: ["<gray>查看各模式配置"]
       admin_arena:
-        slot: 14
+        slot: 12
         material: GRASS_BLOCK
         name: "<white>竞技场"
         lore: ["<gray>图形化编辑场地", "<gray>出生点 / 世界 / 临时世界 / 集合点", "", "<yellow>点击打开"]
-      admin_guilds:
-        slot: 24
-        material: SHIELD
-        name: "<white>工会管理"
-        lore: ["<gray>浏览全部工会", "<gray>改等级 / 资金 / 银行 / 公告", "<gray>强制解散", "", "<yellow>点击打开"]
-      admin_wars:
-        slot: 26
+      admin_modes:
+        slot: 14
         material: NETHERITE_SWORD
-        name: "<white>工会战管理"
-        lore: ["<gray>查看进行中的比赛", "<gray>改比分 / 传送 / 强制结束", "", "<yellow>点击打开"]
+        name: "<white>工会战模式"
+        lore: ["<gray>查看各模式配置"]
       admin_kits:
-        slot: 34
+        slot: 16
         material: DIAMOND_CHESTPLATE
         name: "<white>装备套装"
         lore: ["<gray>浏览 / 保存 / 删除套装", "<gray>用当前身上装备创建快照", "", "<yellow>点击打开"]
-      admin_verify:
+      admin_guilds:
         slot: 20
+        material: SHIELD
+        name: "<white>工会管理"
+        lore: ["<gray>浏览全部工会", "<gray>改名字 / 等级 / 资金 / 银行 / 公告", "<gray>强制解散", "", "<yellow>点击打开"]
+      admin_wars:
+        slot: 22
+        material: NETHERITE_SWORD
+        name: "<white>工会战管理"
+        lore: ["<gray>查看进行中的比赛", "<gray>改比分 / 传送 / 强制结束", "", "<yellow>点击打开"]
+      admin_verify:
+        slot: 24
         material: WRITABLE_BOOK
         name: "<white>数据校验"
         lore: ["<gray>校验 member_count / 会长 / 成员索引", "<gray>使用 /guildadmin verify fix 修复", "", "<yellow>点击校验"]
       admin_cleanup:
-        slot: 28
+        slot: 30
         material: HOPPER
         name: "<white>僵尸工会清理"
         lore: ["<gray>扫描不活跃工会（试运行）", "<gray>使用 /guildadmin cleanup confirm 删除", "", "<yellow>点击扫描"]
       admin_reload:
-        slot: 30
+        slot: 32
         material: REDSTONE
         name: "<white>重载配置"
         lore: ["<gray>重新加载全部模块"]
       close:
-        slot: 32
+        slot: 40
         material: BARRIER
         name: "<red>关闭"
         lore: ["<gray>关闭菜单"]

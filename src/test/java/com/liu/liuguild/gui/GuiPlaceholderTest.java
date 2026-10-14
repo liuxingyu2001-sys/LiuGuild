@@ -34,11 +34,11 @@ class GuiPlaceholderTest {
             "mode", "mode_key", "mode_state", "mode_min", "mode_team", "mode_fair", "mode_health",
             "mode_arena", "mode_schedule", "mode_duration",
             // settings / icons
-            "icon_name", "icon_cost",
+            "icon_name", "icon_cost", "rename_cooldown", "rename_cost",
             // admin
             "guild_count", "queue", "live_wars", "server", "storage", "cross",
             // checkin
-            "checkin_streak", "checkin_state");
+            "checkin_streak", "checkin_state", "checkin_cost");
 
     private static final Pattern TOKEN = Pattern.compile("\\{([A-Za-z0-9_]+)}");
 

@@ -339,6 +339,11 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("icon_name", icon == null ? g.icon() : icon.display);
         ph.put("icon_cost", plugin.economy().format(plugin.settings().guild.iconChangeCost));
         ph.put("open", g.open() ? "开放" : "邀请");
+        long cd = plugin.guilds().renameCooldownLeft(g.id());
+        ph.put("rename_cooldown", plugin.settings().guild.renameCooldownSeconds <= 0
+                ? "无" : (cd > 0 ? cd + " 秒" : "可改名"));
+        ph.put("rename_cost", plugin.settings().guild.renameCost <= 0
+                ? "免费" : plugin.economy().format(plugin.settings().guild.renameCost));
         Holder holder = new Holder("settings", g.id(), 0);
         Inventory inv = create(holder, def, ph, player);
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
@@ -561,6 +566,26 @@ public final class GuiManager implements GuildModule, Listener {
                 }
             }
             case "set:icon" -> openIcons(player, require(g, player), 0);
+            case "set:rename" -> {
+                if (g == null) {
+                    break;
+                }
+                if (!plugin.guilds().canManageSettings(player, g)) {
+                    plugin.messages().send(player, "no-permission-rank");
+                    break;
+                }
+                // 先输入新名称，确认后再问标签
+                requestText(player, "rename-input-name", name -> {
+                    if (name.isBlank()) {
+                        openSettings(player, g);
+                        return;
+                    }
+                    requestText(player, "rename-input-tag", tag -> {
+                        plugin.guilds().rename(player, g, name, tag.isBlank() ? null : tag);
+                        openSettings(player, g);
+                    });
+                });
+            }
             case "set:open" -> {
                 if (g != null && plugin.guilds().canManageSettings(player, g)) {
                     g.open(!g.open());
@@ -693,6 +718,8 @@ public final class GuiManager implements GuildModule, Listener {
                     openGuildList(player, 0);
                 });
             }
+        } else if (action.startsWith("guild_rename:")) {
+            promptAdminRename(player, action.substring("guild_rename:".length()));
         } else if (action.startsWith("guild_input:")) {
             String[] parts = action.substring("guild_input:".length()).split(":", 2);
             promptGuildInput(player, parts[0], parts.length > 1 ? parts[1] : "level");
@@ -1002,6 +1029,25 @@ public final class GuiManager implements GuildModule, Listener {
         }, "key", key);
     }
 
+    /** 管理员改名字：先输入名称，再输入标签（可留空）。 */
+    private void promptAdminRename(Player player, String guildId) {
+        Guild guild = plugin.guilds().guild(guildId);
+        if (guild == null) {
+            return;
+        }
+        player.closeInventory();
+        requestText(player, "rename-input-name", name -> {
+            if (name.isBlank()) {
+                openGuildEditor(player, guildId);
+                return;
+            }
+            requestText(player, "rename-input-tag", tag -> {
+                plugin.guilds().adminRename(player, guild, name, tag.isBlank() ? null : tag);
+                openGuildEditor(player, guildId);
+            });
+        });
+    }
+
     private boolean isShiftClick() {
         return clickShift;
     }
@@ -1138,6 +1184,9 @@ public final class GuiManager implements GuildModule, Listener {
         Holder holder = new Holder("guild_edit", g.id(), 0);
         Inventory inv = simpleInventory(player, holder, 6, "<gold>管理工会 <white>" + g.name(), Map.of());
         int slot = 0;
+        slot = put(inv, holder, slot, player, "NAME_TAG", "<white>改名字：<yellow>" + g.name() + " <dark_gray>[" + g.tag() + "]",
+                List.of("<gray>管理员改名（绕开冷却与费用）", "<gray>不填标签 = 只改名称"),
+                "guild_rename:" + g.id());
         slot = put(inv, holder, slot, player, "EXPERIENCE_BOTTLE", "<white>设置等级：<yellow>" + g.level(),
                 List.of("<gray>点击输入新等级"), "guild_input:" + g.id() + ":level");
         slot = put(inv, holder, slot, player, "GOLD_INGOT", "<white>设置资金：<yellow>" + g.points(),
@@ -1386,6 +1435,19 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("checkin_state", !plugin.settings().guild.checkinEnabled ? "未开启"
                 : (self != null && com.liu.liuguild.config.GuildSettings.alreadyCheckedIn(
                         com.liu.liuguild.util.TimeUtil.todayEpochDay(), self.lastCheckin()) ? "已签到" : "未签到"));
+        double checkinCost = plugin.settings().guild.checkinCost;
+        long checkinGuildCost = plugin.settings().guild.checkinGuildCost;
+        StringBuilder cost = new StringBuilder();
+        if (checkinCost > 0) {
+            cost.append(plugin.economy().format(checkinCost));
+        }
+        if (checkinGuildCost > 0) {
+            if (cost.length() > 0) {
+                cost.append(" + ");
+            }
+            cost.append(checkinGuildCost).append(" 工会资金");
+        }
+        ph.put("checkin_cost", cost.length() == 0 ? "免费" : cost.toString());
         return ph;
     }
 
@@ -1415,6 +1477,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "notice" -> "set:notice";
             case "desc" -> "set:desc";
             case "icon" -> "set:icon";
+            case "rename" -> "set:rename";
             case "back" -> "back:main";
             case "history" -> "war_history";
             case "leave_queue" -> "war_leave";

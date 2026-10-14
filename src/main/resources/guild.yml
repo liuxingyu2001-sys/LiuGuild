@@ -11,7 +11,7 @@ guild:
     min-length: 2
     max-length: 5
   # 创建费用（需 Vault 经济；无经济插件时忽略）
-  create-cost: 10000.0
+  create-cost: 30000.0
   # 基础成员上限
   max-members: 50
   # 每提升 1 级增加的成员上限
@@ -22,7 +22,7 @@ guild:
   bank:
     enabled: true
     # 存款手续费百分比（0 = 不收）
-    deposit-tax-percent: 0.0
+    deposit-tax-percent: 0.05
   level:
     base-required-points: 1000
     required-growth: 1.5
@@ -57,6 +57,10 @@ guild:
   # 每日工会签到
   checkin:
     enabled: true
+    # 每日签到消耗的个人金币（Vault，0 = 不收费）
+    cost: 0.0
+    # 每日签到消耗的工会资金（点数，0 = 不扣）
+    guild-cost: 0
     # 每日签到获得工会资金（点数）
     points: 10
     # 每日签到获得个人金币（需经济插件，0 = 不发）
@@ -67,6 +71,16 @@ guild:
     max-streak-bonus: 50
     # 是否向全会成员广播签到
     broadcast: true
+  # 工会改名字
+  rename:
+    # 是否允许会长改名字（/guild rename 或设置菜单）
+    enabled: true
+    # 冷却（秒）；0 = 不限
+    cooldown-seconds: 3600
+    # 费用（Vault 金币）；0 = 免费
+    cost: 1000.0
+    # 是否允许同时修改标签（tag，如 [SKY]）
+    allow-tag: true
   # 僵尸工会清理（不活跃工会）
   cleanup:
     # 自动定期清理开关（默认关闭，建议先用 dry-run 确认）

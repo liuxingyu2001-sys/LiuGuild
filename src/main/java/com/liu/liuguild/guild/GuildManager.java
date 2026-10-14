@@ -43,7 +43,7 @@ public final class GuildManager {
     private volatile Map<UUID, String> memberIndex = new ConcurrentHashMap<>();
     private final Map<String, String> nameIndex = new ConcurrentHashMap<>();
     private final Map<String, String> tagIndex = new ConcurrentHashMap<>();
-    /** 正在创建中的名称/缩写预留（归一化），避免并发创建同名。 */
+    /** 正在创建中的名称/标签预留（归一化），避免并发创建同名。 */
     private final Set<String> pendingNames = ConcurrentHashMap.newKeySet();
     private final Set<String> pendingTags = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Invite> invites = new ConcurrentHashMap<>();
@@ -308,7 +308,7 @@ public final class GuildManager {
                 });
             } catch (Exception e) {
                 if (com.liu.liuguild.db.GuildRepository.isDuplicateKey(e)) {
-                    plugin.getLogger().info("创建工会名称/缩写冲突（并发）: " + cleanName);
+                    plugin.getLogger().info("创建工会名称/标签冲突（并发）: " + cleanName);
                     rollbackCreate(player, g, id, c, "create-name-taken");
                 } else {
                     plugin.getLogger().warning("创建工会写库失败: " + e.getMessage());
@@ -860,9 +860,180 @@ public final class GuildManager {
     /** 公告/简介列宽上限（与建表 VARCHAR(255) 一致）。 */
     public static final int TEXT_FIELD_MAX = 255;
 
+    /** 改名字冷却记录：guildId -> 上次改名时间。 */
+    private final Map<String, Long> lastRename = new ConcurrentHashMap<>();
+
+    /** 距下次可改名还需多少秒；0 = 可改名。 */
+    public long renameCooldownLeft(String guildId) {
+        int cd = conf().renameCooldownSeconds;
+        if (cd <= 0) {
+            return 0;
+        }
+        long last = lastRename.getOrDefault(guildId, 0L);
+        long left = (last + cd * 1000L) - System.currentTimeMillis();
+        return Math.max(0, (left + 999) / 1000);
+    }
+
+    /**
+     * 改工会名称（可选同时改标签）。仅会长可执行，需改名字开关打开。
+     *
+     * @param newTag 传 null 表示不改标签
+     * @return true 表示已提交（异步写库完成后发消息）
+     */
+    public boolean rename(Player actor, Guild g, String newName, String newTag) {
+        GuildSettings c = conf();
+        if (!c.renameEnabled) {
+            plugin.messages().send(actor, "rename-disabled");
+            return false;
+        }
+        GuildMember m = g.member(actor.getUniqueId());
+        if (m == null) {
+            plugin.messages().send(actor, "not-in-guild");
+            return false;
+        }
+        if (m.rank() != GuildRank.LEADER) {
+            plugin.messages().send(actor, "no-permission-rank");
+            return false;
+        }
+        long left = renameCooldownLeft(g.id());
+        if (left > 0) {
+            plugin.messages().send(actor, "rename-cooldown", "seconds", left);
+            return false;
+        }
+        return applyRename(actor, g, newName, newTag, c.renameAllowTag, c.renameCost, true);
+    }
+
+    /**
+     * 管理员改名：绕开开关、冷却、费用与「仅会长」限制（仍会校验名称合法性）。
+     * 供 {@code /guildadmin} 与后台 GUI 使用。
+     */
+    public boolean adminRename(org.bukkit.command.CommandSender actor, Guild g, String newName, String newTag) {
+        return applyRename(actor, g, newName, newTag, true, 0, false);
+    }
+
+    private boolean applyRename(org.bukkit.command.CommandSender actor, Guild g, String newName, String newTag,
+                                boolean allowTag, double cost, boolean checkEconomy) {
+        GuildSettings c = conf();
+        String cleanName = Text.clean(newName);
+        if (Text.hasFormatting(newName) || cleanName.length() < c.nameMin || cleanName.length() > c.nameMax) {
+            plugin.messages().send(actor, "create-name-invalid", "min", c.nameMin, "max", c.nameMax);
+            return false;
+        }
+        String oldName = g.name();
+        if (cleanName.equalsIgnoreCase(oldName)) {
+            plugin.messages().send(actor, "rename-same");
+            return false;
+        }
+
+        String cleanTag = null;
+        if (newTag != null && !newTag.isBlank()) {
+            if (!allowTag) {
+                plugin.messages().send(actor, "rename-tag-disabled");
+                return false;
+            }
+            cleanTag = Text.clean(newTag);
+            if (Text.hasFormatting(newTag) || cleanTag.length() < c.tagMin || cleanTag.length() > c.tagMax) {
+                plugin.messages().send(actor, "create-tag-invalid", "min", c.tagMin, "max", c.tagMax);
+                return false;
+            }
+            if (cleanTag.equalsIgnoreCase(g.tag())) {
+                plugin.messages().send(actor, "rename-same");
+                return false;
+            }
+        }
+
+        String normName = cleanName.toLowerCase(Locale.ROOT);
+        String normTag = cleanTag == null ? null : cleanTag.toLowerCase(Locale.ROOT);
+        if (nameIndex.containsKey(normName) || !pendingNames.add(normName)) {
+            plugin.messages().send(actor, "create-name-taken", "name", cleanName);
+            return false;
+        }
+        if (normTag != null && (tagIndex.containsKey(normTag) || !pendingTags.add(normTag))) {
+            pendingNames.remove(normName);
+            plugin.messages().send(actor, "create-tag-taken", "tag", cleanTag);
+            return false;
+        }
+
+        if (cost > 0 && checkEconomy && !plugin.economy().available()) {
+            plugin.messages().send(actor, "rename-no-economy");
+            pendingNames.remove(normName);
+            if (normTag != null) {
+                pendingTags.remove(normTag);
+            }
+            return false;
+        }
+        if (cost > 0 && checkEconomy) {
+            if (!(actor instanceof Player payer)) {
+                plugin.messages().send(actor, "players-only");
+                return false;
+            }
+            if (!plugin.economy().withdraw(payer, cost)) {
+                plugin.messages().send(actor, "rename-cost-missing", "cost", plugin.economy().format(cost));
+                pendingNames.remove(normName);
+                if (normTag != null) {
+                    pendingTags.remove(normTag);
+                }
+                return false;
+            }
+        }
+
+        String oldTag = g.tag();
+        String oldNormName = oldName.toLowerCase(Locale.ROOT);
+        String oldNormTag = oldTag == null ? "" : oldTag.toLowerCase(Locale.ROOT);
+        g.name(cleanName);
+        if (cleanTag != null) {
+            g.tag(cleanTag);
+        }
+        g.touch();
+        rebuildIndexes();
+        lastRename.put(g.id(), System.currentTimeMillis());
+        final String appliedTag = cleanTag;
+        final String tagForCheck = cleanTag == null ? oldTag : cleanTag;
+        final String actorName = actor.getName();
+
+        plugin.async(() -> {
+            boolean ok;
+            try {
+                ok = !plugin.repo().nameOrTagTaken(cleanName, tagForCheck, g.id());
+                if (ok) {
+                    plugin.repo().updateGuild(g);
+                }
+            } catch (Exception e) {
+                ok = false;
+                plugin.getLogger().warning("工会改名写库失败: " + e.getMessage());
+            }
+            final boolean success = ok;
+            plugin.sync(() -> {
+                pendingNames.remove(normName);
+                if (normTag != null) {
+                    pendingTags.remove(normTag);
+                }
+                if (success) {
+                    plugin.broadcastGuildChange(g.id());
+                    plugin.messages().send(actor, "rename-success", "old", oldName, "guild", cleanName);
+                    plugin.guilds().notifyGuild(g.id(), plugin.messages().component("rename-broadcast",
+                            "player", actorName, "old", oldName, "guild", cleanName), null);
+                } else {
+                    // 回滚内存中的名字
+                    g.name(oldName);
+                    if (appliedTag != null) {
+                        g.tag(oldTag);
+                    }
+                    rebuildIndexes();
+                    lastRename.remove(g.id());
+                    if (cost > 0 && actor instanceof Player refundTo && plugin.economy().available()
+                            && !plugin.economy().deposit(refundTo, cost)) {
+                        plugin.getLogger().severe("工会改名回滚退款失败: 玩家=" + refundTo.getUniqueId() + " guild=" + g.id());
+                    }
+                    plugin.messages().send(actor, "create-name-taken", "name", cleanName);
+                }
+            });
+        });
+        return true;
+    }
+
     /** 设置公告；长度为 0 时清空。超长返回 false 并提示。 */
-    public boolean setNotice(Player actor, Guild g, String value) {
-        String v = value == null ? "" : value;
+    public boolean setNotice(Player actor, Guild g, String value) {        String v = value == null ? "" : value;
         if (v.length() > TEXT_FIELD_MAX) {
             plugin.messages().send(actor, "input-too-long", "max", TEXT_FIELD_MAX);
             return false;
@@ -1084,6 +1255,33 @@ public final class GuildManager {
             plugin.messages().send(player, "checkin-already");
             return;
         }
+
+        // ---- 先扣费：任一费用不足则直接返回，不消耗签到次数也不发奖励 ----
+        if (c.checkinCost > 0) {
+            if (!plugin.economy().available()) {
+                plugin.messages().send(player, "checkin-no-economy");
+                return;
+            }
+            if (!plugin.economy().has(player, c.checkinCost)) {
+                plugin.messages().send(player, "checkin-cost-missing",
+                        "cost", plugin.economy().format(c.checkinCost));
+                return;
+            }
+        }
+        if (c.checkinGuildCost > 0 && g.points() < c.checkinGuildCost) {
+            plugin.messages().send(player, "checkin-guild-cost-missing",
+                    "cost", String.valueOf(c.checkinGuildCost), "guild", g.name());
+            return;
+        }
+        if (c.checkinCost > 0 && !plugin.economy().withdraw(player, c.checkinCost)) {
+            plugin.messages().send(player, "checkin-cost-missing",
+                    "cost", plugin.economy().format(c.checkinCost));
+            return;
+        }
+        if (c.checkinGuildCost > 0) {
+            addPoints(g, -c.checkinGuildCost);
+        }
+
         int streak = GuildSettings.nextStreak(today, m.lastCheckin(), m.checkinStreak());
         m.lastCheckin(today);
         m.checkinStreak(streak);
@@ -1098,7 +1296,9 @@ public final class GuildManager {
             plugin.economy().deposit(player, c.checkinMoney);
         }
         plugin.messages().send(player, "checkin-success", "streak", streak, "points", reward,
-                "money", plugin.economy().format(c.checkinMoney), "guild", g.name());
+                "money", plugin.economy().format(c.checkinMoney), "guild", g.name(),
+                "cost", plugin.economy().format(c.checkinCost),
+                "guild_cost", String.valueOf(c.checkinGuildCost));
         if (c.checkinBroadcast) {
             notifyGuild(g.id(), plugin.messages().component("checkin-broadcast",
                     "player", player.getName(), "streak", streak, "points", reward),

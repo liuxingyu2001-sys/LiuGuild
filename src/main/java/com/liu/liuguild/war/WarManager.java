@@ -1378,23 +1378,94 @@ public final class WarManager implements GuildModule {
 
     private void rewardPlayer(UUID uuid, boolean win, WarMode mode, double multiplier) {
         double money = (win ? mode.winPlayerMoney : mode.losePlayerMoney) * multiplier;
+        double guildFunds = wonGuildFunds(win, mode, multiplier);
+        int passXp = (int) Math.min(Integer.MAX_VALUE,
+                Math.round((win ? mode.winPassXp : mode.losePassXp) * multiplier));
+        int titleId = win ? mode.winTitleId : 0;
+        boolean hasTitle = titleId > 0 && plugin.playerTitle() != null;
+
         if (money > 0 && plugin.economy() != null && plugin.economy().available()) {
             plugin.economy().deposit(plugin.offline(uuid), money);
         }
-        int passXp = (int) Math.min(Integer.MAX_VALUE,
-                Math.round((win ? mode.winPassXp : mode.losePassXp) * multiplier));
-        if (plugin.pass() != null) plugin.pass().addXp(uuid, mode.passId, passXp);
-        if (win && plugin.playerTitle() != null) {
-            plugin.playerTitle().grant(uuid, mode.winTitleId);
+        if (plugin.pass() != null && passXp > 0) {
+            plugin.pass().addXp(uuid, mode.passId, passXp);
         }
+        if (hasTitle) {
+            plugin.playerTitle().grant(uuid, titleId);
+        }
+
         Player player = plugin.player(uuid);
-        if (player != null) {
-            plugin.messages().send(player, win ? "war-reward-win" : "war-reward-lose",
-                    "money", plugin.economy().format(money),
-                    "guild_funds", String.valueOf(wonGuildFunds(win, mode, multiplier)),
-                    "pass_xp", passXp,
-                    "title", win && mode.winTitleId > 0 ? mode.winTitleId : "无");
+        if (player == null) {
+            return;
         }
+        // 分行展示：只列出「实际有值」的奖励，没有的项不占一行
+        plugin.messages().sendRaw(player, win ? "war-reward-win-header" : "war-reward-lose-header");
+        if (money > 0) {
+            plugin.messages().sendRaw(player, "war-reward-line-money",
+                    "money", plugin.economy().format(money));
+        }
+        if (guildFunds > 0) {
+            plugin.messages().sendRaw(player, "war-reward-line-funds", "funds", String.valueOf(guildFunds));
+        }
+        if (passXp > 0) {
+            plugin.messages().sendRaw(player, "war-reward-line-pass",
+                    "pass_xp", String.valueOf(passXp),
+                    "pass", mode.passId == null || mode.passId.isBlank() ? "通行证" : mode.passId);
+        }
+        if (hasTitle) {
+            plugin.messages().sendRaw(player, "war-reward-line-title", "title", String.valueOf(titleId));
+        }
+        runRewardCommands(player, win, mode);
+        plugin.messages().sendRaw(player, "war-reward-footer");
+    }
+
+    /**
+     * 执行自定义指令奖励，并把每条指令的「自定义名称」分行展示给玩家。
+     * <p>{@code rewards.commands} 双方执行；{@code rewards.win-commands} 仅胜方；
+     * {@code rewards.lose-commands} 仅负方（含平局）。</p>
+     */
+    private void runRewardCommands(Player player, boolean win, WarMode mode) {
+        if (mode.extraRewards.isEmpty()) {
+            return;
+        }
+        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+        for (WarMode.CommandReward reward : mode.extraRewards) {
+            if (!reward.appliesTo(win)) {
+                continue;
+            }
+            boolean executed = false;
+            for (String raw : reward.commands) {
+                String cmd = applyRewardPlaceholders(raw, player, guild, mode);
+                if (cmd.isBlank()) {
+                    continue;
+                }
+                try {
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
+                    executed = true;
+                } catch (Throwable t) {
+                    plugin.getLogger().warning("工会战指令奖励执行失败 [" + cmd + "]: " + t.getMessage());
+                }
+            }
+            // 名称就是奖励展示文字；执行过的奖励才分行显示
+            if (executed) {
+                plugin.messages().sendRaw(player, "war-reward-line-command", "label", reward.name);
+            }
+        }
+    }
+
+    /** 替换指令奖励里的占位符。 */
+    private String applyRewardPlaceholders(String cmd, Player player, Guild guild, WarMode mode) {
+        GuildWar war = current;
+        boolean sideA = war != null && guild != null && war.guildA().equals(guild.id());
+        int mine = war == null ? 0 : (sideA ? war.scoreA() : war.scoreB());
+        int theirs = war == null ? 0 : (sideA ? war.scoreB() : war.scoreA());
+        return cmd.replace("{player}", player.getName())
+                .replace("{uuid}", player.getUniqueId().toString())
+                .replace("{guild}", guild == null ? "" : guild.name())
+                .replace("{guild_id}", guild == null ? "" : guild.id())
+                .replace("{mode}", mode.key)
+                .replace("{score}", String.valueOf(mine))
+                .replace("{enemy_score}", String.valueOf(theirs));
     }
 
     private long wonGuildFunds(boolean win, WarMode mode, double multiplier) {

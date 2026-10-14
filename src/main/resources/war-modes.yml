@@ -60,6 +60,23 @@ modes:
       lose-pass-xp: 100
       pass-id: ""
       win-title-id: 0
+      # ------------------------------------------------------
+      #  自定义额外奖励：每一项 = 名称 + 指令（名称就是结算消息里显示的文字）
+      #  scope: both（默认，双方）/ win（仅胜方）/ lose（仅负方，含平局）
+      #  可用占位符：{player} {uuid} {guild} {guild_id} {mode} {score} {enemy_score}
+      #  结算时分行列出的只有「实际发出去的」奖励，没配置/为 0 的项不会显示。
+      # ------------------------------------------------------
+      extra: []
+      #  - name: 金币 x1000
+      #    commands:
+      #      - "money give {player} 1000"
+      #  - name: 3 颗钻石
+      #    commands:
+      #      - "give {player} diamond 3"
+      #  - name: 7 天 VIP 权限
+      #    scope: win
+      #    commands:
+      #      - "lp user {player} permission settemp liuguild.vip true 7d"
 
   # ----------------------------------------------------------
   #  赛季工会战：按时间表自动开启的赛季赛事

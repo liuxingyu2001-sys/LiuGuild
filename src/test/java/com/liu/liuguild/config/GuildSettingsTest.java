@@ -85,4 +85,47 @@ class GuildSettingsTest {
         // 连续奖励封顶 50
         assertEquals(60, GuildSettings.checkinReward(10, 5, 50, 100));
     }
+
+    @Test
+    void checkinCostIsParsedAndZeroByDefault() {
+        GuildSettings def = GuildSettings.parse(new org.bukkit.configuration.file.YamlConfiguration());
+        assertEquals(0.0, def.checkinCost, "默认不收费");
+        assertEquals(0, def.checkinGuildCost, "默认不扣工会资金");
+
+        org.bukkit.configuration.file.YamlConfiguration c =
+                new org.bukkit.configuration.file.YamlConfiguration();
+        try {
+            c.loadFromString("""
+                    guild:
+                      checkin:
+                        enabled: true
+                        cost: 500.0
+                        guild-cost: 20
+                    """);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        GuildSettings s = GuildSettings.parse(c);
+        assertEquals(500.0, s.checkinCost);
+        assertEquals(20, s.checkinGuildCost);
+    }
+
+    @Test
+    void negativeCheckinCostIsClampedToZero() {
+        org.bukkit.configuration.file.YamlConfiguration c =
+                new org.bukkit.configuration.file.YamlConfiguration();
+        try {
+            c.loadFromString("""
+                    guild:
+                      checkin:
+                        cost: -100.0
+                        guild-cost: -5
+                    """);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        GuildSettings s = GuildSettings.parse(c);
+        assertEquals(0.0, s.checkinCost, "负费用应被归零，否则会变成发钱");
+        assertEquals(0, s.checkinGuildCost);
+    }
 }

@@ -645,6 +645,26 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         plugin.messages().send(sender, "admin-setpoints", "guild", g.name(), "points", points);
     }
 
+    /** /guildadmin rename <工会> <新名称> [新标签] —— 绕开冷却与费用。 */
+    private void rename(CommandSender sender, String[] args) {
+        if (!require(sender, args, 3)) {
+            return;
+        }
+        Guild g = find(args[1]);
+        if (g == null) {
+            plugin.messages().send(sender, "guild-not-found", "name", args[1]);
+            return;
+        }
+        String newName = args[2];
+        String newTag = args.length > 3 ? args[3] : null;
+        if (sender instanceof Player player) {
+            plugin.guilds().adminRename(player, g, newName, newTag);
+        } else {
+            // 控制台没有 Player：直接改内存并落库，同名校验仍生效
+            plugin.guilds().adminRename(sender, g, newName, newTag);
+        }
+    }
+
     private void setBank(CommandSender sender, String[] args) {
         if (!require(sender, args, 3)) {
             return;

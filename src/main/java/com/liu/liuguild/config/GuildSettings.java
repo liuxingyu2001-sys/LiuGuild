@@ -62,6 +62,20 @@ public final class GuildSettings {
     public long checkinMaxStreakBonus = 50;
     /** 是否全服广播签到。 */
     public boolean checkinBroadcast = true;
+    /** 每日签到消耗的个人金币（Vault，0 = 不收费）。 */
+    public double checkinCost = 0.0;
+    /** 每日签到消耗的工会资金（点数，0 = 不扣）。 */
+    public long checkinGuildCost = 0;
+
+    // ---- 改名字 ----
+    /** 是否允许工会改名字（/guild rename <新名>）。 */
+    public boolean renameEnabled = true;
+    /** 改名字冷却（秒）；0 = 不限。 */
+    public int renameCooldownSeconds = 3600;
+    /** 改名字费用（Vault 金币）；0 = 免费。 */
+    public double renameCost = 0;
+    /** 是否允许同时修改标签（/guild rename <新名> <新标签>）。 */
+    public boolean renameAllowTag = true;
 
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
@@ -104,6 +118,12 @@ public final class GuildSettings {
         s.checkinStreakBonus = Math.max(0, c.getLong("guild.checkin.streak-bonus", s.checkinStreakBonus));
         s.checkinMaxStreakBonus = Math.max(0, c.getLong("guild.checkin.max-streak-bonus", s.checkinMaxStreakBonus));
         s.checkinBroadcast = c.getBoolean("guild.checkin.broadcast", s.checkinBroadcast);
+        s.checkinCost = Math.max(0, c.getDouble("guild.checkin.cost", s.checkinCost));
+        s.checkinGuildCost = Math.max(0, c.getLong("guild.checkin.guild-cost", s.checkinGuildCost));
+        s.renameEnabled = c.getBoolean("guild.rename.enabled", s.renameEnabled);
+        s.renameCooldownSeconds = Math.max(0, c.getInt("guild.rename.cooldown-seconds", s.renameCooldownSeconds));
+        s.renameCost = Math.max(0, c.getDouble("guild.rename.cost", s.renameCost));
+        s.renameAllowTag = c.getBoolean("guild.rename.allow-tag", s.renameAllowTag);
         return s;
     }
 

@@ -232,7 +232,7 @@ public final class Database {
     }
 
     /**
-     * 唯一索引：从数据库层保证工会名称/缩写的大小写不敏感唯一性
+     * 唯一索引：从数据库层保证工会名称/标签的大小写不敏感唯一性
      * （SQLite 列为 {@code COLLATE NOCASE}，MySQL 默认排序规则不敏感），
      * 兜底应用层的并发竞争。
      *

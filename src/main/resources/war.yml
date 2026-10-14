@@ -71,3 +71,6 @@ war:
       lose-pass-xp: 100
       pass-id: ""
       win-title-id: 0
+      # 自定义额外奖励（名称 + 指令，scope 可设 both/win/lose）
+      # 占位符：{player} {uuid} {guild} {guild_id} {mode} {score} {enemy_score}
+      extra: []
