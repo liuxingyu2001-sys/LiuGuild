@@ -1163,15 +1163,4 @@ public final class GuildManager {
         }
         return out;
     }
-
-    public List<Player> onlineMembers(Collection<UUID> uuids) {
-        List<Player> out = new ArrayList<>();
-        for (UUID u : uuids) {
-            Player p = plugin.player(u);
-            if (p != null) {
-                out.add(p);
-            }
-        }
-        return out;
-    }
 }
