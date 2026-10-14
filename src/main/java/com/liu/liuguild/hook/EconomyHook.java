@@ -70,4 +70,16 @@ public final class EconomyHook {
             return String.format("%.0f", amount);
         }
     }
+
+    /** 玩家当前余额；无经济插件或查询失败返回 0。 */
+    public double balance(OfflinePlayer player) {
+        if (economy == null || player == null) {
+            return 0;
+        }
+        try {
+            return economy.getBalance(player);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
 }

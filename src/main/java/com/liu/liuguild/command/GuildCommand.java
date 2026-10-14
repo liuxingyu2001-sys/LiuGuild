@@ -7,7 +7,9 @@ import com.liu.liuguild.model.GuildRank;
 import com.liu.liuguild.model.GuildTitle;
 import com.liu.liuguild.model.GuildWar;
 import com.liu.liuguild.title.TitleService;
+import com.liu.liuguild.util.NumberUtil;
 import com.liu.liuguild.util.Text;
+import org.bukkit.inventory.ItemStack;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
@@ -29,7 +31,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             "help", "menu", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
             "kick", "promote", "demote", "transfer", "members", "seticon", "icon", "rename", "set", "bank",
             "home", "hq", "info", "list", "top", "war", "chat", "c", "checkin", "sign", "qiandao",
-            "residence", "res", "lingdi", "warehouse", "wh", "cangku", "title", "titles", "chenghao");
+            "residence", "res", "lingdi", "warehouse", "wh", "cangku", "title", "titles", "chenghao",
+            "shop", "shangdian", "store");
 
     private final LiuGuild plugin;
 
@@ -100,6 +103,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "title", "titles", "chenghao" -> title(player, args);
+            case "shop", "shangdian", "store" -> shop(player, args);
             case "rename" -> rename(player, args);
             case "war" -> war(player, args);
             default -> plugin.messages().send(player, "unknown-command");
@@ -140,6 +144,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "领地", "/guild residence unshare <领地>", "取消领地共享");
         helpLine(player, "仓库", "/guild warehouse", "打开工会共享仓库（同一时间仅一人）");
         helpLine(player, "头衔", "/guild title", "打开头衔面板 / 装备自定义头衔");
+        helpLine(player, "商店", "/guild shop", "工会商店：上架出售 / 收购成员物品");
         helpLine(player, "信息", "/guild info", "查看工会信息");
         helpLine(player, "信息", "/guild list", "浏览全服工会");
         helpLine(player, "信息", "/guild top points", "查看排行榜（points/level/wins/losses/members）");
@@ -634,6 +639,138 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             if (p != null && !p.getUniqueId().equals(actor.getUniqueId())) {
                 plugin.messages().send(p, key, kv);
             }
+        }
+    }
+
+    /**
+     * 工会商店。
+     *
+     * <p>不带子命令直接开 GUI；文字子命令给脚本/命令方块用。</p>
+     */
+    private void shop(Player player, String[] args) {
+        var shop = plugin.shop();
+        if (shop == null || !plugin.settings().guild.shopEnabled) {
+            plugin.messages().send(player, "shop-disabled");
+            return;
+        }
+        String action = args.length >= 2 ? args[1].toLowerCase(java.util.Locale.ROOT) : "gui";
+        switch (action) {
+            case "gui", "menu" -> plugin.gui().openShop(player, plugin.guilds().guildOf(player.getUniqueId()));
+            case "all", "global", "quanfu" -> plugin.gui().openShopAll(player);
+            case "list" -> shopList(player);
+            case "add", "sell", "shangjia" -> shopAdd(player, args);
+            case "remove", "del", "xiajia" -> shopRemove(player, args);
+            default -> plugin.messages().send(player, "shop-usage");
+        }
+    }
+
+    /** 列出本会商店。 */
+    private void shopList(Player player) {
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        java.util.List<com.liu.liuguild.model.ShopListing> list = plugin.shop().listingsOf(g.id());
+        if (list.isEmpty()) {
+            plugin.messages().send(player, "shop-empty");
+            return;
+        }
+        plugin.messages().sendRaw(player, "shop-title", "guild", g.name());
+        for (com.liu.liuguild.model.ShopListing l : list) {
+            plugin.messages().sendRaw(player, "shop-list-line",
+                    "id", l.id().substring(0, 8),
+                    "item", plugin.shop().itemName(l.preview()),
+                    "price", plugin.economy().format(l.price()),
+                    "stock", String.valueOf(l.stock()),
+                    "buy_price", plugin.economy().format(l.buyPrice()));
+        }
+        plugin.messages().send(player, "shop-usage");
+    }
+
+    /** `/guild shop add <售价> [收购价]`：上架手持物品。 */
+    private void shopAdd(Player player, String[] args) {
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        if (!plugin.shop().canManage(g, player)) {
+            plugin.messages().send(player, "shop-no-permission");
+            return;
+        }
+        if (args.length < 3) {
+            plugin.messages().send(player, "shop-usage");
+            return;
+        }
+        if (!NumberUtil.isDigits(args[2])) {
+            plugin.messages().send(player, "shop-invalid-number");
+            return;
+        }
+        long price = NumberUtil.toLong(args[2], -1);
+        if (price < 0) {
+            plugin.messages().send(player, "shop-invalid-number");
+            return;
+        }
+        long buyPrice = 0;
+        if (args.length >= 4) {
+            if (!NumberUtil.isDigits(args[3])) {
+                plugin.messages().send(player, "shop-invalid-number");
+                return;
+            }
+            buyPrice = NumberUtil.toLong(args[3], 0);
+        }
+        ItemStack hand = player.getInventory().getItemInMainHand();
+        if (hand == null || hand.getType().isAir()) {
+            plugin.messages().send(player, "shop-hand-empty");
+            return;
+        }
+        String err = plugin.shop().addListing(g, player, hand, hand.getAmount(), price, buyPrice);
+        if (err != null) {
+            plugin.messages().send(player, err,
+                    "max", String.valueOf(plugin.settings().guild.shopMaxListings));
+            return;
+        }
+        plugin.messages().send(player, "shop-listed",
+                "item", plugin.shop().itemName(hand),
+                "amount", String.valueOf(hand.getAmount()),
+                "price", plugin.economy().format(price));
+        announce(g, "shop-broadcast-list", player,
+                "item", plugin.shop().itemName(hand),
+                "amount", String.valueOf(hand.getAmount()));
+    }
+
+    /** `/guild shop remove <编号前8位>`：下架并退回剩余物品。 */
+    private void shopRemove(Player player, String[] args) {
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        if (!plugin.shop().canManage(g, player)) {
+            plugin.messages().send(player, "shop-no-permission");
+            return;
+        }
+        if (args.length < 3) {
+            plugin.messages().send(player, "shop-usage");
+            return;
+        }
+        String prefix = args[2].toLowerCase(java.util.Locale.ROOT);
+        com.liu.liuguild.model.ShopListing target = null;
+        for (com.liu.liuguild.model.ShopListing l : plugin.shop().listingsOf(g.id())) {
+            if (l.id().startsWith(prefix)) {
+                target = l;
+                break;
+            }
+        }
+        if (target == null) {
+            plugin.messages().send(player, "shop-not-found");
+            return;
+        }
+        int had = target.stock();
+        String err = plugin.shop().removeListing(g, player, target);
+        if (err != null) {
+            plugin.messages().send(player, err, "item", "", "amount", "");
         }
     }
 

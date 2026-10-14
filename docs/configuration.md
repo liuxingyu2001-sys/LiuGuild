@@ -113,3 +113,34 @@ hooks:
 
 - 自动：文件 mtime 变化后自动重载。
 - 手动：`/guildadmin reload`。
+
+
+## 工会头衔 / 仓库 / 商店（`guild.yml`）
+
+```yaml
+guild:
+  titles:
+    enabled: true
+    max: 12
+    manage-rank: OFFICER
+
+  warehouse:
+    enabled: true
+    base-slots: 27
+    slots-per-level: 9
+    max-slots: 54
+
+  shop:
+    enabled: true
+    max-listings: 45
+    max-stack-per-listing: 2304
+    max-per-purchase: 2304
+    max-supply: 2304
+    tax-percent: 5.0
+    manage-rank: OFFICER
+    sell-markup: 2.0
+```
+
+- [titles.md](titles.md) —— 工会头衔
+- [warehouse.md](warehouse.md) —— 工会仓库（跨服独占锁）
+- [shop.md](shop.md) —— 工会商店（双向价格 + LiuShop 参考价）

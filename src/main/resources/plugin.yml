@@ -24,6 +24,7 @@ softdepend:
   - LuckPerms
   - packetevents
   - Residence
+  - LiuShop
 
 # 依赖库交给 Paper 自己下载并挂到本插件类加载器，不打进 jar。
 # 版本刻意与服务器 libraries/ 里已有坐标保持一致，避免重复下载与版本冲突。
@@ -59,6 +60,12 @@ permissions:
   liuguild.warehouse:
     description: 打开工会共享仓库（同一时间仅一人可开）
     default: true
+  liuguild.shop.manage:
+    description: 管理工会商店（上架 / 改价 / 下架）
+    default: op
+  liuguild.title.manage:
+    description: 管理工会头衔（创建 / 删除）
+    default: op
   liuguild.admin:
     description: 工会管理总权限
     default: op

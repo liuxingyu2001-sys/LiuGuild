@@ -36,6 +36,20 @@
 | `/guild war spectate` | 旁观 |
 | `/guild war status` | 当前战况 |
 | `/guild war history` | 历史战绩 |
+| `/guild residence list` | 列出自己的领地（别名 `res` / `lingdi`） |
+| `/guild residence share <领地>` | 把自有领地在工会内共享 |
+| `/guild residence unshare <领地>` | 取消共享 |
+| `/guild warehouse` | 打开工会共享仓库（别名 `wh` / `cangku`；同一时间仅一人可开） |
+| `/guild title` | 打开头衔面板（别名 `titles` / `chenghao`） |
+| `/guild title list` | 列出本会头衔 |
+| `/guild title set <标识>` | 装备头衔（仅限自己够格的） |
+| `/guild title clear` | 卸下头衔 |
+| `/guild title create <标识> <显示> [职位]` | 创建/更新头衔（管理） |
+| `/guild title delete <标识>` | 删除头衔（管理） |
+| `/guild shop` | 打开本会商店（别名 `shangdian` / `store`） |
+| `/guild shop all` | 浏览全服工会商店 |
+| `/guild shop add <售价> [收购价]` | 上架手持物品（管理） |
+| `/guild shop remove <编号前8位>` | 下架并退回剩余（管理） |
 
 ## 管理指令 `/guildadmin`（权限 `liuguild.admin`）
 
@@ -93,6 +107,9 @@
 | `liuguild.create` | true | 创建工会（命令与 GUI 均校验） |
 | `liuguild.create.free` | op | 免创建费 |
 | `liuguild.war` | true | 参与 / 排队 / 进入工会战（仍需会长或官员身份） |
+| `liuguild.warehouse` | true | 打开工会共享仓库 |
+| `liuguild.title.manage` | op | 管理工会头衔（创建 / 删除） |
+| `liuguild.shop.manage` | op | 管理工会商店（上架 / 改价 / 下架） |
 | `liuguild.admin` | op | 管理总权限 |
 | `liuguild.admin.reload` / `.status` / `.import` / `.arena` / `.kit` / `.mode` / `.war` / `.disband` / `.setlevel` / `.setpoints` / `.setbank` / `.forceend` / `.cleanup` / `.verify` / `.guilds` / `.player` / `.broadcast` / `.gui` | op | 各级管理子权限（默认由 `liuguild.admin` 控制） |
 

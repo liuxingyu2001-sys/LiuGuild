@@ -143,6 +143,12 @@ public final class WarehouseService implements GuildModule, Listener {
             plugin.messages().send(player, "wh-disabled");
             return false;
         }
+        // 已经开着就直接返回。
+        // 否则下面 player.closeInventory() 会触发 InventoryCloseEvent，
+        // 把刚抢到的锁当成“旧会话”释放掉 —— 变成没锁裸奔。
+        if (open.containsKey(player.getUniqueId())) {
+            return true;
+        }
         if (lock.isLockedByOther(g.id(), player.getUniqueId())) {
             String who = lock.localHolderName(g.id());
             if (who == null) {
@@ -205,10 +211,14 @@ public final class WarehouseService implements GuildModule, Listener {
         if (!(event.getPlayer() instanceof Player player)) {
             return;
         }
-        Open o = open.remove(player.getUniqueId());
-        if (o == null) {
+        Open o = open.get(player.getUniqueId());
+        // 只处理“当前这一个”界面的关闭。
+        // 快速连点会让第二次 open 覆盖会话并重开界面，旧的 close 事件随后才到；
+        // 此时如果不比对引用，就会把新会话也一起释放掉。
+        if (o == null || o.inv != event.getInventory()) {
             return;
         }
+        open.remove(player.getUniqueId());
         flushThenRelease(o);
     }
 

@@ -222,14 +222,16 @@ public final class Database {
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_shop") + "` ("
                     + "`listing_id` VARCHAR(36) NOT NULL,"
                     + "`guild_id` VARCHAR(36) NOT NULL,"
-                    + "`item_data` TEXT NOT NULL,"
-                    + "`amount` INT NOT NULL DEFAULT 1,"
-                    + "`price` BIGINT NOT NULL DEFAULT 0,"
+                    + "`item_data` TEXT NOT NULL,"           // Base64(serializeAsBytes)，固定为单件（amount=1）
+                    + "`stock` INT NOT NULL DEFAULT 1,"        // 可售数量（原子增减）
+                    + "`price` BIGINT NOT NULL DEFAULT 0,"      // 玩家从工会买：单价
+                    + "`buy_price` BIGINT NOT NULL DEFAULT 0,"  // 工会向成员收：单价（0=不收购）
                     + "`seller_uuid` VARCHAR(36),"
                     + "`seller_name` VARCHAR(64),"
                     + "`created_at` BIGINT NOT NULL DEFAULT 0,"
                     + "PRIMARY KEY (`listing_id`)"
                     + ")" + engine);
+            index(st, t("guild_shop") + "_guild", t("guild_shop"), "`guild_id`");
 
             // 工会头衔定义
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_titles") + "` ("

@@ -38,6 +38,20 @@ public final class WarehouseLock {
         this.plugin = plugin;
     }
 
+    /** 测试用：只启用本地独占语义（不连 Redis）。 */
+    public static WarehouseLock localOnly() {
+        return new WarehouseLock(null);
+    }
+
+    /** 是否走跨服（Redis）路径。 */
+    private boolean crossServer() {
+        return plugin != null && plugin.bus() != null && plugin.bus().isReady();
+    }
+
+    private String serverId() {
+        return plugin == null ? "local" : plugin.serverId();
+    }
+
     /** 一次“谁在打开”的会话。 */
     public static final class Session {
         public final UUID player;
@@ -67,9 +81,9 @@ public final class WarehouseLock {
         if (existing != null && existing.player.equals(player)) {
             return existing;
         }
-        String token = plugin.serverId() + ":" + player + ":" + UUID.randomUUID().toString().substring(0, 8);
+        String token = serverId() + ":" + player + ":" + UUID.randomUUID().toString().substring(0, 8);
         boolean ok;
-        if (plugin.bus() != null && plugin.bus().isReady()) {
+        if (crossServer()) {
             ok = plugin.bus().tryLock(lockKey(guildId), token, TTL_SECONDS);
         } else {
             // 单服：本地锁
@@ -98,7 +112,7 @@ public final class WarehouseLock {
             return; // 不是持有者，忽略
         }
         sessions.remove(guildId, session);
-        if (plugin.bus() != null && plugin.bus().isReady()) {
+        if (crossServer()) {
             plugin.bus().releaseLock(lockKey(guildId), session.token);
         }
     }
@@ -106,7 +120,7 @@ public final class WarehouseLock {
     /** 强制释放（关服 / 解散工会 / 超时清理）。 */
     public void releaseAll() {
         for (Map.Entry<String, Session> e : sessions.entrySet()) {
-            if (plugin.bus() != null && plugin.bus().isReady()) {
+            if (crossServer()) {
                 plugin.bus().releaseLock(lockKey(e.getKey()), e.getValue().token);
             }
         }
@@ -115,6 +129,9 @@ public final class WarehouseLock {
 
     /** 当前是否被（别人）占用。 */
     public boolean isLockedByOther(String guildId, UUID player) {
+        if (guildId == null) {
+            return false;
+        }
         Session s = sessions.get(guildId);
         if (s != null && (player == null || !s.player.equals(player))) {
             return true;
@@ -124,14 +141,20 @@ public final class WarehouseLock {
 
     /** 当前服务器的持有者名字；没人持有返回 null。 */
     public String localHolderName(String guildId) {
+        if (guildId == null) {
+            return null;
+        }
         Session s = sessions.get(guildId);
         return s == null ? null : s.playerName;
     }
 
     /** 本服是否持有该工会的仓库锁。 */
     public boolean isHeldLocallyBy(String guildId, UUID player) {
+        if (guildId == null || player == null) {
+            return false;
+        }
         Session s = sessions.get(guildId);
-        return s != null && player != null && s.player.equals(player);
+        return s != null && s.player.equals(player);
     }
 
     /**
@@ -142,10 +165,10 @@ public final class WarehouseLock {
         if (sessions.isEmpty()) {
             return;
         }
-        boolean crossServer = plugin.bus() != null && plugin.bus().isReady();
+        boolean remote = crossServer();
         for (Map.Entry<String, Session> e : sessions.entrySet()) {
             Session s = e.getValue();
-            if (!crossServer) {
+            if (!remote) {
                 continue; // 本地锁无 TTL，不需要续期
             }
             if (!plugin.bus().refreshLock(lockKey(e.getKey()), s.token, TTL_SECONDS)) {
@@ -153,6 +176,11 @@ public final class WarehouseLock {
                 sessions.remove(e.getKey(), s);
             }
         }
+    }
+
+    /** 仅测试用：会话数。 */
+    public int sessionCount() {
+        return sessions.size();
     }
 
     public long heartbeatSeconds() {

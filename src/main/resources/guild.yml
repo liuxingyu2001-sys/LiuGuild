@@ -92,6 +92,23 @@ guild:
     max: 12
     # 谁能创建/删除头衔（MEMBER / OFFICER / LEADER）
     manage-rank: OFFICER
+  # 工会商店：工会把物品明码标价挂出来卖，收入进工会资金；也可设收购价让成员供货
+  shop:
+    enabled: true
+    # 每个工会最多上架几条
+    max-listings: 45
+    # 单条上架最多多少件
+    max-stack-per-listing: 2304
+    # 单次购买上限
+    max-per-purchase: 2304
+    # 单次向工会供货上限
+    max-supply: 2304
+    # 交易税（%），从货款里扣
+    tax-percent: 5.0
+    # 谁能上架/改价/下架（MEMBER / OFFICER / LEADER）
+    manage-rank: OFFICER
+    # 建议价回退倍率：LiuShop 只给了收购价时，乘以它作为建议售价
+    sell-markup: 2.0
   # 工会仓库：跨服共享物品存储，同一时刻只允许一个成员打开（跨服原子锁）
   warehouse:
     enabled: true

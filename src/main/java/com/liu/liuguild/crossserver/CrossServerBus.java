@@ -182,6 +182,9 @@ public final class CrossServerBus {
     /**
      * 续期（心跳）：仅当锁仍属于该 token 时才刷新 TTL。
      *
+     * <p>用 Lua 保证「比对 + 续期」原子。若拆成 GET 然后 EXPIRE，中间可能恰好发生
+     * 锁过期并被别人抢走 —— 那就会把别人的锁续期。</p>
+     *
      * @return true = 续期成功（仍持有锁）
      */
     public boolean refreshLock(String key, String token, long ttlSeconds) {
@@ -189,18 +192,18 @@ public final class CrossServerBus {
             return false;
         }
         Boolean ok = bridge.withJedis(jedis -> {
-            String current = jedis.get(bridge.prefix() + LOCK_PREFIX + key);
-            if (!token.equals(current)) {
-                return Boolean.FALSE;
-            }
-            jedis.expire(bridge.prefix() + LOCK_PREFIX + key, Math.max(1, ttlSeconds));
-            return Boolean.TRUE;
+            Object r = jedis.eval(COMPARE_EXPIRE_SCRIPT,
+                    List.of(bridge.prefix() + LOCK_PREFIX + key),
+                    List.of(token, String.valueOf(Math.max(1, ttlSeconds))));
+            return toLong(r) > 0;
         });
         return Boolean.TRUE.equals(ok);
     }
 
     /**
      * 释放锁：仅当锁仍属于该 token 时才删除，避免误删他人刚抢到的锁。
+     *
+     * <p>同样用 Lua 保证「比对 + 删除」原子。</p>
      *
      * @return true = 本次确实释放了锁
      */
@@ -209,14 +212,30 @@ public final class CrossServerBus {
             return false;
         }
         Boolean ok = bridge.withJedis(jedis -> {
-            String current = jedis.get(bridge.prefix() + LOCK_PREFIX + key);
-            if (!token.equals(current)) {
-                return Boolean.FALSE;
-            }
-            jedis.del(bridge.prefix() + LOCK_PREFIX + key);
-            return Boolean.TRUE;
+            Object r = jedis.eval(COMPARE_DEL_SCRIPT,
+                    List.of(bridge.prefix() + LOCK_PREFIX + key),
+                    List.of(token));
+            return toLong(r) > 0;
         });
         return Boolean.TRUE.equals(ok);
+    }
+
+    /** 比对并删除（原子）。 */
+    private static final String COMPARE_DEL_SCRIPT =
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+    /** 比对并续期（原子）。 */
+    private static final String COMPARE_EXPIRE_SCRIPT =
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end";
+
+    private static long toLong(Object o) {
+        if (o instanceof Number n) {
+            return n.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(o));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /** 查询锁当前持有者令牌（null = 无锁）。 */

@@ -11,6 +11,7 @@ import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.model.GuildRank;
 import com.liu.liuguild.model.GuildTitle;
 import com.liu.liuguild.model.GuildWar;
+import com.liu.liuguild.model.ShopListing;
 import com.liu.liuguild.module.GuildModule;
 import com.liu.liuguild.util.NumberUtil;
 import com.liu.liuguild.util.Text;
@@ -587,6 +588,192 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     // =====================================================================
+    // 工会商店
+    // =====================================================================
+
+    /**
+     * 本会商店：列出所有上架，左键购买，Shift+右键下架，Shift+左键改价。
+     *
+     * @param g 目标工会（null 时取玩家自己的工会）
+     */
+    public void openShop(Player player, Guild g) {
+        if (g == null) {
+            g = plugin.guilds().guildOf(player.getUniqueId());
+        }
+        if (g == null || plugin.shop() == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        if (!plugin.settings().guild.shopEnabled) {
+            plugin.messages().send(player, "shop-disabled");
+            return;
+        }
+        openShopPage(player, g, plugin.shop().listingsOf(g.id()), "shop", true);
+    }
+
+    /** 全服工会商店：浏览所有工会的上架（只能买，不能管）。 */
+    public void openShopAll(Player player) {
+        if (plugin.shop() == null) {
+            plugin.messages().send(player, "shop-disabled");
+            return;
+        }
+        if (!plugin.settings().guild.shopEnabled) {
+            plugin.messages().send(player, "shop-disabled");
+            return;
+        }
+        openShopPage(player, plugin.guilds().guildOf(player.getUniqueId()),
+                plugin.shop().all(), "shop_all", false);
+    }
+
+    private void openShopPage(Player player, Guild own, List<ShopListing> listings,
+                              String holderId, boolean ownShop) {
+        Holder holder = new Holder(holderId, own == null ? "" : own.id(), 0);
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("guild", own == null ? "" : own.name());
+        Inventory inv = simpleInventory(player, holder, 6,
+                ownShop ? "<gold>工会商店 <dark_gray>· {guild}" : "<gold>全服工会商店", ph);
+
+        if (listings.isEmpty()) {
+            inv.setItem(22, GuiUtil.build(player, "CHEST", "CHEST",
+                    "<gray>这里还没有任何商品", List.of(), Map.of(), null));
+        }
+        int slot = 0;
+        for (ShopListing l : listings) {
+            if (slot >= 45) {
+                break;
+            }
+            ItemStack icon = l.preview();
+            if (icon == null) {
+                continue;
+            }
+            Guild owner = plugin.guilds().guild(l.guildId());
+            boolean mine = own != null && l.guildId().equals(own.id());
+            List<String> lore = new ArrayList<>();
+            lore.add("<gray>售价：<white>" + plugin.economy().format(l.price()) + " <gray>/件");
+            lore.add("<gray>库存：<white>" + l.stock() + " <gray>件");
+            if (l.buying()) {
+                lore.add("<gray>工会收购价：<white>" + plugin.economy().format(l.buyPrice()));
+            }
+            if (!ownShop && owner != null) {
+                lore.add("<gray>出售方：<white>" + owner.name());
+            }
+            lore.add("<gray>上架者：<white>" + (l.sellerName() == null ? "?" : l.sellerName()));
+            lore.add("");
+            lore.add("<yellow>左键购买");
+            if (mine && ownShop && plugin.shop().canManage(own, player)) {
+                lore.add("<yellow>Shift+左键改价");
+                lore.add("<red>Shift+右键下架");
+                if (l.buying()) {
+                    lore.add("<green>右键向工会供货");
+                }
+            }
+            inv.setItem(slot, GuiUtil.build(player, l.preview().getType().name(),
+                    l.preview().getType().name(), "<white>" + plugin.shop().itemName(l.preview()) + " <dark_gray>x" + l.stock(),
+                    lore, Map.of(), null));
+            holder.actions.put(slot, "shop_buy:" + l.id());
+            slot++;
+        }
+
+        // 底排
+        if (ownShop && own != null && plugin.shop().canManage(own, player)) {
+            inv.setItem(48, GuiUtil.build(player, "EMERALD", "EMERALD", "<green>上架手持物品",
+                    List.of("<gray>先把物品拿在主手", "<gray>然后点击这里输入售价"), Map.of(), null));
+            holder.actions.put(48, "shop:add");
+        }
+        if (ownShop) {
+            inv.setItem(49, GuiUtil.build(player, "ENDER_CHEST", "ENDER_CHEST", "<gold>全服商店",
+                    List.of("<gray>看看其他工会在卖什么"), Map.of(), null));
+            holder.actions.put(49, "shop:all");
+        } else {
+            inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回本会商店",
+                    List.of(), Map.of(), null));
+            holder.actions.put(49, "shop:open");
+        }
+        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
+        holder.actions.put(53, "back:main");
+        player.openInventory(inv);
+    }
+
+    /** 商店条目点击：左键购买，Shift+左键改价，Shift+右键下架/供货。 */
+    private void shopClick(Player player, Guild g, String listingId, boolean right, boolean shift) {
+        if (plugin.shop() == null) {
+            return;
+        }
+        ShopListing l = plugin.shop().listing(listingId);
+        if (l == null) {
+            plugin.messages().send(player, "shop-not-found");
+            if (g != null) openShop(player, g);
+            return;
+        }
+        boolean mine = g != null && l.guildId().equals(g.id());
+        boolean manage = mine && plugin.shop().canManage(g, player);
+
+        if (shift && right) {
+            if (!manage) {
+                plugin.messages().send(player, "shop-no-permission");
+                return;
+            }
+            final Guild shopGuild = g;
+            plugin.shop().removeListing(g, player, l, () -> openShop(player, shopGuild));
+            return;
+        }
+        if (shift) {
+            if (!manage) {
+                plugin.messages().send(player, "shop-no-permission");
+                return;
+            }
+            requestText(player, "shop-prompt-price", priceStr -> {
+                long price = NumberUtil.toLong(priceStr.trim(), -1);
+                if (price < 0) {
+                    plugin.messages().send(player, "shop-invalid-number");
+                    openShop(player, g);
+                    return;
+                }
+                requestText(player, "shop-prompt-buy-price", buyStr -> {
+                    long buy = NumberUtil.toLong(buyStr.trim(), -1);
+                    if (buy < 0) {
+                        plugin.messages().send(player, "shop-invalid-number");
+                        openShop(player, g);
+                        return;
+                    }
+                    plugin.shop().updatePrices(g, l, price, buy);
+                    plugin.messages().send(player, "shop-price-updated",
+                            "item", plugin.shop().itemName(l.preview()),
+                            "price", plugin.economy().format(price),
+                            "buy_price", plugin.economy().format(buy));
+                    openShop(player, g);
+                });
+            });
+            return;
+        }
+        if (right) {
+            // 右键：本会成员向工会供货（工会必须设了收购价）
+            requestText(player, "shop-prompt-amount", amtStr -> {
+                int amount = NumberUtil.toInt(amtStr.trim(), -1);
+                if (amount <= 0) {
+                    plugin.messages().send(player, "shop-amount-invalid");
+                    openShop(player, g);
+                    return;
+                }
+                plugin.shop().supply(g, player, l, amount, () -> openShop(player, g));
+            });
+            return;
+        }
+        // 左键购买：输入数量
+        final Guild shopGuild = g;
+        requestText(player, "shop-prompt-amount", amtStr -> {
+            int amount = NumberUtil.toInt(amtStr.trim(), -1);
+            if (amount <= 0) {
+                plugin.messages().send(player, "shop-amount-invalid");
+                openShopPage(player, shopGuild, plugin.shop().listingsOf(l.guildId()),
+                        "shop", true);
+                return;
+            }
+            plugin.shop().buy(player, shopGuild, l, amount, () -> openShop(player, shopGuild));
+        });
+    }
+
+    // =====================================================================
     // 点击处理
     // =====================================================================
 
@@ -740,6 +927,7 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "admin:arenas" -> openArenaList(player, 0);
             case "title:open" -> openTitles(player, require(g, player));
+            case "shop:open" -> openShop(player, require(g, player));
             case "title:create" -> {
                 Guild tg = require(g, player);
                 if (tg == null) {
@@ -976,6 +1164,68 @@ public final class GuiManager implements GuildModule, Listener {
             }
         } else if (action.startsWith("title_toggle:")) {
             titleToggle(player, g, action.substring("title_toggle:".length()), clickRight);
+        } else if (action.startsWith("shop_buy:")) {
+            shopClick(player, g, action.substring("shop_buy:".length()), clickRight, isShiftClick());
+        } else if (action.startsWith("shop:")) {
+            switch (action.substring("shop:".length())) {
+                case "add" -> {
+                    if (g == null || plugin.shop() == null) {
+                        break;
+                    }
+                    if (!plugin.shop().canManage(g, player)) {
+                        plugin.messages().send(player, "shop-no-permission");
+                        break;
+                    }
+                    ItemStack hand = player.getInventory().getItemInMainHand();
+                    if (hand == null || hand.getType().isAir()) {
+                        plugin.messages().send(player, "shop-hand-empty");
+                        break;
+                    }
+                    final Guild shopGuild = g;
+                    final int amount = hand.getAmount();
+                    final ItemStack sample = hand.clone();
+                    // 若装了 LiuShop，先给个参考价（否则工会只能瞎定价）
+                    var ls = plugin.liuShop();
+                    if (ls != null && ls.available()) {
+                        double sug = ls.suggestPrice(sample, plugin.settings().guild.shopSellMarkup, -1);
+                        if (sug > 0) {
+                            plugin.messages().send(player, "shop-suggest-price",
+                                    "price", plugin.economy().format(sug));
+                        }
+                    }
+                    requestText(player, "shop-prompt-price", priceStr -> {
+                        long price = NumberUtil.toLong(priceStr.trim(), -1);
+                        if (price < 0) {
+                            plugin.messages().send(player, "shop-invalid-number");
+                            openShop(player, shopGuild);
+                            return;
+                        }
+                        requestText(player, "shop-prompt-buy-price", buyStr -> {
+                            long buy = NumberUtil.toLong(buyStr.trim(), -1);
+                            if (buy < 0) {
+                                plugin.messages().send(player, "shop-invalid-number");
+                                openShop(player, shopGuild);
+                                return;
+                            }
+                            String err = plugin.shop().addListing(shopGuild, player, sample, amount, price, buy);
+                            if (err != null) {
+                                plugin.messages().send(player, err,
+                                        "max", String.valueOf(plugin.settings().guild.shopMaxListings));
+                            } else {
+                                plugin.messages().send(player, "shop-listed",
+                                        "item", plugin.shop().itemName(sample),
+                                        "amount", String.valueOf(amount),
+                                        "price", plugin.economy().format(price));
+                            }
+                            openShop(player, shopGuild);
+                        });
+                    });
+                }
+                case "all" -> openShopAll(player);
+                case "open" -> openShop(player, g);
+                default -> {
+                }
+            }
         } else if (action.startsWith("war_queue:")) {
             if (g != null) {
                 plugin.war().queue(player, g, action.substring("war_queue:".length()));
@@ -2036,6 +2286,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "leave" -> "leave";
             case "warehouse" -> "guild:warehouse";
             case "titles" -> "title:open";
+            case "shop" -> "shop:open";
             case "toggle_open" -> "set:open";
             case "notice" -> "set:notice";
             case "desc" -> "set:desc";

@@ -521,6 +521,10 @@ public final class GuildManager {
         if (plugin.titles() != null) {
             plugin.titles().onGuildDisbanded(g.id());
         }
+        // 清空该工会的商店上架
+        if (plugin.shop() != null) {
+            plugin.shop().onGuildDisbanded(g.id());
+        }
         Bukkit.getPluginManager().callEvent(new GuildDisbandEvent(g, cause));
         return true;
     }

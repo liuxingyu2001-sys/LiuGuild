@@ -79,6 +79,11 @@ gui:
         material: NAME_TAG
         name: "<white>工会头衔"
         lore: ["<gray>自定义工会称号", "<gray>选一个装备在自己名字旁", "", "<yellow>点击查看"]
+      shop:
+        slot: 30
+        material: EMERALD
+        name: "<white>工会商店"
+        lore: ["<gray>上架物品卖给全服玩家", "<gray>收入进工会资金", "<gray>也可收购成员物品", "", "<yellow>点击打开"]
 
   # ---------------- 工会详情面板（点击主菜单名片 / 列表右键） ----------------
   info:

@@ -80,6 +80,8 @@ public final class LiuGuild extends JavaPlugin {
     private com.liu.liuguild.hook.ResidenceHook residence;
     private com.liu.liuguild.warehouse.WarehouseService warehouse;
     private com.liu.liuguild.title.TitleService titles;
+    private com.liu.liuguild.shop.ShopService shop;
+    private com.liu.liuguild.hook.LiuShopHook liuShop;
     private NotBountiesHook notBounties;
     private com.liu.liuguild.hook.McMmoHook mcmmo;
     private com.liu.liuguild.hook.GuildHomeHook guildHome;
@@ -140,6 +142,8 @@ public final class LiuGuild extends JavaPlugin {
         if (sparrowUi != null) sparrowUi.init();
         packetEvents = safe(() -> new com.liu.liuguild.hook.PacketEventsHook(this));
         if (packetEvents != null) packetEvents.init();
+        liuShop = safe(() -> new com.liu.liuguild.hook.LiuShopHook(this));
+        if (liuShop != null) liuShop.init();
 
         // 核心管理器
         guilds = new GuildManager(this);
@@ -165,6 +169,8 @@ public final class LiuGuild extends JavaPlugin {
         modules.register(warehouse);
         titles = new com.liu.liuguild.title.TitleService(this);
         modules.register(titles);
+        shop = new com.liu.liuguild.shop.ShopService(this);
+        modules.register(shop);
         modules.register(new com.liu.liuguild.listener.GuildSyncModule(this));
         bus.addListener(modules::dispatchCrossServer);
         modules.enableAll();
@@ -414,6 +420,14 @@ public final class LiuGuild extends JavaPlugin {
 
     public com.liu.liuguild.title.TitleService titles() {
         return titles;
+    }
+
+    public com.liu.liuguild.shop.ShopService shop() {
+        return shop;
+    }
+
+    public com.liu.liuguild.hook.LiuShopHook liuShop() {
+        return liuShop;
     }
 
     public com.liu.liuguild.hook.PacketEventsHook packetEvents() {

@@ -97,6 +97,17 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
   `PlayerTitleApi.setPlayerTitle(UUID, int)`。
 - `win-title-id: 0` 表示不发放。
 
+## LiuShop（价格参照与禁售联动）
+
+工会商店在定价与上架时参考 LiuShop：
+
+- **规范化物品 ID** —— 用 LiuShop 的 `idOf(ItemStack)`，保证「同一件物品」在两边被认成同一个（CE 优先、原版兜底）；
+- **参考价** —— 上架时提示建议价：优先取玩家购买价，没有则取收购价 × `sell-markup`；
+- **禁售联动** —— LiuShop 黑名单里的物品，工会商店**禁止上架**（否则黑名单形同虚设）。
+
+全部走反射，LiuShop 缺失或版本演进时安全降级，不影响商店本身可用。
+详见 [shop.md](shop.md)。
+
 ## Vault（经济）
 
 - 工会创建费、银行存取、图标更换费、工会战个人金币奖励。银行只存 Vault 金币，所有工会成员均可存取；整数金额，余额以数据库原子增减为准。

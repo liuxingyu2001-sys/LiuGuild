@@ -98,6 +98,24 @@ public final class GuildSettings {
     /** 创建/删除头衔所需的最低职位。 */
     public GuildRank titlesManageRank = GuildRank.OFFICER;
 
+    // ---- 工会商店 ----
+    /** 是否启用工会商店。 */
+    public boolean shopEnabled = true;
+    /** 每个工会最多上架多少条。 */
+    public int shopMaxListings = 45;
+    /** 单条上架最多多少件（防止一条 listing 塞几万件）。 */
+    public int shopMaxStackPerListing = 2304;
+    /** 单次购买上限。 */
+    public int shopMaxPerPurchase = 2304;
+    /** 单次向工会供货上限。 */
+    public int shopMaxSupply = 2304;
+    /** 交易税（%），从货款里扣。 */
+    public double shopTaxPercent = 5.0;
+    /** 谁能上架/改价/下架。 */
+    public GuildRank shopManageRank = GuildRank.OFFICER;
+    /** 建议价回退倍率：LiuShop 只给了收购价时，乘以它作为建议售价。 */
+    public double shopSellMarkup = 2.0;
+
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
         s.nameMin = Math.max(1, c.getInt("guild.name.min-length", s.nameMin));
@@ -153,6 +171,14 @@ public final class GuildSettings {
         if (s.warehouseBaseSlots > s.warehouseMaxSlots) {
             s.warehouseBaseSlots = s.warehouseMaxSlots;
         }
+        s.shopEnabled = c.getBoolean("guild.shop.enabled", s.shopEnabled);
+        s.shopMaxListings = Math.max(1, Math.min(54, c.getInt("guild.shop.max-listings", s.shopMaxListings)));
+        s.shopMaxStackPerListing = Math.max(1, c.getInt("guild.shop.max-stack-per-listing", s.shopMaxStackPerListing));
+        s.shopMaxPerPurchase = Math.max(1, c.getInt("guild.shop.max-per-purchase", s.shopMaxPerPurchase));
+        s.shopMaxSupply = Math.max(1, c.getInt("guild.shop.max-supply", s.shopMaxSupply));
+        s.shopTaxPercent = clamp(c.getDouble("guild.shop.tax-percent", s.shopTaxPercent), 0, 100);
+        s.shopManageRank = GuildRank.parse(c.getString("guild.shop.manage-rank", s.shopManageRank.name()));
+        s.shopSellMarkup = Math.max(1.0, c.getDouble("guild.shop.sell-markup", s.shopSellMarkup));
         s.titlesEnabled = c.getBoolean("guild.titles.enabled", s.titlesEnabled);
         s.titlesMax = Math.max(1, Math.min(64, c.getInt("guild.titles.max", s.titlesMax)));
         s.titlesManageRank = GuildRank.parse(c.getString("guild.titles.manage-rank", s.titlesManageRank.name()));
