@@ -123,7 +123,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "status", "查看详细运行状态");
         adminLine(sender, "gui", "打开管理面板");
         adminLine(sender, "import <sql文件>", "导入 PlayerGuild 数据");
-        adminLine(sender, "arena setspawn <id> <a|b|spec>", "设置竞技场出生点");
+        adminLine(sender, "arena setspawn <id> <点名>", "设出生点（点名任意：a/b/c/d/spec…）");
+        adminLine(sender, "arena setteampoint <id> <a|b> <点名>", "指定 A/B 队用哪个出生点");
         adminLine(sender, "arena setworld|setserver|settemplate", "设置世界/承办服/模板");
         adminLine(sender, "arena list|info <id>|create <id>", "竞技场管理");
         adminLine(sender, "arena setendspawn|setradius|settempworld|setgamerule|setafter|tp|remove <id>", "竞技场进阶设置");
@@ -132,6 +133,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "mode list|info <模式>|start <模式>", "工会战模式 / 开启赛季");
         adminLine(sender, "war list|queue|start|stop|tp|score", "工会战管理（查看/队列/强开/停止/传送/改分）");
         adminLine(sender, "disband|setlevel|setpoints|setbank|info <工会>", "工会数据管理");
+        adminLine(sender, "rename <工会> <新名称> [新标签]", "给任意工会改名（绕开冷却与费用）");
         adminLine(sender, "guilds [页码]", "分页列出全部工会");
         adminLine(sender, "player <玩家>", "查看玩家所属工会");
         adminLine(sender, "broadcast <文本>", "全服广播消息");

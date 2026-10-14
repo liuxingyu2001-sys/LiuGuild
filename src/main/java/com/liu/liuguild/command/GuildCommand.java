@@ -22,8 +22,10 @@ import java.util.Locale;
 public final class GuildCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBS = List.of(
-            "help", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
-            "kick", "promote", "demote", "transfer", "seticon", "set", "bank", "home", "info", "list", "top", "war", "chat", "checkin");
+            // 主命令
+            "help", "menu", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
+            "kick", "promote", "demote", "transfer", "members", "seticon", "icon", "rename", "set", "bank",
+            "home", "hq", "info", "list", "top", "war", "chat", "c", "checkin", "sign", "qiandao");
 
     private final LiuGuild plugin;
 
@@ -89,25 +91,35 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         plugin.messages().sendRaw(player, "help-header");
         helpLine(player, "基础", "/guild create <名称> [标签]", "创建一个新工会");
         helpLine(player, "基础", "/guild join <名称>", "加入一个开放加入的工会");
+        helpLine(player, "基础", "/guild accept [工会]", "接受收到的入会邀请");
+        helpLine(player, "基础", "/guild deny [工会]", "拒绝收到的入会邀请");
         helpLine(player, "基础", "/guild invite <玩家>", "邀请玩家加入工会");
         helpLine(player, "基础", "/guild leave", "退出当前工会");
+        helpLine(player, "基础", "/guild disband", "解散工会（仅会长，需确认）");
         helpLine(player, "聊天", "/guild chat [消息]", "切换工会频道或发送单条消息");
+        helpLine(player, "成员", "/guild members", "查看成员列表");
         helpLine(player, "成员", "/guild promote <玩家>", "提升成员职位");
+        helpLine(player, "成员", "/guild demote <玩家>", "降低成员职位");
         helpLine(player, "成员", "/guild kick <玩家>", "踢出成员");
         helpLine(player, "成员", "/guild transfer <玩家>", "转让会长");
         helpLine(player, "设置", "/guild seticon <图标>", "更换工会图标");
         helpLine(player, "设置", "/guild rename <新名称> [新标签]", "给工会改名字");
         helpLine(player, "设置", "/guild set notice <内容>", "修改工会公告");
+        helpLine(player, "设置", "/guild set desc <内容>", "修改工会简介");
+        helpLine(player, "设置", "/guild set open <true|false>", "切换开放加入 / 邀请制");
         helpLine(player, "银行", "/guild bank deposit <金额>", "存入工会银行");
+        helpLine(player, "银行", "/guild bank withdraw <金额>", "从工会银行取出");
         helpLine(player, "驻地", "/guild home [槽位]", "传送到工会驻地（需 HuskHomes）");
         helpLine(player, "驻地", "/guild home set [槽位]", "把当前位置设为工会驻地");
         helpLine(player, "驻地", "/guild home del [槽位]", "删除工会驻地");
         helpLine(player, "日常", "/guild checkin", "每日签到领取工会资金");
         helpLine(player, "信息", "/guild info", "查看工会信息");
         helpLine(player, "信息", "/guild list", "浏览全服工会");
-        helpLine(player, "信息", "/guild top points", "查看排行榜");
+        helpLine(player, "信息", "/guild top points", "查看排行榜（points/level/wins/losses/members）");
         helpLine(player, "工会战", "/guild war queue", "参与匹配");
         helpLine(player, "工会战", "/guild war status", "查看当前战况");
+        helpLine(player, "工会战", "/guild war spectate", "旁观进行中的工会战");
+        helpLine(player, "工会战", "/guild war history", "查看历史战绩");
         helpLine(player, "菜单", "/guild gui", "打开工会图形菜单");
     }
 
