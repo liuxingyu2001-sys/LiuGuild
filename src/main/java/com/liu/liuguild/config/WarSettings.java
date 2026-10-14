@@ -30,6 +30,8 @@ public final class WarSettings {
     public boolean broadcastQueue = true;
     /** 比赛期间是否显示比分 BossBar。 */
     public boolean bossBarEnabled = true;
+    /** 结算阶段每 tick 分帧发放奖励的人数（防止大名单阻塞主线程）。 */
+    public int settleBatchPerTick = 8;
 
     /** 模式公共默认值（来自 war.defaults 或 war 根节点）。 */
     public WarMode defaults = new WarMode();
@@ -46,6 +48,7 @@ public final class WarSettings {
         s.defaultMode = c.getString("war.default-mode", s.defaultMode);
         s.broadcastQueue = c.getBoolean("war.broadcast-queue", s.broadcastQueue);
         s.bossBarEnabled = c.getBoolean("war.bossbar", s.bossBarEnabled);
+        s.settleBatchPerTick = Math.max(1, Math.min(200, c.getInt("war.settle-batch-per-tick", s.settleBatchPerTick)));
 
         WarMode base = new WarMode();
         ConfigurationSection defaults = c.getConfigurationSection("war.defaults");

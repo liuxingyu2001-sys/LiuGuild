@@ -10,6 +10,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 |---|---|
 | [deployment.md](deployment.md) | **生产部署与运维**（环境、单服/跨服、配置清单、排障、备份） |
 | [shared-config.md](shared-config.md) | **共享配置目录与多服一致性**（共享什么/不共享什么、单写者锁、覆盖层） |
+| [threading.md](threading.md) | **线程模型 / 预加载 / 生命周期**（什么在哪个线程跑、结算分帧） |
 | [commands.md](commands.md) | 玩家 / 管理指令、权限、Tab 补全 |
 | [admin.md](admin.md) | 管理工具（完整指令 + 图形化编辑器） |
 | [configuration.md](configuration.md) | 全部配置文件说明（模块化拆分） |

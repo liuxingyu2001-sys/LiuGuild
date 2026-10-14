@@ -2,6 +2,9 @@ package com.liu.liuguild.war;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -14,6 +17,27 @@ class WarMathTest {
 
     private static UUID id() {
         return UUID.randomUUID();
+    }
+
+    @Test
+    void drainBatchProcessesIncrementallyAndSurvivesFailures() {
+        Deque<Integer> queue = new ArrayDeque<>(List.of(1, 2, 3, 4, 5));
+        List<Integer> seen = new ArrayList<>();
+
+        int first = WarMath.drainBatch(queue, 2, n -> {
+            if (n == 2) {
+                throw new IllegalStateException("boom");
+            }
+            seen.add(n);
+        });
+        assertEquals(2, first);
+        assertEquals(List.of(1), seen); // 2 抛异常但已出队，不影响后续
+        assertEquals(3, queue.size());
+
+        int rest = WarMath.drainBatch(queue, 100, seen::add);
+        assertEquals(3, rest);
+        assertEquals(List.of(1, 3, 4, 5), seen);
+        assertTrue(queue.isEmpty());
     }
 
     @Test

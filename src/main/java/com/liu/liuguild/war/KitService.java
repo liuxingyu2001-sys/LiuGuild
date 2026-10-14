@@ -21,13 +21,65 @@ import org.bukkit.potion.PotionEffectType;
 public final class KitService {
 
     private final LiuGuild plugin;
+    /** 预解析缓存：套装 key -> 护甲/物品。配置重载时重建。 */
+    private final java.util.Map<String, ItemStack[]> armorCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<String, ItemStack[]> itemsCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public KitService(LiuGuild plugin) {
         this.plugin = plugin;
     }
 
+    /**
+     * 配置加载/重载后调用：预解析各套装的护甲与物品、预解码快照，
+     * 让入场发装备时不再重复解析材质 / Base64 解码。
+     */
+    public void preload() {
+        armorCache.clear();
+        itemsCache.clear();
+        for (KitProfile c : kit().kits.values()) {
+            if (!c.armor.isEmpty()) {
+                ItemStack[] armor = new ItemStack[4];
+                armor[3] = resolve(c.armor.get("helmet"), Material.DIAMOND_HELMET);
+                armor[2] = resolve(c.armor.get("chestplate"), Material.DIAMOND_CHESTPLATE);
+                armor[1] = resolve(c.armor.get("leggings"), Material.DIAMOND_LEGGINGS);
+                armor[0] = resolve(c.armor.get("boots"), Material.DIAMOND_BOOTS);
+                armorCache.put(c.key, armor);
+            }
+            ItemStack[] items = new ItemStack[36];
+            int slot = 0;
+            for (String spec : c.items) {
+                if (spec == null || spec.isBlank()) {
+                    continue;
+                }
+                ItemStack item = parseItem(spec);
+                if (item == null) {
+                    continue;
+                }
+                items[slot++] = item;
+                if (slot >= 36) {
+                    break;
+                }
+            }
+            itemsCache.put(c.key, items);
+            c.decodedSnapshot(); // 预解码快照
+        }
+    }
+
+    private static ItemStack[] cloneAll(ItemStack[] in) {
+        ItemStack[] out = new ItemStack[in.length];
+        for (int i = 0; i < in.length; i++) {
+            out[i] = in[i] == null ? null : in[i].clone();
+        }
+        return out;
+    }
+
     public KitSettings kit() {
         return plugin.settings().kit;
+    }
+
+    /** 已预解析缓存的套装数量。 */
+    public int preloadedKits() {
+        return itemsCache.size();
     }
 
     /** 解析某模式的装备套装。 */
@@ -124,29 +176,43 @@ public final class KitService {
             applySnapshot(player, c, mode);
             return;
         }
-        // 护甲
+        // 护甲：优先用预解析缓存，避免现场解析
         if (!c.armor.isEmpty()) {
-            ItemStack[] armor = new ItemStack[4];
-            armor[3] = resolve(c.armor.get("helmet"), Material.DIAMOND_HELMET);
-            armor[2] = resolve(c.armor.get("chestplate"), Material.DIAMOND_CHESTPLATE);
-            armor[1] = resolve(c.armor.get("leggings"), Material.DIAMOND_LEGGINGS);
-            armor[0] = resolve(c.armor.get("boots"), Material.DIAMOND_BOOTS);
-            player.getInventory().setArmorContents(armor);
+            ItemStack[] cachedArmor = armorCache.get(c.key);
+            if (cachedArmor != null) {
+                player.getInventory().setArmorContents(cloneAll(cachedArmor));
+            } else {
+                ItemStack[] armor = new ItemStack[4];
+                armor[3] = resolve(c.armor.get("helmet"), Material.DIAMOND_HELMET);
+                armor[2] = resolve(c.armor.get("chestplate"), Material.DIAMOND_CHESTPLATE);
+                armor[1] = resolve(c.armor.get("leggings"), Material.DIAMOND_LEGGINGS);
+                armor[0] = resolve(c.armor.get("boots"), Material.DIAMOND_BOOTS);
+                player.getInventory().setArmorContents(armor);
+            }
         }
-        // 物品栏
-        int slot = 0;
-        for (String spec : c.items) {
-            if (spec == null || spec.isBlank()) {
-                continue;
+        // 物品栏：优先用预解析缓存
+        ItemStack[] cachedItems = itemsCache.get(c.key);
+        if (cachedItems != null) {
+            for (int i = 0; i < 36 && i < cachedItems.length; i++) {
+                if (cachedItems[i] != null) {
+                    player.getInventory().setItem(i, cachedItems[i].clone());
+                }
             }
-            ItemStack item = parseItem(spec);
-            if (item == null) {
-                continue;
-            }
-            player.getInventory().setItem(slot, item);
-            slot++;
-            if (slot >= 36) {
-                break;
+        } else {
+            int slot = 0;
+            for (String spec : c.items) {
+                if (spec == null || spec.isBlank()) {
+                    continue;
+                }
+                ItemStack item = parseItem(spec);
+                if (item == null) {
+                    continue;
+                }
+                player.getInventory().setItem(slot, item);
+                slot++;
+                if (slot >= 36) {
+                    break;
+                }
             }
         }
         fullState(player, mode);
@@ -154,7 +220,7 @@ public final class KitService {
 
     /** 应用直接保存的装备快照。 */
     private void applySnapshot(Player player, KitProfile c, WarMode mode) {
-        ItemStack[] data = ItemUtil.decode(c.snapshot);
+        ItemStack[] data = c.decodedSnapshot();
         if (data.length < 41) {
             plugin.getLogger().warning("装备套装 " + c.key + " 快照损坏，已忽略。");
             fullState(player, mode);

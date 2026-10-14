@@ -15,6 +15,7 @@ war:
   default-mode: match
   broadcast-queue: true
   bossbar: true
+  settle-batch-per-tick: 8
   defaults:
     fair-equipment: true
     fair-health: true

@@ -83,6 +83,8 @@ public final class WarManager implements GuildModule {
     private volatile long phaseUntil;
     private volatile long lastBroadcastSecond = -1;
     private volatile boolean settling;
+    /** 结算阶段分帧发放的奖励任务队列（避免一次性在主线程阻塞）。 */
+    private final java.util.Deque<Runnable> settleQueue = new java.util.concurrent.ConcurrentLinkedDeque<>();
     private volatile String forcedWinner = "";
     private final Set<UUID> handledLethal = ConcurrentHashMap.newKeySet();
     /** 比赛期间的 BossBar（比分 + 剩余时间）。 */
@@ -986,10 +988,11 @@ public final class WarManager implements GuildModule {
                 }
             }
             case SETTLING -> {
-                if (!settling) {
-                    settling = true;
-                }
-                if (remain <= 0) {
+                settling = true;
+                // 分帧发放奖励：每 tick 最多 settleBatchPerTick 人，避免大名单一次性阻塞。
+                int batch = Math.max(1, conf().settleBatchPerTick);
+                WarMath.drainBatch(settleQueue, batch, r -> r.run());
+                if (remain <= 0 && settleQueue.isEmpty()) {
                     cleanup(war);
                 }
             }
@@ -1030,6 +1033,11 @@ public final class WarManager implements GuildModule {
         phaseUntil = System.currentTimeMillis() + modeOf(war).settleSeconds * 1000L;
     }
 
+    /**
+     * 工会层奖励立即结算（内存 + 异步落库，开销很小）；
+     * 玩家层奖励（金币/通行证/称号/消息）进入分帧队列，
+     * 由 {@link #warTick} 在结算阶段每 tick 发放一批，避免一次性阻塞主线程。
+     */
     private void applyRewards(GuildWar war, String winnerId) {
         WarMode w = modeOf(war);
         double mult = w.scheduled() ? Math.max(1.0, w.seasonPointsMultiplier) : 1.0;
@@ -1038,11 +1046,11 @@ public final class WarManager implements GuildModule {
         boolean bWon = winnerId != null && winnerId.equals(war.guildB());
         rewardGuild(plugin.guilds().guild(war.guildA()), aWon, w, mult);
         rewardGuild(plugin.guilds().guild(war.guildB()), bWon, w, mult);
-        for (UUID u : war.rosterA()) {
-            rewardPlayer(u, aWon, w, mult);
+        for (UUID u : new ArrayList<>(war.rosterA())) {
+            settleQueue.add(() -> rewardPlayer(u, aWon, w, mult));
         }
-        for (UUID u : war.rosterB()) {
-            rewardPlayer(u, bWon, w, mult);
+        for (UUID u : new ArrayList<>(war.rosterB())) {
+            settleQueue.add(() -> rewardPlayer(u, bWon, w, mult));
         }
     }
 
@@ -1172,6 +1180,7 @@ public final class WarManager implements GuildModule {
     private void cancelWar(GuildWar war, String reasonKey) {
         war.state(WarState.CANCELLED);
         observed.remove(war.id());
+        settleQueue.clear();
         clearWarBar();
         broadcastWar(war, plugin.messages().component(reasonKey));
         try {
@@ -1215,6 +1224,7 @@ public final class WarManager implements GuildModule {
         eliminated.clear();
         handledLethal.clear();
         settling = false;
+        settleQueue.clear();
         clearWarBar();
         observed.remove(war.id());
         current = null;
@@ -1637,6 +1647,11 @@ public final class WarManager implements GuildModule {
 
     public int lives(UUID uuid) {
         return livesRemaining.getOrDefault(uuid, 0);
+    }
+
+    /** 结算阶段待发放的奖励人数（用于状态面板/排查）。 */
+    public int pendingSettlements() {
+        return settleQueue.size();
     }
 
     /** 参赛者死亡：重生时由监听器重新发放装备并传送回出生点。 */

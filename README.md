@@ -44,6 +44,7 @@
 | [docs/README.md](docs/README.md) | 文档总览与快速开始 |
 | [docs/deployment.md](docs/deployment.md) | **生产部署与运维** |
 | [docs/shared-config.md](docs/shared-config.md) | **共享配置目录与多服一致性** |
+| [docs/threading.md](docs/threading.md) | **线程模型 / 预加载 / 生命周期** |
 | [docs/commands.md](docs/commands.md) | 指令与权限 |
 | [docs/configuration.md](docs/configuration.md) | 配置拆分说明 |
 | [docs/war.md](docs/war.md) | 工会战模式 / 匹配 / 赛季 |

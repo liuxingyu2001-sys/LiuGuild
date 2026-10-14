@@ -1,9 +1,11 @@
 package com.liu.liuguild.war;
 
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * 工会战纯计算逻辑（不依赖 Bukkit，便于单元测试）。
@@ -52,5 +54,29 @@ public final class WarMath {
         // 均衡池：至少保证每名玩家 1 条，同时向人数较多的一方对齐总生命。
         int total = Math.max(max, min * baseLives);
         return new int[]{total, total};
+    }
+
+    /**
+     * 从队列头部取出至多 {@code batch} 个元素并逐个执行（分帧处理）。
+     * 单元素异常不会中断其余元素；返回实际处理数量。
+     */
+    public static <T> int drainBatch(Deque<T> queue, int batch, Consumer<T> action) {
+        if (queue == null || action == null || batch <= 0) {
+            return 0;
+        }
+        int done = 0;
+        for (int i = 0; i < batch; i++) {
+            T item = queue.pollFirst();
+            if (item == null) {
+                break;
+            }
+            try {
+                action.accept(item);
+            } catch (Throwable ignored) {
+                // 单个奖励发放失败不影响其余玩家
+            }
+            done++;
+        }
+        return done;
     }
 }

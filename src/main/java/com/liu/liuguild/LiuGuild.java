@@ -136,6 +136,7 @@ public final class LiuGuild extends JavaPlugin {
         // 核心管理器
         guilds = new GuildManager(this);
         kits = new KitService(this);
+        kits.preload();
         war = new WarManager(this);
         gui = new GuiManager(this);
         importer = new PlayerguildImporter(this);
@@ -245,6 +246,9 @@ public final class LiuGuild extends JavaPlugin {
     public void reloadConfig() {
         configManager.load();
         configFingerprint = configManager.fingerprint();
+        if (kits != null) {
+            kits.preload();
+        }
         if (modules != null) {
             modules.reloadAll();
         }
@@ -546,7 +550,11 @@ public final class LiuGuild extends JavaPlugin {
                 + " &7承办模式: &f" + s.war.serverMode
                 + " &7赛事: &f" + s.war.modes.keySet());
         out.add("&7匹配队列: &f" + war.queueSize() + " &7进行中: &f" + war.liveWars().size()
-                + " &7本服承办: &f" + (war.currentWar() == null ? "无" : war.currentWar().id()));
+                + " &7本服承办: &f" + (war.currentWar() == null ? "无" : war.currentWar().id())
+                + " &7待发放奖励: &f" + war.pendingSettlements());
+        // 预加载
+        out.add("&7预加载: &f套装 " + (kits == null ? 0 : kits.preloadedKits()) + " 套 &7场地 " + s.arenas.arenas.size()
+                + " 个 &7模式 " + s.war.modes.size() + " 个 &7图标 " + s.icons.icons.size() + " 个");
         // 场地
         s.arenas.arenas.forEach((id, a) -> out.add("&8 - 场地 &f" + id + " &7承办=&f"
                 + (a.server.isBlank() ? "-" : a.server) + " &7世界=&f" + (a.world.isBlank() ? "主世界" : a.world)

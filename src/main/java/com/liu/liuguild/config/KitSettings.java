@@ -72,12 +72,25 @@ public final class KitSettings {
          */
         public String snapshot = "";
 
+        /** 快照解码缓存：每个 KitProfile 只在首次使用时解码一次（避免每次入场上场都 Base64 解码 41 件物品）。 */
+        private transient org.bukkit.inventory.ItemStack[] decoded;
+
         public KitProfile(String key) {
             this.key = key;
         }
 
         public boolean hasSnapshot() {
             return snapshot != null && !snapshot.isBlank();
+        }
+
+        /** 预解码后的快照（长度不足 41 视为损坏，调用方请自行判空长度）。 */
+        public org.bukkit.inventory.ItemStack[] decodedSnapshot() {
+            if (decoded == null) {
+                decoded = hasSnapshot()
+                        ? com.liu.liuguild.util.ItemUtil.decode(snapshot)
+                        : new org.bukkit.inventory.ItemStack[0];
+            }
+            return decoded;
         }
 
         public static KitProfile parse(String key, ConfigurationSection sec) {
