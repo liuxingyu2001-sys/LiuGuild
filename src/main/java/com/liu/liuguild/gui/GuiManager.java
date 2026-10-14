@@ -479,16 +479,26 @@ public final class GuiManager implements GuildModule, Listener {
                     plugin.messages().send(player, "already-in-guild", "guild", plugin.guilds().guildOf(player.getUniqueId()).name());
                     return;
                 }
-                requestText(player, "input-guild-name", text -> {
-                    String trimmed = text.trim();
-                    if (trimmed.isEmpty()) {
+                requestText(player, "create-input-name", text -> {
+                    String name = text.trim();
+                    if (name.isEmpty()) {
                         return;
                     }
-                    String[] parts = trimmed.split("\\s+", 2);
-                    String name = parts[0];
-                    String tag = parts.length > 1 ? parts[1] : name;
-                    plugin.guilds().create(player, name, tag);
-                });
+                    // 第二步：输入标签（2~5 字符）；直接确认则用名称截断作为默认值
+                    com.liu.liuguild.config.GuildSettings c = plugin.settings().guild;
+                    String fallback = name.length() > c.tagMax ? name.substring(0, c.tagMax) : name;
+                    if (fallback.length() < c.tagMin) {
+                        fallback = name;
+                    }
+                    final String defaultTag = fallback;
+                    requestText(player, "create-input-tag", tagText -> {
+                        String tag = tagText.trim();
+                        if (tag.isEmpty()) {
+                            tag = defaultTag;
+                        }
+                        plugin.guilds().create(player, name, tag);
+                    }, "min", c.tagMin, "max", c.tagMax);
+                }, "min", plugin.settings().guild.nameMin, "max", plugin.settings().guild.nameMax);
             }
             case "back:settings" -> openSettings(player, require(g, player));
             case "admin:status" -> {

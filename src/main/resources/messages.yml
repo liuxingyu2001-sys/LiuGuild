@@ -184,6 +184,9 @@ zh_CN:
   input-cancelled: "<yellow>已取消输入。"
   input-confirm: "<gray>请输入 <white>yes</white> 确认，或输入 <white>cancel</white> 取消："
   input-guild-name: "<gray>请在聊天栏输入工会名称（可带标签，格式：名称 标签）："
+  # 创建工会：两步引导（名称 → 标签）
+  create-input-name: "<gray>第一步：请输入工会<white>名称</white>（{min}~{max} 字符）："
+  create-input-tag: "<gray>第二步：请输入工会<white>标签</white>（{min}~{max} 字符，如 SKY；留空自动使用名称）："
   confirm-kick: "<red>确定要踢出成员 <white>{player}</white> 吗？"
   confirm-transfer: "<red>确定将会长转让给 <white>{player}</white> 吗？（不可撤销）"
   confirm-leave: "<red>确定要退出工会 <white>{player}</white> 吗？此操作可再次加入。"
