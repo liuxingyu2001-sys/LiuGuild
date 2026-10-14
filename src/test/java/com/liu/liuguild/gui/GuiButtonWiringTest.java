@@ -227,4 +227,26 @@ class GuiButtonWiringTest {
             fail("这些在代码里登记的动作没有任何处理逻辑（按钮/条目会点了没反应）: " + broken);
         }
     }
+
+    /**
+     * {@code addBack(..., "back:xxx", ...)} 里的返回目标必须被处理。
+     * 分页/返回是最容易被改坏又很难人工发现的地方。
+     */
+    @Test
+    void everyAddBackTargetIsHandled() throws Exception {
+        Set<String> handled = handledActions();
+        String src = guiManagerSource();
+        List<String> broken = new ArrayList<>();
+        String q = "\"";
+        Matcher m = Pattern.compile("addBack\\([^;]*?" + q + "([a-zA-Z_:]+)" + q + "\\s*,").matcher(src);
+        while (m.find()) {
+            String action = m.group(1);
+            if (!handled.contains(action)) {
+                broken.add(action);
+            }
+        }
+        if (!broken.isEmpty()) {
+            fail("这些 addBack 返回目标没有处理逻辑: " + broken);
+        }
+    }
 }

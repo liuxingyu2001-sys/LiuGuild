@@ -598,6 +598,7 @@ public final class GuiManager implements GuildModule, Listener {
                 }
             }
             case "admin:arenas" -> openArenaList(player, 0);
+            case "admin:open" -> openAdmin(player);
             case "admin:guilds" -> openGuildList(player, 0);
             case "admin:wars" -> openWarList(player);
             case "admin:wars_back" -> openAdmin(player);
@@ -621,16 +622,6 @@ public final class GuiManager implements GuildModule, Listener {
                 }
             }
             case "admin:modes" -> openModeList(player);
-            case "admin:arena" -> showAdminList(player, plugin.settings().arenas.arenas.size(), "竞技场", id -> {
-                com.liu.liuguild.config.ArenaDef a = plugin.settings().arena(id);
-                return "&f" + a.id + " 承办=" + (a.server.isBlank() ? "-" : a.server)
-                        + " 世界=" + (a.world.isBlank() ? "主世界" : a.world)
-                        + " 模板=" + (a.hasTemplate() ? a.template : "固定坐标");
-            }, plugin.settings().arenas.arenas.keySet());
-            case "admin:kit" -> showAdminList(player, plugin.settings().kit.kits.size(), "装备套装", id -> {
-                var k = plugin.settings().kit.profile(id);
-                return "&f" + k.key + " 快照=" + (k.hasSnapshot() ? "有" : "无") + " 物品=" + k.items.size();
-            }, plugin.settings().kit.kits.keySet());
             case "admin:reload" -> {
                 plugin.reloadSettings();
                 plugin.messages().send(player, "reload-done");
@@ -1380,7 +1371,7 @@ public final class GuiManager implements GuildModule, Listener {
                             "<yellow>点击编辑"), Map.of(), null));
             holder.actions.put(i, "arena_edit:" + id);
         }
-        addPageControls(player, holder, inv, "arenas", page, (ids.size() - 1) / perPage, "工会列表", "admin:guilds");
+        addPageControls(player, holder, inv, "arenas", page, (ids.size() - 1) / perPage, "工会列表", "admin:guilds", "admin:open");
         player.openInventory(inv);
     }
 
@@ -1462,7 +1453,7 @@ public final class GuiManager implements GuildModule, Listener {
                             "", "<yellow>点击管理"), Map.of(), null));
             holder.actions.put(i, "guild_edit:" + g.id());
         }
-        addPageControls(player, holder, inv, "guilds", page, (guilds.size() - 1) / perPage, "竞技场列表", "admin:arenas");
+        addPageControls(player, holder, inv, "guilds", page, (guilds.size() - 1) / perPage, "竞技场列表", "admin:arenas", "admin:open");
         player.openInventory(inv);
     }
 
@@ -1506,8 +1497,15 @@ public final class GuiManager implements GuildModule, Listener {
         return slot + 1;
     }
 
+    /**
+     * 分页控件：上/下页 + 「返回上一级」 + 「切换到另一个列表」。
+     *
+     * <p>之前只提供了两个列表互切，导致玩家在「竞技场↔工会」之间打转，
+     * <b>无法退回管理面板</b>。现补上独立的返回按钮。</p>
+     */
     private void addPageControls(Player player, Holder holder, Inventory inv, String menuKey,
-                                 int page, int maxPage, String switchLabel, String switchAction) {
+                                 int page, int maxPage, String switchLabel, String switchAction,
+                                 String backAction) {
         if (page > 0) {
             inv.setItem(45, GuiUtil.build(player, "ARROW", "ARROW", "<white>上一页", List.of(), Map.of(), null));
             holder.actions.put(45, "page_" + menuKey + ":" + (page - 1));
@@ -1516,9 +1514,14 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>下一页", List.of(), Map.of(), null));
             holder.actions.put(53, "page_" + menuKey + ":" + (page + 1));
         }
-        inv.setItem(49, GuiUtil.build(player, "CHEST", "CHEST", "<white>切换：" + switchLabel,
-                List.of("<gray>点击切换"), Map.of(), null));
-        holder.actions.put(49, switchAction);
+        if (switchAction != null && switchLabel != null) {
+            inv.setItem(48, GuiUtil.build(player, "CHEST", "CHEST", "<white>切换：" + switchLabel,
+                    List.of("<gray>点击切换到该列表"), Map.of(), null));
+            holder.actions.put(48, switchAction);
+        }
+        inv.setItem(50, GuiUtil.build(player, "BARRIER", "BARRIER", "<white>返回管理面板",
+                List.of("<gray>回到管理菜单"), Map.of(), null));
+        holder.actions.put(50, backAction == null ? "admin:open" : backAction);
     }
 
     private static String fmtSpawn(ArenaDef.Spawn s) {
@@ -1538,14 +1541,6 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     /** 管理 GUI 的信息列表页（在聊天栏输出）。 */
-    private void showAdminList(Player player, int size, String title,
-                               java.util.function.Function<String, String> line, Iterable<String> keys) {
-        player.closeInventory();
-        player.sendMessage(Text.mm("<gold>" + title + "（" + size + "）："));
-        for (String key : keys) {
-            player.sendMessage(Text.mm(line.apply(key).replace('&', '\u00a7')));
-        }
-    }
 
     private boolean isRightClick() {
         return clickRight;
@@ -1853,7 +1848,6 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin_kits" -> "admin:kits";
             case "admin_cleanup" -> "admin:cleanup";
             case "admin_verify" -> "admin:verify";
-            case "admin_kit" -> "admin:kit";
             case "admin_reload" -> "admin:reload";
             case "close" -> "close";
             case "help" -> "join_help";
