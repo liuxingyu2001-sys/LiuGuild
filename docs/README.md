@@ -8,6 +8,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 
 | 文档 | 说明 |
 |---|---|
+| [deployment.md](deployment.md) | **生产部署与运维**（环境、单服/跨服、配置清单、排障、备份） |
 | [commands.md](commands.md) | 玩家 / 管理指令、权限、Tab 补全 |
 | [admin.md](admin.md) | 管理工具（完整指令 + 图形化编辑器） |
 | [configuration.md](configuration.md) | 全部配置文件说明（模块化拆分） |
@@ -27,7 +28,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 
 ## 快速开始
 
-1. 把 `LiuGuild-<version>.jar` 放入 `plugins/`。
+1. 把 `Liu-LiuGuild-<version>.jar` 放入 `plugins/`。
 2. 启动服务器，生成配置（`plugins/LiuGuild/`）。
 3. **单服**：`database.yml` 保持 `sqlite` 即可。
    **跨服工会战**：所有子服改用同一 `mysql`，并配置相同的 `cross-server.yml`（Redis）。
@@ -45,7 +46,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 
 ```bash
 mvn clean package -Dlicense.enabled=false
-# 产物：target/LiuGuild-<version>.jar
+# 产物：target/Liu-LiuGuild-<version>.jar
 ```
 
 - Java 21 / Paper API 1.21.1。

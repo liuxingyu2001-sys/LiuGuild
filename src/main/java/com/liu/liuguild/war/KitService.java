@@ -114,7 +114,8 @@ public final class KitService {
             fullState(player, mode);
             return;
         }
-        if (c.clearInventory) {
+        // 公平模式必须清空背包：否则未填满的槽位会残留玩家自带物品，形成不公平。
+        if (c.clearInventory || mode.fairEquipment) {
             player.getInventory().clear();
             player.getInventory().setArmorContents(new ItemStack[4]);
             player.getInventory().setItemInOffHand(null);

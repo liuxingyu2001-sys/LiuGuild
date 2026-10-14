@@ -28,6 +28,8 @@
 4. `/guildadmin arena setspawn main a` 现场设置竞技场出生点。
 5. 玩家 `/guild gui` → 工会战 → 选择模式参与匹配。
 
+> 正式开服请先阅读 **[docs/deployment.md](docs/deployment.md)**（部署形态 / 配置清单 / 排障 / 备份）。
+
 ## 指令
 
 - 玩家：`/guild`（简写 `/g`），菜单 `/guild gui`。
@@ -40,6 +42,7 @@
 | 文档 | 说明 |
 |---|---|
 | [docs/README.md](docs/README.md) | 文档总览与快速开始 |
+| [docs/deployment.md](docs/deployment.md) | **生产部署与运维** |
 | [docs/commands.md](docs/commands.md) | 指令与权限 |
 | [docs/configuration.md](docs/configuration.md) | 配置拆分说明 |
 | [docs/war.md](docs/war.md) | 工会战模式 / 匹配 / 赛季 |
