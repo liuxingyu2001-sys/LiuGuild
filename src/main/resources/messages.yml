@@ -210,5 +210,7 @@ zh_CN:
   kit-saved: "<green>已把当前身上装备保存为套装 <white>{key}</white>。"
   kit-deleted: "<green>已删除套装 <white>{key}</white>。"
   kit-input: "<gray>请在聊天栏输入套装名（输入 cancel 取消）："
+  admin-cleanup-scan: "<gold>僵尸工会扫描<dark_gray>»</dark_gray> <gray>阈值 <white>{days}</white> 天，命中 <white>{count}</white> 个（试运行，未删除）。"
+  admin-verify-result: "<gold>数据校验<dark_gray>»</dark_gray> <gray>发现问题 <white>{count}</white> 个。"
   mode-usage: "<red>用法：<white>/guildadmin mode <list|info|start> [模式]</white>"
   season-started: "<green>已开启赛季工会战模式 <white>{mode}</white>。"

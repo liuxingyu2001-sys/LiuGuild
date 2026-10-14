@@ -243,6 +243,16 @@ gui:
         material: DIAMOND_CHESTPLATE
         name: "<white>装备套装"
         lore: ["<gray>浏览 / 保存 / 删除套装", "<gray>用当前身上装备创建快照", "", "<yellow>点击打开"]
+      admin_verify:
+        slot: 20
+        material: WRITABLE_BOOK
+        name: "<white>数据校验"
+        lore: ["<gray>校验 member_count / 会长 / 成员索引", "<gray>使用 /guildadmin verify fix 修复", "", "<yellow>点击校验"]
+      admin_cleanup:
+        slot: 28
+        material: HOPPER
+        name: "<white>僵尸工会清理"
+        lore: ["<gray>扫描不活跃工会（试运行）", "<gray>使用 /guildadmin cleanup confirm 删除", "", "<yellow>点击扫描"]
       admin_reload:
         slot: 30
         material: REDSTONE

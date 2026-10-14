@@ -458,6 +458,24 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin:guilds" -> openGuildList(player, 0);
             case "admin:wars" -> openWarList(player);
             case "admin:kits" -> openKitList(player);
+            case "admin:cleanup" -> {
+                player.closeInventory();
+                var conf = plugin.settings().guild;
+                var targets = plugin.guilds().purgeInactive(true);
+                plugin.messages().sendRaw(player, "admin-cleanup-scan", "days", conf.cleanupInactiveDays, "count", targets.size());
+            }
+            case "admin:verify" -> {
+                player.closeInventory();
+                java.util.List<String> issues = plugin.guilds().verifyData(false);
+                plugin.messages().sendRaw(player, "admin-verify-result", "count", issues.size());
+                int shown = 0;
+                for (String s : issues) {
+                    if (shown++ >= 10) {
+                        break;
+                    }
+                    player.sendMessage(Text.mm("<gray>- <white>" + s));
+                }
+            }
             case "admin:modes" -> showAdminList(player, plugin.settings().war.modes.size(), "工会战模式", id -> {
                 com.liu.liuguild.config.WarMode m = plugin.settings().mode(id);
                 return "&f" + m.key + " &7" + m.display + " 场地=" + m.arena + " 公平装备=" + m.fairEquipment;
@@ -1324,6 +1342,8 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin_guilds" -> "admin:guilds";
             case "admin_wars" -> "admin:wars";
             case "admin_kits" -> "admin:kits";
+            case "admin_cleanup" -> "admin:cleanup";
+            case "admin_verify" -> "admin:verify";
             case "admin_kit" -> "admin:kit";
             case "admin_reload" -> "admin:reload";
             case "close" -> "close";
