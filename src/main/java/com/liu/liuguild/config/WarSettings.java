@@ -28,6 +28,8 @@ public final class WarSettings {
     public String defaultMode = "match";
     /** 有玩家点击参与匹配时是否全服广播（模式可单独覆盖）。 */
     public boolean broadcastQueue = true;
+    /** 比赛期间是否显示比分 BossBar。 */
+    public boolean bossBarEnabled = true;
 
     /** 模式公共默认值（来自 war.defaults 或 war 根节点）。 */
     public WarMode defaults = new WarMode();
@@ -43,6 +45,7 @@ public final class WarSettings {
         s.matchTimeoutSeconds = Math.max(0, c.getInt("war.match-timeout-seconds", s.matchTimeoutSeconds));
         s.defaultMode = c.getString("war.default-mode", s.defaultMode);
         s.broadcastQueue = c.getBoolean("war.broadcast-queue", s.broadcastQueue);
+        s.bossBarEnabled = c.getBoolean("war.bossbar", s.bossBarEnabled);
 
         WarMode base = new WarMode();
         ConfigurationSection defaults = c.getConfigurationSection("war.defaults");

@@ -13,6 +13,8 @@ war:
   queue-interval-seconds: 5
   match-timeout-seconds: 180
   default-mode: match
+  broadcast-queue: true
+  bossbar: true
   defaults:
     fair-equipment: true
     fair-health: true

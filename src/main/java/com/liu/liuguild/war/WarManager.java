@@ -1,5 +1,7 @@
 package com.liu.liuguild.war;
 
+import net.kyori.adventure.bossbar.BossBar;
+import net.kyori.adventure.text.Component;
 import com.liu.liuguild.LiuGuild;
 import com.liu.liuguild.api.event.GuildKillEvent;
 import com.liu.liuguild.api.event.GuildWarEndEvent;
@@ -78,6 +80,8 @@ public final class WarManager implements GuildModule {
     private volatile boolean settling;
     private volatile String forcedWinner = "";
     private final Set<UUID> handledLethal = ConcurrentHashMap.newKeySet();
+    /** 比赛期间的 BossBar（比分 + 剩余时间）。 */
+    private volatile BossBar warBar;
 
     public WarManager(LiuGuild plugin) {
         this.plugin = plugin;
@@ -796,6 +800,17 @@ public final class WarManager implements GuildModule {
         war.startedAt(System.currentTimeMillis());
         phaseUntil = System.currentTimeMillis() + mode.durationSeconds * 1000L;
         lastBroadcastSecond = -1;
+        if (warBar == null && plugin.settings().war.bossBarEnabled) {
+            warBar = BossBar.bossBar(Component.empty(), 1f, BossBar.Color.RED, BossBar.Overlay.PROGRESS);
+        }
+        if (warBar != null) {
+            for (UUID u : war.rosterA()) {
+                showWarBar(u);
+            }
+            for (UUID u : war.rosterB()) {
+                showWarBar(u);
+            }
+        }
         Bukkit.getPluginManager().callEvent(new GuildWarStartEvent(war));
         broadcastWar(war, plugin.messages().component("war-started", "guild_a", war.nameA(), "guild_b", war.nameB()));
         publishState(war);
@@ -810,6 +825,12 @@ public final class WarManager implements GuildModule {
         long now = System.currentTimeMillis();
         long remain = Math.max(0, phaseUntil - now);
         long sec = (remain + 999) / 1000;
+        if (warBar != null) {
+            int duration = Math.max(1, modeOf(war).durationSeconds);
+            float progress = war.state() == WarState.ACTIVE ? (float) remain / (duration * 1000f) : 0f;
+            warBar.name(scoreLine(war).append(Component.text("  " + sec + "s")));
+            warBar.progress(Math.max(0f, Math.min(1f, progress)));
+        }
         switch (war.state()) {
             case PREPARING -> {
                 if (sec != lastBroadcastSecond && (sec <= 10 || sec % 30 == 0)) {
@@ -1004,6 +1025,7 @@ public final class WarManager implements GuildModule {
     private void cancelWar(GuildWar war, String reasonKey) {
         war.state(WarState.CANCELLED);
         observed.remove(war.id());
+        clearWarBar();
         broadcastWar(war, plugin.messages().component(reasonKey));
         try {
             plugin.repo().updateWar(war);
@@ -1035,6 +1057,7 @@ public final class WarManager implements GuildModule {
         eliminated.clear();
         handledLethal.clear();
         settling = false;
+        clearWarBar();
         observed.remove(war.id());
         current = null;
         plugin.getLogger().info("工会战 " + war.id() + " 已结束并回收竞技场。");
@@ -1126,6 +1149,7 @@ public final class WarManager implements GuildModule {
         plugin.messages().send(player, "war-joined");
         // 传送后确保 game mode
         player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+        showWarBar(player.getUniqueId());
     }
 
     public void spectate(Player player) {
@@ -1149,6 +1173,7 @@ public final class WarManager implements GuildModule {
         player.setGameMode(org.bukkit.GameMode.SPECTATOR);
         ArenaDef def = plugin.settings().arena(modeOf(war).arena);
         player.teleport(def.spawnSpectator.toLocation(world));
+        showWarBar(player.getUniqueId());
     }
 
     private void leaveLocal(UUID uuid) {
@@ -1169,6 +1194,7 @@ public final class WarManager implements GuildModule {
         eliminated.remove(uuid);
         if (p != null) {
             p.setGameMode(org.bukkit.GameMode.SURVIVAL);
+            hideWarBar(p);
         }
     }
 
@@ -1181,6 +1207,7 @@ public final class WarManager implements GuildModule {
             plugin.luckyPeaches().exit(p);
         }
         returnLoc.remove(uuid);
+        hideWarBar(plugin.player(uuid));
     }
 
     /** 把玩家传送回参赛前的位置（竞技场世界销毁前必须执行）。 */
@@ -1307,6 +1334,7 @@ public final class WarManager implements GuildModule {
     /** 玩家退出服务器（未结束时）也需还原，避免统一装备残留。 */
     public void onPlayerQuit(Player player) {
         UUID uuid = player.getUniqueId();
+        hideWarBar(player);
         GuildWar war = current;
         if (war != null) {
             war.rosterA().remove(uuid);
@@ -1518,6 +1546,29 @@ public final class WarManager implements GuildModule {
         if (plugin.chat() != null && plugin.chat().available() && carrier != null) {
             plugin.chat().broadcast(carrier, text);
         }
+    }
+
+    private void showWarBar(UUID uuid) {
+        Player p = plugin.player(uuid);
+        if (p != null && warBar != null) {
+            p.showBossBar(warBar);
+        }
+    }
+
+    private void hideWarBar(Player p) {
+        if (p != null && warBar != null) {
+            p.hideBossBar(warBar);
+        }
+    }
+
+    private void clearWarBar() {
+        BossBar bar = warBar;
+        if (bar != null) {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                p.hideBossBar(bar);
+            }
+        }
+        warBar = null;
     }
 
     private net.kyori.adventure.text.Component scoreLine(GuildWar war) {
