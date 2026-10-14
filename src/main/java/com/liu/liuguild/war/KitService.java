@@ -14,6 +14,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 
+import java.util.UUID;
+
 /**
  * 工会战统一装备：所有参赛者进入竞技场时发放完全相同的装备与增益，
  * 保证公平（这是「专门承办工会战的服务器」的核心机制）。
@@ -93,8 +95,53 @@ public final class KitService {
                            int level, float exp, java.util.List<PotionEffect> effects) {
     }
 
+    /** 持久化用的托管记录（数据库恢复用）。 */
+    public record PersistedEscrow(UUID playerUuid, String serverId, String warId,
+                                  UUID sparrowSnapshotId, String itemsData,
+                                  String worldName, double x, double y, double z, float yaw, float pitch,
+                                  String gameMode, double health, int food, int level, float exp,
+                                  long createdAt) {
+        /**
+         * 解码为可还原的快照；物品数据不完整时返回 {@code null}。
+         *
+         * <p>绝不能把「解码失败 → 全 null 背包」当成合法快照：那会在恢复时直接清空玩家背包。
+         * 完整快照必定是 41 槽（36 背包 + 4 护甲 + 1 副手），少于 41 一律视为不可用。</p>
+         */
+        public Snapshot toSnapshot() {
+            ItemStack[] decoded = ItemUtil.decode(itemsData);
+            if (decoded.length < 41) {
+                return null;
+            }
+            ItemStack[] contents = new ItemStack[36];
+            ItemStack[] armor = new ItemStack[4];
+            ItemStack offhand = null;
+            for (int i = 0; i < 36; i++) {
+                contents[i] = decoded[i];
+            }
+            for (int i = 0; i < 4; i++) {
+                armor[i] = decoded[36 + i];
+            }
+            offhand = decoded[40];
+            Location loc = null;
+            if (worldName != null && !worldName.isBlank()) {
+                org.bukkit.World w = org.bukkit.Bukkit.getWorld(worldName);
+                if (w != null) {
+                    loc = new Location(w, x, y, z, yaw, pitch);
+                }
+            }
+            GameMode gm = GameMode.SURVIVAL;
+            if (gameMode != null) {
+                try {
+                    gm = GameMode.valueOf(gameMode);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            return new Snapshot(contents, armor, offhand, loc, gm, health, food, level, exp, java.util.List.of());
+        }
+    }
+
     public Snapshot snapshot(Player player) {
-        ItemStack[] contents = deepCopy(player.getInventory().getContents());
+        ItemStack[] contents = deepCopy(player.getInventory().getStorageContents());
         ItemStack[] armor = deepCopy(player.getInventory().getArmorContents());
         ItemStack offhand = player.getInventory().getItemInOffHand().clone();
         return new Snapshot(contents, armor, offhand, player.getLocation().clone(),
@@ -102,12 +149,39 @@ public final class KitService {
                 player.getLevel(), player.getExp(), new java.util.ArrayList<>(player.getActivePotionEffects()));
     }
 
-    /** 还原状态（主线程）。 */
+    /** 把 Snapshot 中的 36 格背包 + 4 格护甲 + 1 格副手编码成 41 槽位 Base64。 */
+    public String encodeSnapshotItems(Snapshot snap) {
+        if (snap == null) {
+            return "";
+        }
+        ItemStack[] data = new ItemStack[41];
+        ItemStack[] c = snap.contents();
+        if (c != null) {
+            for (int i = 0; i < 36 && i < c.length; i++) {
+                data[i] = c[i];
+            }
+        }
+        ItemStack[] a = snap.armor();
+        if (a != null) {
+            for (int i = 0; i < 4 && i < a.length; i++) {
+                data[36 + i] = a[i];
+            }
+        }
+        data[40] = snap.offhand();
+        return ItemUtil.encode(data);
+    }
+
+    /** 还原状态（主线程）。若 skipTeleport=true，则不覆盖当前坐标（交由 finishTeleport 处理）。 */
     public void restore(Player player, Snapshot snap) {
+        restore(player, snap, false);
+    }
+
+    /** 还原状态（主线程）。 */
+    public void restore(Player player, Snapshot snap, boolean skipTeleport) {
         if (player == null || snap == null) {
             return;
         }
-        player.getInventory().setContents(deepCopy(snap.contents()));
+        player.getInventory().setStorageContents(deepCopy(snap.contents()));
         player.getInventory().setArmorContents(deepCopy(snap.armor()));
         player.getInventory().setItemInOffHand(snap.offhand() == null ? null : snap.offhand().clone());
         player.setGameMode(snap.gameMode());
@@ -120,10 +194,10 @@ public final class KitService {
         for (PotionEffect e : snap.effects()) {
             player.addPotionEffect(e);
         }
-        if (snap.location() != null && snap.location().getWorld() != null) {
+        if (!skipTeleport && snap.location() != null && snap.location().getWorld() != null) {
             player.teleport(snap.location());
-            com.liu.liuguild.util.ApiCompat.setHealthSafely(player, snap.health());
         }
+        com.liu.liuguild.util.ApiCompat.setHealthSafely(player, snap.health());
     }
 
     private static ItemStack[] deepCopy(ItemStack[] in) {
@@ -143,7 +217,7 @@ public final class KitService {
      */
     public String capture(Player player) {
         ItemStack[] data = new ItemStack[41];
-        ItemStack[] contents = player.getInventory().getContents();
+        ItemStack[] contents = player.getInventory().getStorageContents();
         for (int i = 0; i < 36 && i < contents.length; i++) {
             data[i] = contents[i];
         }
@@ -234,7 +308,7 @@ public final class KitService {
         for (int i = 0; i < 4; i++) {
             armor[i] = data[36 + i] == null ? null : data[36 + i].clone();
         }
-        player.getInventory().setContents(contents);
+        player.getInventory().setStorageContents(contents);
         player.getInventory().setArmorContents(armor);
         player.getInventory().setItemInOffHand(data[40] == null ? null : data[40].clone());
         fullState(player, mode);

@@ -132,8 +132,38 @@ modes:
 - 非承办服玩家仍可手动使用 `/guild war join` 传送到承办服（例如中途加入）。
 - 场地字段及管理命令见 [arena.md](arena.md)。
 - `fair-equipment` 统一装备；`fair-health` 屏蔽 LuckyPeaches 蟠桃血量。
-- Sparrow Sync 可用时优先使用其快照；否则回退本地快照还原玩家状态。
 - NotBounties 可用时，工会战参赛者的击杀不会领取悬赏，避免以比赛击杀刷取悬赏。
+
+## 战斗期间限制
+
+参赛者与旁观者从入场到完全退场期间，以下行为被强制禁止，防止把竞技场统一装备带出场、
+或把外部物品 / 坐标带进场：
+
+- **禁止打开任何容器 / 菜单 / 面板**：末影箱、箱子、熔炉、商店、工会仓库、`/guild gui` 主菜单等一律拦截
+  （`InventoryOpenEvent` + `GuiManager.openMain` 双重拦截）。
+- **禁止一切外部传送**：`/home`、`/spawn`、`/tpa`、传送卷轴、地狱门等一律拦截（`PlayerTeleportEvent`）。
+  工会战内部发起的传送（入场、复活、旁观、赛后回城、结束清场）通过白名单豁免，
+  同一竞技场世界内的末影珍珠 / 紫颂果位移也放行。
+- **禁止使用外部指令**：仅放行聊天（`/msg` `/tell` `/w` `/whisper` `/r` `/reply` `/me`）
+  与工会沟通 / 战况查询（`/guild chat|c|help|info`、`/guild war [status|history|leave]`）。
+  注意：裸 `/guild`（打开主菜单）也被禁止。
+- 拥有 `liuguild.admin` 权限者完全豁免以上限制，便于管理员运维。
+
+## 数据还原与装备托管
+
+入战 / 旁观前会采集玩家状态，退场时按优先级还原：
+
+1. **Sparrow Sync 快照**（安装时）：采集后立即 `pin` 固定，还原无论成功失败都 `unpin`；
+2. **本地内存快照**：Sparrow Sync 缺失或还原失败时回退；
+3. **数据库托管记录 `guild_war_escrow`**：每次都落库，作为崩溃 / 重启 / 异常断线的兜底。
+
+- **战中掉线**：`PlayerQuitEvent`（LOW，早于 Sparrow Sync 的 MONITOR 采集）会用本地快照
+  **同步**把背包 / 护甲 / 等级 / 游戏模式写回 Player 对象，避免 Sparrow Sync 下一 tick 的退出采集
+  把竞技场统一装备写进跨服档案。
+- **崩溃 / 重启**：内存快照丢失后，玩家再次上线时按 `guild_war_escrow` 记录恢复未归还的装备与坐标；
+  若记录里有 `sparrow_snapshot_id` 则优先用 Sparrow Sync 还原，失败再回退托管物品数据。
+- 旁观者同样会被采集，保证崩溃后不会永久卡在旁观模式。
+- 还原成功后删除托管记录；仅在玩家离线且还原失败时保留，等待下次上线继续兜底。
 
 ## 胜负、计分与数据
 

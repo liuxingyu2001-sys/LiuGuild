@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
@@ -69,8 +70,29 @@ public final class WarManager implements GuildModule {
     private final Set<UUID> eliminated = ConcurrentHashMap.newKeySet();
     /** 准备阶段被锁定（冻结）的参赛者；开战时解除。 */
     private final Set<UUID> frozen = ConcurrentHashMap.newKeySet();
+    /** 工会战内部合法发起的传送白名单，免于 WarListener 的传送拦截。 */
+    private final Set<UUID> allowingWarTeleport = ConcurrentHashMap.newKeySet();
     /** 准备阶段垫的屏障方块：原方块类型，解锁后恢复。 */
     private final Map<Location, org.bukkit.Material> preparedPlatform = new ConcurrentHashMap<>();
+
+    /** 执行一次工会战合法的内部传送（加入出生点、复活、赛后回城等）。 */
+    public boolean warTeleport(Player player, Location target) {
+        if (player == null || target == null || target.getWorld() == null) {
+            return false;
+        }
+        UUID uuid = player.getUniqueId();
+        allowingWarTeleport.add(uuid);
+        try {
+            return player.teleport(target);
+        } finally {
+            allowingWarTeleport.remove(uuid);
+        }
+    }
+
+    /** 当前是否正在执行工会战内部合法的传送。 */
+    public boolean isAllowingWarTeleport(UUID uuid) {
+        return uuid != null && allowingWarTeleport.contains(uuid);
+    }
 
     /** 玩家是否处于「准备阶段锁定」状态。 */
     public boolean isFrozen(UUID uuid) {
@@ -294,6 +316,11 @@ public final class WarManager implements GuildModule {
     public boolean isInWar(UUID uuid) {
         GuildWar c = current;
         return c != null && c.sideOf(uuid) != null;
+    }
+
+    /** 玩家是否处于工会战或旁观状态（禁止打开面板/菜单、禁止外部传送、禁止传送指令）。 */
+    public boolean isWarRestricted(UUID uuid) {
+        return uuid != null && (isInWar(uuid) || spectators.contains(uuid) || sideOf.containsKey(uuid));
     }
 
     public boolean isSpectator(UUID uuid) {
@@ -882,7 +909,7 @@ public final class WarManager implements GuildModule {
         World fallback = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0);
         if (fallback != null && !fallback.equals(world)) {
             for (Player p : new ArrayList<>(world.getPlayers())) {
-                p.teleport(fallback.getSpawnLocation());
+                warTeleport(p, fallback.getSpawnLocation());
             }
         }
         File folder = world.getWorldFolder();
@@ -1093,7 +1120,7 @@ public final class WarManager implements GuildModule {
         ArenaDef def = plugin.settings().arena(mode.arena);
         ArenaDef.Spawn spawn = def == null ? null : def.teamSpawn(side);
         if (spawn != null && arenaWorld() != null) {
-            player.teleport(spawn.toLocation(arenaWorld()));
+            warTeleport(player, spawn.toLocation(arenaWorld()));
         }
         frozen.add(player.getUniqueId());
         player.setWalkSpeed(0f);
@@ -1214,7 +1241,7 @@ public final class WarManager implements GuildModule {
             if (target != null) {
                 Location cur = p.getLocation();
                 if (cur.getWorld() != world || cur.distanceSquared(target) > 1.0) {
-                    p.teleport(target);
+                    warTeleport(p, target);
                 }
             }
             if (p.getWalkSpeed() != 0f) {
@@ -1230,7 +1257,7 @@ public final class WarManager implements GuildModule {
                 if (Math.abs(v.getY()) > 1.0E-4) {
                     p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
                     if (target != null) {
-                        p.teleport(target);
+                        warTeleport(p, target);
                     }
                 }
             }
@@ -1693,20 +1720,26 @@ public final class WarManager implements GuildModule {
         sideOf.put(player.getUniqueId(), s);
         returnLoc.put(player.getUniqueId(), player.getLocation().clone());
         livesRemaining.putIfAbsent(player.getUniqueId(), mode.livesPerPlayer);
-        captureSnapshot(player);
-        // 公平血量：屏蔽 LuckyPeaches 蟠桃加成
-        if (mode.fairHealth && plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
-            plugin.luckyPeaches().enter(player, plugin.luckyPeaches().supportsSuppress());
-        }
-        plugin.kits().apply(player, mode);
-        teleportToSpawn(player, war, s);
-        plugin.messages().send(player, "war-joined");
-        // 传送后确保 game mode，并在准备阶段锁定（开战时自动解除）
-        player.setGameMode(org.bukkit.GameMode.SURVIVAL);
-        if (war.state() == WarState.PREPARING) {
-            freezePlayer(player, war, s);
-        }
-        showWarBar(player.getUniqueId());
+        // 入场前先关闭所有打开的菜单/仓库，防止战中操作外部容器
+        player.closeInventory();
+        captureSnapshot(player, war, () -> {
+            if (!player.isOnline() || current != war || !roster.contains(player.getUniqueId())) {
+                return;
+            }
+            // 公平血量：屏蔽 LuckyPeaches 蟠桃加成
+            if (mode.fairHealth && plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
+                plugin.luckyPeaches().enter(player, plugin.luckyPeaches().supportsSuppress());
+            }
+            plugin.kits().apply(player, mode);
+            teleportToSpawn(player, war, s);
+            plugin.messages().send(player, "war-joined");
+            // 传送后确保 game mode，并在准备阶段锁定（开战时自动解除）
+            player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+            if (war.state() == WarState.PREPARING) {
+                freezePlayer(player, war, s);
+            }
+            showWarBar(player.getUniqueId());
+        });
     }
 
     public void spectate(Player player) {
@@ -1727,17 +1760,28 @@ public final class WarManager implements GuildModule {
         if (world == null) {
             return;
         }
-        player.setGameMode(org.bukkit.GameMode.SPECTATOR);
+        player.closeInventory();
         ArenaDef def = plugin.settings().arena(modeOf(war).arena);
-        player.teleport(def.spawnSpectator.toLocation(world));
-        showWarBar(player.getUniqueId());
+        Location target = def.spawnSpectator.toLocation(world);
+        // 旁观者同样需要快照：旁观会改写游戏模式与坐标，崩溃/掉线时必须能兜底还原，
+        // 否则玩家会永久卡在旁观模式（此前无快照直接还原，SPECTATOR 不会恢复）。
+        captureSnapshot(player, war, () -> {
+            if (!player.isOnline() || current != war || !spectators.contains(player.getUniqueId())) {
+                return;
+            }
+            player.setGameMode(org.bukkit.GameMode.SPECTATOR);
+            warTeleport(player, target);
+            showWarBar(player.getUniqueId());
+        });
     }
 
     private void leaveLocal(UUID uuid) {
         Player p = plugin.player(uuid);
         unfreezePlayer(p);
-        finishTeleport(uuid, p);
-        restoreSnapshot(uuid, p);
+        restoreSnapshot(uuid, p, false, () -> {
+            finishTeleport(uuid, plugin.player(uuid));
+            returnLoc.remove(uuid);
+        });
         if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
             if (p != null) {
                 plugin.luckyPeaches().exit(p);
@@ -1747,7 +1791,6 @@ public final class WarManager implements GuildModule {
         }
         spectators.remove(uuid);
         sideOf.remove(uuid);
-        returnLoc.remove(uuid);
         livesRemaining.remove(uuid);
         eliminated.remove(uuid);
         if (p != null) {
@@ -1759,12 +1802,13 @@ public final class WarManager implements GuildModule {
     private void leaveSpectator(UUID uuid) {
         spectators.remove(uuid);
         Player p = plugin.player(uuid);
-        finishTeleport(uuid, p);
-        restoreSnapshot(uuid, p);
+        restoreSnapshot(uuid, p, false, () -> {
+            finishTeleport(uuid, plugin.player(uuid));
+            returnLoc.remove(uuid);
+        });
         if (p != null && plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
             plugin.luckyPeaches().exit(p);
         }
-        returnLoc.remove(uuid);
         hideWarBar(plugin.player(uuid));
     }
 
@@ -1804,11 +1848,11 @@ public final class WarManager implements GuildModule {
         if (delay > 0) {
             plugin.syncDelayed(() -> {
                 if (player.isOnline()) {
-                    player.teleport(target);
+                    warTeleport(player, target);
                 }
             }, delay);
         } else {
-            player.teleport(target);
+            warTeleport(player, target);
         }
     }
 
@@ -1820,7 +1864,7 @@ public final class WarManager implements GuildModule {
         ArenaDef def = plugin.settings().arena(modeOf(war).arena);
         ArenaDef.Spawn spawn = def.teamSpawn(side);
         Location loc = (spawn == null ? ("A".equals(side) ? def.spawnA : def.spawnB) : spawn).toLocation(world);
-        player.teleport(loc);
+        warTeleport(player, loc);
     }
 
     private World arenaWorld() {
@@ -1840,41 +1884,225 @@ public final class WarManager implements GuildModule {
     }
 
     // =====================================================================
-    // 数据还原（Sparrow Sync 优先，回退本地快照）
+    // 数据还原（Sparrow Sync 优先 + 数据库持久化兜底 + 本地内存快照）
     // =====================================================================
 
-    private void captureSnapshot(Player player) {
-        localSnap.put(player.getUniqueId(), plugin.kits().snapshot(player));
-        if (plugin.sparrow() != null && plugin.sparrow().available()) {
-            UUID uuid = player.getUniqueId();
-            plugin.sparrow().capture(uuid).thenAccept(id -> {
-                if (id != null) {
-                    sparrowSnap.put(uuid, id);
-                }
-            });
-        }
-    }
+    /**
+     * 采集并持久化玩家入场/旁观前的装备与状态，采集完成后回调执行实际的入场操作
+     * （发放统一装备、切换旁观模式、传送等）。
+     *
+     * <p>为什么必须等采集启动后再清背包：
+     * {@code SparrowSync.api().save(uuid)} 会在玩家线程同步读取当前背包（{@code CaptureMode.SYNC}）；
+     * 若在同一 tick 紧接着调用 {@code kits().apply()} 把玩家背包替换成竞技场统一装备，
+     * SparrowSync 采集到的可能就是竞技场套装而非玩家原有装备！</p>
+     *
+     * <p>为什么必须写进数据库表 {@code guild_war_escrow}：
+     * 1) 服务器战中崩溃/重启时，内存 {@code localSnap}/{@code sparrowSnap} 全部丢失；
+     * 2) 玩家战中掉线（{@code onPlayerQuit}）时，SparrowSync 会话已进入 {@code SAVING} 状态，
+     *    此时在线 {@code restore} 必定返回 {@code OFFLINE} 失败，而此时 {@code player.isOnline()} 为 false，
+     *    若不落库或不当场还原玩家背包，SparrowSync 下一 tick 的退出保存会把竞技场统一装备写进跨服档案，
+     *    导致玩家原有装备永久被覆盖！</p>
+     */
+    private void captureSnapshot(Player player, GuildWar war, Runnable afterCaptured) {
+        UUID uuid = player.getUniqueId();
+        String playerName = player.getName();
+        KitService.Snapshot snap = plugin.kits().snapshot(player);
+        localSnap.put(uuid, snap);
 
-    private void restoreSnapshot(UUID uuid, Player player) {
-        UUID sparrowId = sparrowSnap.remove(uuid);
-        KitService.Snapshot snap = localSnap.remove(uuid);
-        if (sparrowId != null && plugin.sparrow() != null && plugin.sparrow().available()) {
-            plugin.sparrow().restore(uuid, sparrowId).thenAccept(ok -> {
-                if (!ok && snap != null) {
-                    // Sparrow Sync 还原失败时回退本地快照
-                    plugin.sync(() -> {
-                        Player p = plugin.player(uuid);
-                        if (p != null) {
-                            plugin.kits().restore(p, snap);
+        // 落库持久化托管快照：无论是否发放统一装备都要写，
+        // 因为入场本身就会改写游戏模式/坐标，崩溃/重启后必须能兜底还原。
+        String itemsData = plugin.kits().encodeSnapshotItems(snap);
+        Location loc = snap.location();
+        KitService.PersistedEscrow escrow = new KitService.PersistedEscrow(
+                uuid,
+                plugin.serverId(),
+                war == null ? "" : war.id(),
+                null,
+                itemsData,
+                loc == null || loc.getWorld() == null ? "" : loc.getWorld().getName(),
+                loc == null ? 0 : loc.getX(),
+                loc == null ? 0 : loc.getY(),
+                loc == null ? 0 : loc.getZ(),
+                loc == null ? 0f : loc.getYaw(),
+                loc == null ? 0f : loc.getPitch(),
+                snap.gameMode() == null ? "SURVIVAL" : snap.gameMode().name(),
+                snap.health(),
+                snap.food(),
+                snap.level(),
+                snap.exp(),
+                System.currentTimeMillis());
+        plugin.async(() -> {
+            try {
+                plugin.repo().saveWarEscrow(escrow);
+            } catch (Exception e) {
+                plugin.getLogger().warning("保存工会战装备托管快照失败(" + playerName + "): " + e.getMessage());
+            }
+        });
+
+        if (plugin.sparrow() != null && plugin.sparrow().available()) {
+            // SparrowSync 在主线程调用 save(uuid) 时会同步完成玩家背包采集（CaptureMode.SYNC），
+            // 然后异步编码写库；因此 invoke 返回后即可安全发放竞技场统一装备。
+            CompletableFuture<UUID> future = plugin.sparrow().capture(uuid);
+            future.thenAccept(id -> {
+                if (id != null) {
+                    // 若在异步写库完成前玩家已经退场/还原完毕（localSnap 已移除），则直接释放固定，不留残留
+                    if (!localSnap.containsKey(uuid) && !sideOf.containsKey(uuid)) {
+                        plugin.sparrow().unpin(id);
+                        return;
+                    }
+                    sparrowSnap.put(uuid, id);
+                    // 固定该快照，防止战斗期间因切世界/死亡触发超过 maxSnapshots(32) 而被自动清理
+                    plugin.sparrow().pin(id);
+                    plugin.async(() -> {
+                        try {
+                            plugin.repo().updateWarEscrowSparrowId(uuid, id);
+                        } catch (Exception ignored) {
                         }
                     });
                 }
             });
+        }
+        if (afterCaptured != null) {
+            afterCaptured.run();
+        }
+    }
+
+    /**
+     * 还原参赛者状态与装备。
+     *
+     * @param quitting     true 表示在 {@code PlayerQuitEvent} 中调用（此时必须同步把本地快照写回 Player 对象，
+     *                     让 SparrowSync 下一 tick 的退出采集拿到玩家原有装备，避免把竞技场装备存进跨服库）
+     * @param afterRestore 还原完成（含坐标恢复）后的回调，用于执行 {@code finishTeleport} 覆盖坐标
+     */
+    private void restoreSnapshot(UUID uuid, Player player, boolean quitting, Runnable afterRestore) {
+        UUID sparrowId = sparrowSnap.remove(uuid);
+        KitService.Snapshot snap = localSnap.remove(uuid);
+
+        // 退出服务器路径：SparrowSync 在 PlayerQuitEvent(MONITOR) 已把会话置为 SAVING，
+        // 并在 1 tick 后采集 Player 对象保存 DISCONNECT 快照。
+        // 因此退服时必须【立即同步】用本地快照把 Player 的背包/装备/等级还原回原样！
+        if (quitting) {
+            if (snap != null && player != null) {
+                // 不在此处传送：退服流程中来回复传送既可能被传送拦截拦截，也毫无意义；
+                // 坐标由服务器保存的退出位置决定，装备/等级/游戏模式才是必须还原的关键。
+                plugin.kits().restore(player, snap, true);
+            }
+            if (sparrowId != null && plugin.sparrow() != null && plugin.sparrow().available()) {
+                plugin.sparrow().unpin(sparrowId);
+            }
+            deleteEscrowAsync(uuid);
+            if (afterRestore != null) {
+                afterRestore.run();
+            }
+            return;
+        }
+
+        if (sparrowId != null && plugin.sparrow() != null && plugin.sparrow().available()) {
+            plugin.sparrow().restore(uuid, sparrowId).whenComplete((ok, ex) -> {
+                plugin.sparrow().unpin(sparrowId);
+                plugin.sync(() -> {
+                    Player p = player != null && player.isOnline() ? player : plugin.player(uuid);
+                    if (!Boolean.TRUE.equals(ok)) {
+                        // Sparrow Sync 还原失败时回退本地快照
+                        if (snap != null && p != null) {
+                            plugin.kits().restore(p, snap, true);
+                        } else {
+                            // 玩家已离线且 SparrowSync 失败：保留数据库托管记录，等下次上线兜底恢复
+                            if (afterRestore != null) {
+                                afterRestore.run();
+                            }
+                            return;
+                        }
+                    } else if (snap != null && p != null) {
+                        // SparrowSync 默认 skip-online-restore-data 跳过 health 与 location，
+                        // 用本地快照补齐血量，位置交由后续 finishTeleport 统一处理
+                        com.liu.liuguild.util.ApiCompat.setHealthSafely(p, snap.health());
+                    }
+                    deleteEscrowAsync(uuid);
+                    if (afterRestore != null) {
+                        afterRestore.run();
+                    }
+                });
+            });
             return;
         }
         if (snap != null && player != null) {
-            plugin.kits().restore(player, snap);
+            plugin.kits().restore(player, snap, true);
+            deleteEscrowAsync(uuid);
+        } else if (snap == null) {
+            deleteEscrowAsync(uuid);
         }
+        if (afterRestore != null) {
+            afterRestore.run();
+        }
+    }
+
+    private void deleteEscrowAsync(UUID uuid) {
+        plugin.async(() -> {
+            try {
+                plugin.repo().deleteWarEscrow(uuid);
+            } catch (Exception e) {
+                plugin.getLogger().warning("清理工会战装备托管记录失败: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * 玩家登录时检查是否有未归还的工会战托管装备（例如战中服务器崩溃/重启或异常断线残留）。
+     * 若该玩家当前不在进行中的工会战内，则自动归还托管装备并清理记录。
+     */
+    public void recoverPendingEscrow(Player player) {
+        if (player == null) {
+            return;
+        }
+        UUID uuid = player.getUniqueId();
+        if (isInWar(uuid)) {
+            return;
+        }
+        plugin.async(() -> {
+            KitService.PersistedEscrow escrow;
+            try {
+                escrow = plugin.repo().loadWarEscrow(uuid);
+            } catch (Exception e) {
+                plugin.getLogger().warning("查询工会战托管快照失败: " + e.getMessage());
+                return;
+            }
+            if (escrow == null) {
+                return;
+            }
+            plugin.sync(() -> {
+                if (!player.isOnline() || isInWar(uuid)) {
+                    return;
+                }
+                UUID sparrowId = escrow.sparrowSnapshotId();
+                KitService.Snapshot fallback = escrow.toSnapshot();
+                if (sparrowId != null && plugin.sparrow() != null && plugin.sparrow().available()) {
+                    plugin.sparrow().restore(uuid, sparrowId).whenComplete((ok, ex) -> {
+                        plugin.sparrow().unpin(sparrowId);
+                        plugin.sync(() -> {
+                            if (!Boolean.TRUE.equals(ok) && player.isOnline()) {
+                                if (fallback != null) {
+                                    plugin.kits().restore(player, fallback, false);
+                                } else {
+                                    plugin.getLogger().warning("工会战托管快照不可用，无法还原玩家 "
+                                            + player.getName() + " 的装备（SparrowSync 亦失败）。");
+                                }
+                            }
+                            deleteEscrowAsync(uuid);
+                            plugin.getLogger().info("已为玩家 " + player.getName() + " 恢复未归还的工会战托管装备（SparrowSync）。");
+                        });
+                    });
+                } else if (fallback != null) {
+                    plugin.kits().restore(player, fallback, false);
+                    deleteEscrowAsync(uuid);
+                    plugin.getLogger().info("已为玩家 " + player.getName() + " 恢复未归还的工会战托管装备（本地持久化快照）。");
+                } else {
+                    // 物品数据损坏时不做事，绝不能拿空背包覆盖玩家当前物品；清理记录避免反复尝试。
+                    plugin.getLogger().warning("工会战托管快照损坏，已跳过还原并清理记录: " + player.getName());
+                    deleteEscrowAsync(uuid);
+                }
+            });
+        });
     }
 
     /**
@@ -1904,7 +2132,6 @@ public final class WarManager implements GuildModule {
         // 交还统一装备并送回原位
         Player p = plugin.player(uuid);
         if (p != null) {
-            restoreSnapshot(uuid, p);
             p.setWalkSpeed(0.2f);
             p.setFlySpeed(0.1f);
             p.setInvulnerable(false);
@@ -1912,12 +2139,17 @@ public final class WarManager implements GuildModule {
             if (p.getGameMode() != org.bukkit.GameMode.SURVIVAL) {
                 p.setGameMode(org.bukkit.GameMode.SURVIVAL);
             }
-            finishTeleport(uuid, p);
-            plugin.messages().send(p, "war-member-left");
+            restoreSnapshot(uuid, p, false, () -> {
+                Player online = plugin.player(uuid);
+                if (online != null) {
+                    finishTeleport(uuid, online);
+                    plugin.messages().send(online, "war-member-left");
+                }
+                returnLoc.remove(uuid);
+            });
         } else {
-            restoreSnapshot(uuid, null);
+            restoreSnapshot(uuid, null, false, () -> returnLoc.remove(uuid));
         }
-        returnLoc.remove(uuid);
         if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
             if (p != null) {
                 plugin.luckyPeaches().exit(p);
@@ -1934,20 +2166,26 @@ public final class WarManager implements GuildModule {
     /** 玩家退出服务器（未结束时）也需还原，避免统一装备残留。 */
     public void onPlayerQuit(Player player) {
         UUID uuid = player.getUniqueId();
+        unfreezePlayer(player);
         hideWarBar(player);
         GuildWar war = current;
+        String side = sideOf.remove(uuid);
         if (war != null) {
             war.rosterA().remove(uuid);
             war.rosterB().remove(uuid);
         }
-        if (sideOf.containsKey(uuid) || sparrowSnap.containsKey(uuid) || localSnap.containsKey(uuid)) {
-            restoreSnapshot(uuid, null);
+        if (side != null || sparrowSnap.containsKey(uuid) || localSnap.containsKey(uuid)) {
+            restoreSnapshot(uuid, player, true, null);
             if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
                 plugin.luckyPeaches().clear(uuid);
             }
-            sideOf.remove(uuid);
             spectators.remove(uuid);
+            livesRemaining.remove(uuid);
+            eliminated.remove(uuid);
             returnLoc.remove(uuid);
+            if (war != null && war.state() == WarState.ACTIVE && side != null) {
+                checkElimination(war, side);
+            }
         }
     }
 

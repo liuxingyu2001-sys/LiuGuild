@@ -45,6 +45,7 @@ public final class GuildListener implements GuildModule, Listener {
         plugin.bus().presence(player.getUniqueId(), player.getName());
         plugin.syncDelayed(() -> {
             plugin.war().onPlayerJoinServer(player);
+            plugin.war().recoverPendingEscrow(player);
             plugin.guildChat().refresh();
             // 记录工会活跃时间（节流：距上次活跃超过 1 小时才写库）
             Guild guild = plugin.guilds().guildOf(player.getUniqueId());
@@ -55,7 +56,7 @@ public final class GuildListener implements GuildModule, Listener {
         }, 20L);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.LOW)
     public void onQuit(PlayerQuitEvent event) {
         plugin.bus().clearPresence(event.getPlayer().getUniqueId(), event.getPlayer().getName());
         plugin.guildChat().forget(event.getPlayer());

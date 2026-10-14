@@ -571,6 +571,122 @@ public final class GuildRepository {
     }
 
     // =====================================================================
+    // 工会战装备托管快照（guild_war_escrow）
+    // =====================================================================
+
+    public void saveWarEscrow(com.liu.liuguild.war.KitService.PersistedEscrow e) throws SQLException {
+        String update = "UPDATE `" + db.t("guild_war_escrow") + "` SET "
+                + "`server_id`=?,`war_id`=?,`sparrow_snapshot_id`=?,`items_data`=?,"
+                + "`world_name`=?,`x`=?,`y`=?,`z`=?,`yaw`=?,`pitch`=?,"
+                + "`game_mode`=?,`health`=?,`food`=?,`exp_level`=?,`exp_progress`=?,`created_at`=? "
+                + "WHERE `player_uuid`=?";
+        try (Connection c = db.source().getConnection()) {
+            try (PreparedStatement ps = c.prepareStatement(update)) {
+                ps.setString(1, e.serverId());
+                ps.setString(2, e.warId());
+                ps.setString(3, e.sparrowSnapshotId() == null ? null : e.sparrowSnapshotId().toString());
+                ps.setString(4, e.itemsData());
+                ps.setString(5, e.worldName());
+                ps.setDouble(6, e.x());
+                ps.setDouble(7, e.y());
+                ps.setDouble(8, e.z());
+                ps.setFloat(9, e.yaw());
+                ps.setFloat(10, e.pitch());
+                ps.setString(11, e.gameMode());
+                ps.setDouble(12, e.health());
+                ps.setInt(13, e.food());
+                ps.setInt(14, e.level());
+                ps.setFloat(15, e.exp());
+                ps.setLong(16, e.createdAt());
+                ps.setString(17, e.playerUuid().toString());
+                if (ps.executeUpdate() > 0) {
+                    return;
+                }
+            }
+            String insert = "INSERT INTO `" + db.t("guild_war_escrow") + "` ("
+                    + "`player_uuid`,`server_id`,`war_id`,`sparrow_snapshot_id`,`items_data`,"
+                    + "`world_name`,`x`,`y`,`z`,`yaw`,`pitch`,"
+                    + "`game_mode`,`health`,`food`,`exp_level`,`exp_progress`,`created_at`"
+                    + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            try (PreparedStatement ps = c.prepareStatement(insert)) {
+                ps.setString(1, e.playerUuid().toString());
+                ps.setString(2, e.serverId());
+                ps.setString(3, e.warId());
+                ps.setString(4, e.sparrowSnapshotId() == null ? null : e.sparrowSnapshotId().toString());
+                ps.setString(5, e.itemsData());
+                ps.setString(6, e.worldName());
+                ps.setDouble(7, e.x());
+                ps.setDouble(8, e.y());
+                ps.setDouble(9, e.z());
+                ps.setFloat(10, e.yaw());
+                ps.setFloat(11, e.pitch());
+                ps.setString(12, e.gameMode());
+                ps.setDouble(13, e.health());
+                ps.setInt(14, e.food());
+                ps.setInt(15, e.level());
+                ps.setFloat(16, e.exp());
+                ps.setLong(17, e.createdAt());
+                ps.executeUpdate();
+            }
+        }
+    }
+
+    public void updateWarEscrowSparrowId(UUID playerUuid, UUID sparrowSnapshotId) throws SQLException {
+        String sql = "UPDATE `" + db.t("guild_war_escrow")
+                + "` SET `sparrow_snapshot_id`=? WHERE `player_uuid`=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, sparrowSnapshotId == null ? null : sparrowSnapshotId.toString());
+            ps.setString(2, playerUuid.toString());
+            ps.executeUpdate();
+        }
+    }
+
+    public com.liu.liuguild.war.KitService.PersistedEscrow loadWarEscrow(UUID playerUuid) throws SQLException {
+        String sql = "SELECT * FROM `" + db.t("guild_war_escrow") + "` WHERE `player_uuid`=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, playerUuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                return mapWarEscrow(rs);
+            }
+        }
+    }
+
+    public void deleteWarEscrow(UUID playerUuid) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM `" + db.t("guild_war_escrow") + "` WHERE `player_uuid`=?")) {
+            ps.setString(1, playerUuid.toString());
+            ps.executeUpdate();
+        }
+    }
+
+    private com.liu.liuguild.war.KitService.PersistedEscrow mapWarEscrow(ResultSet rs) throws SQLException {
+        return new com.liu.liuguild.war.KitService.PersistedEscrow(
+                parseUuid(rs.getString("player_uuid")),
+                rs.getString("server_id"),
+                rs.getString("war_id"),
+                parseUuid(rs.getString("sparrow_snapshot_id")),
+                rs.getString("items_data"),
+                rs.getString("world_name"),
+                rs.getDouble("x"),
+                rs.getDouble("y"),
+                rs.getDouble("z"),
+                rs.getFloat("yaw"),
+                rs.getFloat("pitch"),
+                rs.getString("game_mode"),
+                rs.getDouble("health"),
+                rs.getInt("food"),
+                rs.getInt("exp_level"),
+                rs.getFloat("exp_progress"),
+                rs.getLong("created_at"));
+    }
+
+    // =====================================================================
     // 映射
     // =====================================================================
 

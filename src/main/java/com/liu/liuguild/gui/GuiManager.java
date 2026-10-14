@@ -108,6 +108,11 @@ public final class GuiManager implements GuildModule, Listener {
     // =====================================================================
 
     public void openMain(Player player) {
+        if (plugin.war() != null && plugin.war().isWarRestricted(player.getUniqueId())
+                && !player.hasPermission("liuguild.admin")) {
+            plugin.messages().send(player, "war-menu-blocked");
+            return;
+        }
         Guild g = plugin.guilds().guildOf(player.getUniqueId());
         if (g == null) {
             // 未入会：进入傻瓜式引导菜单，而不是直接丢一个空列表。

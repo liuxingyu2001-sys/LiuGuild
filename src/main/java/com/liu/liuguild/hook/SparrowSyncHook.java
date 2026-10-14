@@ -23,12 +23,16 @@ public final class SparrowSyncHook {
     private final Method apiMethod;
     private final Method saveMethod;
     private final Method restoreMethod;
+    private final Method pinMethod;
+    private final Method unpinMethod;
     private final boolean available;
 
     public SparrowSyncHook() {
         Method api = null;
         Method save = null;
         Method restore = null;
+        Method pin = null;
+        Method unpin = null;
         boolean ok = false;
         try {
             Plugin sync = Bukkit.getPluginManager().getPlugin("SparrowSync");
@@ -39,9 +43,13 @@ public final class SparrowSyncHook {
                 if (apiObj != null) {
                     save = apiObj.getClass().getMethod("save", UUID.class);
                     restore = apiObj.getClass().getMethod("restore", UUID.class, UUID.class);
+                    pin = apiObj.getClass().getMethod("pin", UUID.class);
+                    unpin = apiObj.getClass().getMethod("unpin", UUID.class);
                     // 实现类可能是包私有，允许反射调用其公有方法
                     trySetAccessible(save);
                     trySetAccessible(restore);
+                    trySetAccessible(pin);
+                    trySetAccessible(unpin);
                     ok = true;
                 }
             }
@@ -51,6 +59,8 @@ public final class SparrowSyncHook {
         this.apiMethod = api;
         this.saveMethod = save;
         this.restoreMethod = restore;
+        this.pinMethod = pin;
+        this.unpinMethod = unpin;
         this.available = ok;
     }
 
@@ -108,6 +118,48 @@ public final class SparrowSyncHook {
                 }
                 String name = result.getClass().getSimpleName();
                 return "Restored".equals(name) || "RestoredOffline".equals(name);
+            }).exceptionally(t -> false);
+        } catch (Throwable t) {
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /** 固定指定快照，豁免自动轮转清理（工会战托管快照需固定，避免被战中死亡/切世界触发的快照挤掉）。 */
+    @SuppressWarnings("unchecked")
+    public CompletableFuture<Boolean> pin(UUID snapshotId) {
+        if (!available || snapshotId == null || pinMethod == null) {
+            return CompletableFuture.completedFuture(false);
+        }
+        try {
+            Object api = apiMethod.invoke(null);
+            CompletableFuture<Object> future = (CompletableFuture<Object>) pinMethod.invoke(api, snapshotId);
+            return future.thenApply(result -> {
+                if (result == null) {
+                    return false;
+                }
+                String name = result.getClass().getSimpleName();
+                return "Pinned".equals(name) || "Unchanged".equals(name);
+            }).exceptionally(t -> false);
+        } catch (Throwable t) {
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /** 取消固定快照，允许参与后续自动轮转清理。 */
+    @SuppressWarnings("unchecked")
+    public CompletableFuture<Boolean> unpin(UUID snapshotId) {
+        if (!available || snapshotId == null || unpinMethod == null) {
+            return CompletableFuture.completedFuture(false);
+        }
+        try {
+            Object api = apiMethod.invoke(null);
+            CompletableFuture<Object> future = (CompletableFuture<Object>) unpinMethod.invoke(api, snapshotId);
+            return future.thenApply(result -> {
+                if (result == null) {
+                    return false;
+                }
+                String name = result.getClass().getSimpleName();
+                return "Unpinned".equals(name) || "Unchanged".equals(name);
             }).exceptionally(t -> false);
         } catch (Throwable t) {
             return CompletableFuture.completedFuture(false);

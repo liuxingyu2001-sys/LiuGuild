@@ -251,6 +251,28 @@ public final class Database {
                     + "PRIMARY KEY (`player_uuid`)"
                     + ")" + engine);
 
+            // 工会战装备托管快照（持久化落库：防止战中崩溃/重启或提前退服导致玩家原有装备被竞技场统一套装覆盖丢失）
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_war_escrow") + "` ("
+                    + "`player_uuid` VARCHAR(36) NOT NULL,"
+                    + "`server_id` VARCHAR(64) NOT NULL,"
+                    + "`war_id` VARCHAR(36) NOT NULL,"
+                    + "`sparrow_snapshot_id` VARCHAR(36),"
+                    + "`items_data` " + (cfg.isSqlite() ? "TEXT," : "MEDIUMTEXT,")
+                    + "`world_name` VARCHAR(128),"
+                    + "`x` DOUBLE NOT NULL DEFAULT 0,"
+                    + "`y` DOUBLE NOT NULL DEFAULT 0,"
+                    + "`z` DOUBLE NOT NULL DEFAULT 0,"
+                    + "`yaw` FLOAT NOT NULL DEFAULT 0,"
+                    + "`pitch` FLOAT NOT NULL DEFAULT 0,"
+                    + "`game_mode` VARCHAR(16),"
+                    + "`health` DOUBLE NOT NULL DEFAULT 20,"
+                    + "`food` INT NOT NULL DEFAULT 20,"
+                    + "`exp_level` INT NOT NULL DEFAULT 0,"
+                    + "`exp_progress` FLOAT NOT NULL DEFAULT 0,"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`player_uuid`)"
+                    + ")" + engine);
+
             uniqueIndex(st, t("guilds") + "_name", t("guilds"), "`name`");
             uniqueIndex(st, t("guilds") + "_tag", t("guilds"), "`tag`");
             index(st, t("guild_members") + "_guild", t("guild_members"), "`guild_id`");

@@ -51,13 +51,34 @@ public final class ItemUtil {
     }
 
     // =====================================================================
-    // 整组物品 Base64 序列化（参考前置插件保存玩家装备的方式）
+    // 整组物品 Base64 序列化（优先 ItemStack.serializeAsBytes，回退 BukkitObjectStream）
     // =====================================================================
+
+    private static final int V2_MAGIC = 0x4C475632; // "LGV2"
 
     /** 把一组 ItemStack（可含 null）编码为 Base64 文本；失败返回空串。 */
     public static String encode(ItemStack[] items) {
         if (items == null || items.length == 0) {
             return "";
+        }
+        // 优先走 Paper serializeAsBytes()，完整保留 1.20.5+ 组件、附魔、CraftEngine 物品与头颅皮肤
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
+             java.io.DataOutputStream dos = new java.io.DataOutputStream(bos)) {
+            dos.writeInt(V2_MAGIC);
+            dos.writeInt(items.length);
+            for (ItemStack item : items) {
+                if (item == null || item.getType().isAir()) {
+                    dos.writeInt(0);
+                } else {
+                    byte[] bytes = item.serializeAsBytes();
+                    dos.writeInt(bytes.length);
+                    dos.write(bytes);
+                }
+            }
+            dos.flush();
+            return Base64.getEncoder().encodeToString(bos.toByteArray());
+        } catch (Throwable ignored) {
+            // 测试或低版本环境回退 BukkitObjectOutputStream
         }
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
              BukkitObjectOutputStream out = new BukkitObjectOutputStream(bos)) {
@@ -72,7 +93,7 @@ public final class ItemUtil {
         }
     }
 
-    /** 解码 Base64 文本为 ItemStack 数组；失败返回空数组。 */
+    /** 解码 Base64 文本为 ItemStack 数组；失败返回空数组（兼容 V2 serializeAsBytes 与旧版流）。 */
     public static ItemStack[] decode(String data) {
         if (data == null || data.isBlank()) {
             return new ItemStack[0];
@@ -82,6 +103,35 @@ public final class ItemUtil {
             raw = Base64.getDecoder().decode(data.trim());
         } catch (IllegalArgumentException e) {
             return new ItemStack[0];
+        }
+        // V2 格式检测
+        if (raw.length >= 8) {
+            try (ByteArrayInputStream bis = new ByteArrayInputStream(raw);
+                 java.io.DataInputStream dis = new java.io.DataInputStream(bis)) {
+                int magic = dis.readInt();
+                if (magic == V2_MAGIC) {
+                    int len = dis.readInt();
+                    if (len < 0 || len > 512) {
+                        return new ItemStack[0];
+                    }
+                    ItemStack[] out = new ItemStack[len];
+                    for (int i = 0; i < len; i++) {
+                        int size = dis.readInt();
+                        if (size <= 0) {
+                            out[i] = null;
+                        } else if (size > 256 * 1024) {
+                            return new ItemStack[0];
+                        } else {
+                            byte[] buf = new byte[size];
+                            dis.readFully(buf);
+                            out[i] = ItemStack.deserializeBytes(buf);
+                        }
+                    }
+                    return out;
+                }
+            } catch (Throwable ignored) {
+                // 回退旧版反序列化
+            }
         }
         try (ByteArrayInputStream bis = new ByteArrayInputStream(raw);
              BukkitObjectInputStream in = new BukkitObjectInputStream(bis)) {

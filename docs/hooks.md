@@ -69,9 +69,14 @@
 
 ## Sparrow Sync（玩家快照）
 
-- 入战时 `capture(UUID)`（`CompletableFuture`），出战时 `restore(UUID, snapshotId)`。
-- 用于在统一装备 / 公平血量后完整还原玩家真实数据。
+- 入战 / 旁观时 `save(UUID)`（`CompletableFuture`，`CaptureMode.SYNC`，在玩家线程同步采集背包），
+  出战 / 退出旁观时 `restore(UUID, snapshotId)`。
+- 采集成功后立即 `pin(snapshotId)` 固定该快照，避免战斗期间因切世界 / 死亡触发的自动快照
+  挤掉 `max-snapshots` 配额而被轮转清理；还原 / 退场后 `unpin(snapshotId)` 释放。
+- 用于在统一装备 / 公平血量 / 旁观模式后完整还原玩家真实数据。
 - 未安装时回退本地内存快照（`KitService.Snapshot`）。
+- 两种快照都会额外持久化到 `guild_war_escrow` 表（含 `sparrow_snapshot_id`），
+  作为服务器崩溃 / 重启 / 异常断线后的兜底，详见 [war.md](war.md)。
 
 ## LuckyPeaches（蟠桃血量屏蔽）
 
