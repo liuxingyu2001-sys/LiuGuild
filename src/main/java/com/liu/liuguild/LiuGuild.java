@@ -225,7 +225,7 @@ public final class LiuGuild extends JavaPlugin {
                 long fp = configManager.fingerprint();
                 if (fp != configFingerprint) {
                     // 共享目录下任一子服改动都会触发所有子服重载：只重载配置，不重读全部工会数据。
-                    sync(this::reloadConfig);
+                    sync(this::reloadSettings);
                 }
             }, 100L, 100L);
         }
@@ -233,7 +233,7 @@ public final class LiuGuild extends JavaPlugin {
 
     /** 重载全部配置与模块（命令 / 自动热重载调用）。 */
     public void reloadAll() {
-        reloadConfig();
+        reloadSettings();
         if (guilds != null) {
             guilds.reloadAll();
         }
@@ -242,8 +242,13 @@ public final class LiuGuild extends JavaPlugin {
     /**
      * 仅重载配置与消息、重启定时任务；不重读数据库中的工会数据。
      * 适用于修改竞技场 / 套装 / 模式等配置后的热重载，避免无意义的全表加载。
+     * <p>注意：不要命名为 {@code reloadConfig()}，否则会覆盖 {@code JavaPlugin.reloadConfig()}，
+     * 导致 Bukkit 首次调用 {@code getConfig()} 时进入本方法而 NPE。</p>
      */
-    public void reloadConfig() {
+    public void reloadSettings() {
+        if (configManager == null) {
+            return;
+        }
         configManager.load();
         configFingerprint = configManager.fingerprint();
         if (kits != null) {
