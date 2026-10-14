@@ -918,9 +918,13 @@ public final class WarManager implements GuildModule {
             return null;
         }
         String target = name.trim();
+        String path = target.toLowerCase(java.util.Locale.ROOT);
+        if (path.startsWith("minecraft:")) {
+            path = path.substring("minecraft:".length());
+        }
         try {
             for (org.bukkit.GameRule<?> rule : org.bukkit.GameRule.values()) {
-                if (rule.getName().equalsIgnoreCase(target)) {
+                if (rule.getName().equalsIgnoreCase(path)) {
                     return rule;
                 }
             }
@@ -1764,8 +1768,10 @@ public final class WarManager implements GuildModule {
         hideWarBar(plugin.player(uuid));
     }
 
-    /** 把玩家传送回参赛前的位置（竞技场世界销毁前必须执行）。 */
-    /** 战后处理：优先统一集合点，其次按配置自动返回原位。 */
+    /**
+     * 把玩家传送回原位：优先统一集合点，其次按配置自动返回参赛前位置
+     * （必须在竞技场世界销毁前执行）。
+     */
     private void finishTeleport(UUID uuid, Player player) {
         if (player == null) {
             return;
@@ -1868,6 +1874,60 @@ public final class WarManager implements GuildModule {
         }
         if (snap != null && player != null) {
             plugin.kits().restore(player, snap);
+        }
+    }
+
+    /**
+     * 成员退会 / 被踢时的工会战清理。
+     *
+     * <p>不加处理的话，退会者会一直留在名单里：继续上 BossBar、继续被复活传送到出生点，
+     * 结算时还会以一个“已不属于该工会的人”的身份领到参赛奖励。</p>
+     */
+    public void onMemberRemoved(UUID uuid, String guildId) {
+        if (uuid == null) {
+            return;
+        }
+        GuildWar war = current;
+        if (war == null || guildId == null
+                || !(guildId.equals(war.guildA()) || guildId.equals(war.guildB()))) {
+            return;
+        }
+        boolean wasParticipant = war.rosterA().remove(uuid) | war.rosterB().remove(uuid);
+        boolean wasSpectator = spectators.remove(uuid);
+        if (!wasParticipant && !wasSpectator && !sideOf.containsKey(uuid)) {
+            return;
+        }
+        String side = sideOf.remove(uuid);
+        livesRemaining.remove(uuid);
+        eliminated.remove(uuid);
+        hideWarBar(plugin.player(uuid));
+        // 交还统一装备并送回原位
+        Player p = plugin.player(uuid);
+        if (p != null) {
+            restoreSnapshot(uuid, p);
+            p.setWalkSpeed(0.2f);
+            p.setFlySpeed(0.1f);
+            p.setInvulnerable(false);
+            p.setCollidable(true);
+            if (p.getGameMode() != org.bukkit.GameMode.SURVIVAL) {
+                p.setGameMode(org.bukkit.GameMode.SURVIVAL);
+            }
+            finishTeleport(uuid, p);
+            plugin.messages().send(p, "war-member-left");
+        } else {
+            restoreSnapshot(uuid, null);
+        }
+        returnLoc.remove(uuid);
+        if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
+            if (p != null) {
+                plugin.luckyPeaches().exit(p);
+            } else {
+                plugin.luckyPeaches().clear(uuid);
+            }
+        }
+        // 人都走了：该方若再无人，立即判定
+        if (war.state() == WarState.ACTIVE && wasParticipant && side != null) {
+            checkElimination(war, side);
         }
     }
 

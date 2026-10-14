@@ -154,6 +154,7 @@ zh_CN:
   war-lives-eliminated: "<red>你的生命次数已耗尽，已被淘汰。"
   war-respawned: "<green>已在己方出生点复活。"
   war-bounty-blocked: "<yellow>工会战击杀不计入悬赏，避免利用比赛刷取悬赏奖励。"
+  war-member-left: "<yellow>你已离开该工会，已自动退出本场工会战。"
   war-queue-broadcast: "<gold>[工会战] <white>{player}</white> 代表工会 <white>{guild}</white> 参与了 <white>{mode}</white> 匹配！"
   war-queue-join-button: "<yellow><bold>[点击参与匹配]</bold></yellow>"
   war-queue-join-hover: "<gray>点击加入 <white>{mode}</white> 的匹配队列"

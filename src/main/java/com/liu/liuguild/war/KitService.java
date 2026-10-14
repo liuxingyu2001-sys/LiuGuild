@@ -122,7 +122,7 @@ public final class KitService {
         }
         if (snap.location() != null && snap.location().getWorld() != null) {
             player.teleport(snap.location());
-            player.setHealth(Math.max(1.0, Math.min(snap.health(), player.getMaxHealth())));
+            com.liu.liuguild.util.ApiCompat.setHealthSafely(player, snap.health());
         }
     }
 
@@ -250,15 +250,17 @@ public final class KitService {
                     continue;
                 }
                 String[] parts = eff.split(":");
-                PotionEffectType type = PotionEffectType.getByName(parts[0].trim().toUpperCase(java.util.Locale.ROOT));
+                PotionEffectType type = com.liu.liuguild.util.ApiCompat.potionEffect(parts[0]);
                 if (type == null) {
+                    org.bukkit.Bukkit.getLogger().warning("[LiuGuild] 未知的药水效果名称：" + parts[0]
+                            + "（已跳过，请检查 kit.yml）");
                     continue;
                 }
                 int amp = parts.length > 1 ? NumberUtil.toInt(parts[1], 0) : 0;
                 player.addPotionEffect(new PotionEffect(type, duration, Math.max(0, amp), true, false));
             }
         }
-        player.setHealth(player.getMaxHealth());
+        com.liu.liuguild.util.ApiCompat.setHealthSafely(player, com.liu.liuguild.util.ApiCompat.maxHealth(player));
         player.setFoodLevel(20);
         player.setSaturation(20f);
         player.setFireTicks(0);

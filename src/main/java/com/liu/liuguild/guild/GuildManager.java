@@ -549,18 +549,17 @@ public final class GuildManager {
                     return;
                 }
                 plugin.broadcastMemberChange(player.getUniqueId(), g.id());
-            plugin.broadcastGuildChange(g.id());
-            plugin.sync(() -> {
-                plugin.messages().send(player, viaInvite ? "accept-success" : "join-success", "guild", g.name());
-                announceGuild(g.id(), plugin.messages().component(viaInvite ? "accept-notify-members" : "join-notify-members", "player", player.getName()), player.getUniqueId());
-                Bukkit.getPluginManager().callEvent(new GuildJoinEvent(g, player, viaInvite));
-            });
+                plugin.broadcastGuildChange(g.id());
+                plugin.sync(() -> {
+                    plugin.messages().send(player, viaInvite ? "accept-success" : "join-success", "guild", g.name());
+                    announceGuild(g.id(), plugin.messages().component(viaInvite ? "accept-notify-members" : "join-notify-members", "player", player.getName()), player.getUniqueId());
+                    Bukkit.getPluginManager().callEvent(new GuildJoinEvent(g, player, viaInvite));
+                });
             } catch (Exception e) {
                 plugin.getLogger().warning("加入工会写库失败: " + e.getMessage());
                 rollbackJoin(player, g, "operation-failed");
             }
         });
-
 
         return true;
     }
@@ -737,6 +736,10 @@ public final class GuildManager {
         g.removeMember(uuid);
         memberIndex.remove(uuid);
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
+        // 若正处于工会战，先把该玩家从战局里摘出来，避免继续上 BossBar / 领参赛奖励
+        if (plugin.war() != null) {
+            plugin.war().onMemberRemoved(uuid, g.id());
+        }
         plugin.async(() -> {
             try {
                 plugin.repo().deleteMember(uuid);
