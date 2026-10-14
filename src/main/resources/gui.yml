@@ -69,11 +69,48 @@ gui:
         material: WRITABLE_BOOK
         name: "<white>工会列表"
         lore: ["<gray>浏览全服工会"]
-      leave:
-        slot: 49
-        material: BARRIER
-        name: "<red>退出工会"
-        lore: ["<gray>离开当前工会"]
+
+  # ---------------- 工会详情面板（点击主菜单名片 / 列表右键） ----------------
+  info:
+    title: "<white>工会详情 <dark_gray>· {guild}"
+    rows: 5
+    buttons:
+      card:
+        slot: 4
+        material: "CE:liuguild:emblem_default"
+        fallback-material: SHIELD
+        name: "<white>{guild} <dark_gray>[{tag}]"
+        lore:
+          - "<gray>会长：<white>{leader}"
+          - "<gray>等级：<white>{level} <dark_gray>/ {max_level}"
+          - "<gray>成员：<white>{members}<gray>/<white>{member_limit}<gray>　在线：<white>{online}"
+          - "<gray>工会资金：<white>{points}"
+          - "<gray>升级进度：<white>{level_progress}"
+          - "<gray>建立于：<white>{created}"
+      info_notice:
+        slot: 19
+        material: PAPER
+        name: "<white>工会公告"
+        lore: ["<gray>{notice}"]
+      info_desc:
+        slot: 21
+        material: WRITABLE_BOOK
+        name: "<white>工会简介"
+        lore: ["<gray>{description}"]
+      info_members:
+        slot: 23
+        material: PLAYER_HEAD
+        name: "<white>成员列表"
+        lore: ["<gray>共 <white>{members}</white> 名成员", "<gray>在线 <white>{online}</white> 人", "", "<yellow>点击查看"]
+      info_history:
+        slot: 25
+        material: NETHERITE_SWORD
+        name: "<white>工会战战绩"
+        lore: ["<gray>胜：<white>{wins}", "<gray>负：<white>{losses}", "<gray>胜率：<white>{win_rate}", "<gray>总场次：<white>{total_wars}", "", "<yellow>点击查看历史"]
+      info_back:
+        slot: 40
+        material: ARROW
+        name: "<white>返回"
 
   # ---------------- 成员菜单 ----------------
   members:
@@ -113,6 +150,7 @@ gui:
         - "<gray>战绩：<white>{wins} 胜 {losses} 负"
         - ""
         - "<yellow>左键申请加入"
+        - "<aqua>右键查看详情"
     back:
       slot: 49
       material: ARROW
@@ -187,8 +225,19 @@ gui:
         material: WRITABLE_BOOK
         name: "<white>修改简介"
         lore: ["<gray>当前：<white>{description}", "<gray>点击后输入新简介"]
+      # ---- 危险操作：从主菜单移到这里，避免玩家在主界面误点 ----
+      leave:
+        slot: 39
+        material: OAK_DOOR
+        name: "<red>退出工会"
+        lore: ["<gray>离开当前工会（需确认）", "<dark_red>此操作不可恢复"]
+      disband:
+        slot: 41
+        material: TNT
+        name: "<dark_red>解散工会"
+        lore: ["<gray>解散整个工会（仅会长）", "<dark_red>此操作不可恢复"]
       back:
-        slot: 31
+        slot: 40
         material: ARROW
         name: "<white>返回"
 
@@ -226,10 +275,15 @@ gui:
         - "<yellow>点击参与该模式匹配"
     buttons:
       status:
-        slot: 38
+        slot: 36
         material: COMPASS
         name: "<white>当前战况"
-        lore: ["<gray>状态：<white>{state}", "<gray>对手：<white>{enemy}", "<gray>比分：<white>{score} : {enemy_score}", "<gray>我的剩余生命：<white>{lives}", "<gray>场地：<white>{arena}", "<gray>承办服：<white>{host}"]
+        lore: ["<gray>状态：<white>{state}", "<gray>对手：<white>{enemy}", "<gray>比分：<white>{score} : {enemy_score}", "<gray>我的剩余生命：<white>{lives}", "<gray>场地：<white>{arena}", "<gray>承办服：<white>{host}", "", "<yellow>点击刷新"]
+      spectate:
+        slot: 38
+        material: ENDER_EYE
+        name: "<white>旁观比赛"
+        lore: ["<gray>传送到本服进行中的工会战", "<gray>以旁观者身份观看"]
       leave_queue:
         slot: 40
         material: BARRIER

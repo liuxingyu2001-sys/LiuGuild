@@ -35,6 +35,8 @@ class GuiPlaceholderTest {
             "mode_arena", "mode_schedule", "mode_duration",
             // settings / icons
             "icon_name", "icon_cost", "rename_cooldown", "rename_cost",
+            // info 详情面板
+            "online", "level_progress", "created", "win_rate", "total_wars",
             // admin
             "guild_count", "queue", "live_wars", "server", "storage", "cross",
             // checkin

@@ -326,6 +326,50 @@ public final class GuiManager implements GuildModule, Listener {
         player.openInventory(inv);
     }
 
+    /**
+     * 工会详情面板。
+     *
+     * @param others 是否在看别人的工会（决定是否显示管理类入口）
+     */
+    public void openInfo(Player player, Guild g, boolean others) {
+        if (g == null) {
+            plugin.messages().send(player, "guild-not-found", "name", "?");
+            return;
+        }
+        MenuDef def = menu("info");
+        if (def == null) {
+            return;
+        }
+        Map<String, String> ph = detailPlaceholders(g);
+        Holder holder = new Holder("info", g.id(), 0);
+        Inventory inv = create(holder, def, ph, player);
+        Guild self = plugin.guilds().guildOf(player.getUniqueId());
+        boolean sameGuild = self != null && self.id().equals(g.id());
+        for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
+            ButtonDef b = e.getValue();
+            // 看别人的工会时隐藏「成员列表」（避免暴露成员名单给外人）
+            if (others && !sameGuild && "members".equals(e.getKey())) {
+                continue;
+            }
+            ItemStack item = "card".equals(e.getKey())
+                    ? GuiUtil.guildIcon(plugin, player, g, b.fallback())
+                    : GuiUtil.fromButton(player, b, ph);
+            if ("card".equals(e.getKey()) && item.getItemMeta() != null) {
+                var meta = item.getItemMeta();
+                meta.displayName(GuiUtil.render(player, b.name, ph));
+                List<Component> lore = new ArrayList<>();
+                for (String line : b.lore) {
+                    lore.add(GuiUtil.render(player, line, ph));
+                }
+                meta.lore(lore);
+                item.setItemMeta(meta);
+            }
+            inv.setItem(clamp(b.slot), item);
+            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
+        }
+        player.openInventory(inv);
+    }
+
     public void openSettings(Player player, Guild g) {
         if (g == null) {
             return;
@@ -346,7 +390,21 @@ public final class GuiManager implements GuildModule, Listener {
                 ? "免费" : plugin.economy().format(plugin.settings().guild.renameCost));
         Holder holder = new Holder("settings", g.id(), 0);
         Inventory inv = create(holder, def, ph, player);
+        GuildMember self = g.member(player.getUniqueId());
+        boolean isLeader = self != null && self.rank() == GuildRank.LEADER;
+        boolean canManage = plugin.guilds().canManageSettings(player, g);
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
+            // 「解散工会」只有会长能看见；「退出工会」会长不需要（需先转让）
+            if ("disband".equals(e.getKey()) && !isLeader) {
+                continue;
+            }
+            if ("leave".equals(e.getKey()) && isLeader) {
+                continue;
+            }
+            // 无管理权限时隐藏需权限的配置项
+            if (("notice".equals(e.getKey()) || "desc".equals(e.getKey())) && !canManage) {
+                continue;
+            }
             ButtonDef b = e.getValue();
             inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
@@ -438,12 +496,39 @@ public final class GuiManager implements GuildModule, Listener {
         switch (action) {
             case "noop" -> {
             }
+            case "info:open" -> openInfo(player, require(g, player), false);
+            case "info:notice" -> {
+                if (g != null) {
+                    plugin.messages().sendRawRich(player, "info-notice",
+                            "notice", g.notice().isBlank() ? "暂无公告" : Text.sanitizeToMini(g.notice()));
+                    plugin.messages().sendRawRich(player, "info-desc-line",
+                            "description", g.description().isBlank() ? "暂无简介" : Text.sanitizeToMini(g.description()));
+                }
+            }
+            case "info:desc" -> {
+                if (g != null) {
+                    plugin.messages().sendRawRich(player, "info-desc-line",
+                            "description", g.description().isBlank() ? "暂无简介" : Text.sanitizeToMini(g.description()));
+                }
+            }
+            case "info:members" -> openMembers(player, require(g, player), 0);
+            case "info:history" -> {
+                if (g != null) {
+                    showHistory(player, g);
+                }
+            }
+            case "info:back" -> {
+                if (holder != null && "info".equals(holder.menu)) {
+                    openMain(player);
+                } else {
+                    openList(player, 0);
+                }
+            }
             case "close" -> player.closeInventory();
             case "members" -> openMembers(player, require(g, player), 0);
             case "war" -> openWar(player, require(g, player));
             case "settings" -> openSettings(player, require(g, player));
-            case "list" -> openList(player, 0);
-            case "checkin" -> {
+            case "list" -> openList(player, 0);            case "checkin" -> {
                 player.closeInventory();
                 plugin.guilds().checkin(player);
             }
@@ -510,6 +595,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin:arenas" -> openArenaList(player, 0);
             case "admin:guilds" -> openGuildList(player, 0);
             case "admin:wars" -> openWarList(player);
+            case "admin:wars_back" -> openAdmin(player);
             case "admin:kits" -> openKitList(player);
             case "admin:cleanup" -> {
                 player.closeInventory();
@@ -548,8 +634,7 @@ public final class GuiManager implements GuildModule, Listener {
                 plugin.messages().send(player, "reload-done");
                 openAdmin(player);
             }
-            case "war_leave" -> {
-                if (g != null) {
+            case "war_leave" -> {                if (g != null) {
                     plugin.war().leaveQueue(player, g);
                     openWar(player, g);
                 }
@@ -574,8 +659,25 @@ public final class GuiManager implements GuildModule, Listener {
                                 + (home ? w.nameB() : w.nameA())));
                     }
                 }
+                // 重开菜单，让上面的比分/状态 lore 拿到最新值
+                openWar(player, require(g, player));
+            }
+            case "war_spectate" -> {
+                player.closeInventory();
+                plugin.war().spectate(player);
             }
             case "set:icon" -> openIcons(player, require(g, player), 0);
+            case "guild:disband" -> {
+                if (g == null) {
+                    break;
+                }
+                if (g.leaderUuid() == null || !g.leaderUuid().equals(player.getUniqueId())) {
+                    plugin.messages().send(player, "no-permission-rank");
+                    break;
+                }
+                player.closeInventory();
+                confirm(player, "confirm-disband", g.name(), () -> plugin.guilds().disband(g, true));
+            }
             case "set:rename" -> {
                 if (g == null) {
                     break;
@@ -655,9 +757,22 @@ public final class GuiManager implements GuildModule, Listener {
             String id = action.substring("list_entry:".length());
             Guild target = plugin.guilds().guild(id);
             if (target != null) {
-                plugin.guilds().join(player, target, false);
-                player.closeInventory();
+                if (clickRight) {
+                    // 右键：查看工会详情
+                    openInfo(player, target, true);
+                } else {
+                    // 左键：申请加入
+                    plugin.guilds().join(player, target, false);
+                    player.closeInventory();
+                }
             }
+        } else if (action.startsWith("info_view:")) {
+            Guild target = plugin.guilds().guild(action.substring("info_view:".length()));
+            if (target != null) {
+                openInfo(player, target, true);
+            }
+        } else if (action.equals("join_help")) {
+            sendJoinHelp(player);
         } else if (action.startsWith("icon:")) {
             String iconId = action.substring("icon:".length());
             if (g != null && plugin.guilds().setIcon(player, g, iconId)) {
@@ -1305,15 +1420,51 @@ public final class GuiManager implements GuildModule, Listener {
             double amount = parseAmount(text);
             if (amount <= 0) {
                 plugin.messages().send(player, "input-invalid-number");
+                openMain(player);
                 return;
             }
+            // 银行余额是异步落库的：这里不能立即重开菜单，否则会渲染出旧余额。
+            // 成功时由 GuildBankEvent 触发刷新；失败（余额不足等）无事件，用延迟兜底。
             if (withdraw) {
                 plugin.guilds().withdraw(player, g, amount);
             } else {
                 plugin.guilds().deposit(player, g, amount);
             }
-            openMain(player);
+            plugin.syncDelayed(() -> refreshIfNoMenu(player), 15L);
         });
+    }
+
+    /** 若玩家当前没有打开任何 Liuguild 菜单，则重新打开主菜单（用于异步操作后的兜底刷新）。 */
+    private void refreshIfNoMenu(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        boolean hasMenu = player.getOpenInventory().getTopInventory().getHolder() instanceof Holder;
+        if (!hasMenu && plugin.guilds().guildOf(player.getUniqueId()) != null) {
+            openMain(player);
+        }
+    }
+
+    /** 无工会引导菜单的「如何加入工会」：把可行路径逐条说清楚。 */
+    private void sendJoinHelp(Player player) {
+        player.closeInventory();
+        plugin.messages().sendRaw(player, "join-help-header");
+        plugin.messages().sendRaw(player, "join-help-line1");
+        plugin.messages().sendRaw(player, "join-help-line2");
+        plugin.messages().sendRaw(player, "join-help-line3");
+        plugin.messages().sendRaw(player, "join-help-footer");
+    }
+
+    /**
+     * 银行交易完成（余额已更新）后刷新界面，保证存的金额立即反映到 GUI 上。
+     */
+    @EventHandler
+    public void onBankChange(com.liu.liuguild.api.event.GuildBankEvent event) {
+        Player player = event.player();
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        plugin.sync(() -> openMain(player));
     }
 
     private double parseAmount(String text) {
@@ -1432,6 +1583,34 @@ public final class GuiManager implements GuildModule, Listener {
         return ph;
     }
 
+    /**
+     * 工会详情面板的扩展占位符（胜率 / 在线 / 升级进度 / 建会时间等）。
+     * 仅 {@code openInfo} 使用，避免主菜单每帧都算这些。
+     */
+    private Map<String, String> detailPlaceholders(Guild g) {
+        Map<String, String> ph = placeholders(g);
+        if (g == null) {
+            ph.put("total_wars", "0");
+            ph.put("win_rate", "0%");
+            ph.put("online", "0");
+            ph.put("next_level_points", "-");
+            ph.put("level_progress", "-");
+            ph.put("created", "-");
+            return ph;
+        }
+        int total = g.wins() + g.losses();
+        ph.put("total_wars", String.valueOf(total));
+        ph.put("win_rate", total == 0 ? "暂无战绩" : (Math.round(g.wins() * 1000.0 / total) / 10.0) + "%");
+        ph.put("online", String.valueOf(plugin.guilds().onlineMembers(g).size()));
+        long need = plugin.settings().guild.requiredPoints(g.level());
+        boolean maxed = g.level() >= plugin.settings().guild.maxLevel;
+        ph.put("next_level_points", maxed ? "已满级" : String.valueOf(need));
+        ph.put("level_progress", maxed ? "已满级"
+                : g.points() + " / " + need + "（还需 " + Math.max(0, need - g.points()) + "）");
+        ph.put("created", com.liu.liuguild.util.TimeUtil.formatDate(g.createdAt()));
+        return ph;
+    }
+
     /** 供外部界面引擎复用的占位符。 */
     public Map<String, String> placeholdersFor(Guild g) {
         return placeholders(g);
@@ -1481,17 +1660,25 @@ public final class GuiManager implements GuildModule, Listener {
 
     public static String actionId(String buttonId) {
         return switch (buttonId) {
-            case "info" -> "noop";
+            case "info" -> "info:open";
+            case "card" -> "noop";
+            case "info_notice" -> "info:notice";
+            case "info_desc" -> "info:desc";
+            case "info_members" -> "info:members";
+            case "info_history" -> "info:history";
+            case "info_back" -> "info:back";
             case "leave" -> "leave";
             case "toggle_open" -> "set:open";
             case "notice" -> "set:notice";
             case "desc" -> "set:desc";
             case "icon" -> "set:icon";
             case "rename" -> "set:rename";
+            case "disband" -> "guild:disband";
             case "back" -> "back:main";
             case "history" -> "war_history";
             case "leave_queue" -> "war_leave";
             case "status" -> "war_status";
+            case "spectate" -> "war_spectate";
             case "admin_status" -> "admin:status";
             case "admin_modes" -> "admin:modes";
             case "admin_arena" -> "admin:arenas";
@@ -1503,7 +1690,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin_kit" -> "admin:kit";
             case "admin_reload" -> "admin:reload";
             case "close" -> "close";
-            case "help" -> "noop";
+            case "help" -> "join_help";
             case "create" -> "list:create";
             default -> buttonId;
         };

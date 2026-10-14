@@ -103,6 +103,7 @@ zh_CN:
   info-body: "<gray>会长：<white>{leader}</white>　等级：<white>{level}</white>　成员：<white>{members}</white>/<white>{max}</white>"
   info-points: "<gray>工会资金（点数）：<white>{points}</white>　战绩：<white>{wins}</white> 胜 <white>{losses}</white> 负　银行：<white>{bank}</white>"
   info-notice: "<gray>公告：<white>{notice}</white>"
+  info-desc-line: "<gray>简介：<white>{description}</white>"
   list-header: "<gray>工会列表（共 {count} 个）："
   list-line: "<gray>- <white>{guild}</white> <dark_gray>[{tag}]</dark_gray> 会长 <white>{leader}</white> 成员 <white>{members}</white>"
   stats-line: "<gray>{guild}：等级 <white>{level}</white>　点数 <white>{points}</white>　战绩 <white>{wins}</white>/<white>{losses}</white>"
@@ -196,6 +197,12 @@ zh_CN:
   input-cancelled: "<yellow>已取消输入。"
   input-confirm: "<gray>请输入 <white>yes</white> 确认，或输入 <white>cancel</white> 取消："
   input-guild-name: "<gray>请在聊天栏输入工会名称（可带标签，格式：名称 标签）："
+  # 无工会引导菜单的「如何加入工会」
+  join-help-header: "<gold><bold>—- 如何加入一个工会 -—</bold>"
+  join-help-line1: "  <gray>1. <white>自己创建<gray>：<yellow>/guild create <名称> [标签]"
+  join-help-line2: "  <gray>2. <white>申请加入<gray>：打开 <yellow>/guild gui<gray> → 工会列表 → 左键点开放的工会"
+  join-help-line3: "  <gray>3. <white>接受邀请<gray>：收到邀请后 <yellow>/guild accept<gray>，拒绝用 <yellow>/guild deny"
+  join-help-footer: "<dark_gray>提示：在工会列表里右键任一工会可先查看它的公告与简介。"
   # 创建工会：两步引导（名称 → 标签）
   create-input-name: "<gray>第一步：请输入工会<white>名称</white>（{min}~{max} 字符）："
   create-input-tag: "<gray>第二步：请输入工会<white>标签</white>（{min}~{max} 字符，如 SKY；留空自动使用名称）："
