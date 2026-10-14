@@ -315,13 +315,13 @@ public final class WarManager implements GuildModule {
             plugin.messages().send(player, "war-need-level", "level", mode.minLevel);
             return;
         }
-        if (plugin.guilds().onlineMembers(guild).size() < mode.minMembers) {
-            plugin.messages().send(player, "war-need-members", "min", mode.minMembers);
-            return;
-        }
         if (plugin.bus().isReady()) {
             // Redis 操作是阻塞 IO，放异步线程，避免卡主线程。
             plugin.async(() -> {
+                if (plugin.guilds().countNetworkOnline(guild) < mode.minMembers) {
+                    plugin.sync(() -> plugin.messages().send(player, "war-need-members", "min", mode.minMembers));
+                    return;
+                }
                 if (isQueued(guild.id())) {
                     plugin.sync(() -> plugin.messages().send(player, "war-already-queued"));
                     return;
@@ -332,6 +332,10 @@ public final class WarManager implements GuildModule {
                 plugin.sync(() -> announceQueued(player, guild, mode));
             });
         } else {
+            if (plugin.guilds().onlineMembers(guild).size() < mode.minMembers) {
+                plugin.messages().send(player, "war-need-members", "min", mode.minMembers);
+                return;
+            }
             if (isQueued(guild.id())) {
                 plugin.messages().send(player, "war-already-queued");
                 return;

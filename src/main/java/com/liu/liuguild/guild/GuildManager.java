@@ -352,22 +352,26 @@ public final class GuildManager {
 
     /** 本服或其它子服是否有成员在线（跨服检查仅在 Redis 可用时进行）。 */
     public boolean anyMemberOnline(Guild g) {
+        return countNetworkOnline(g) > 0;
+    }
+
+    /** 全服在线成员数（本服 + 其它子服，去重）。跨服检查会访问 Redis，请在异步线程调用。 */
+    public int countNetworkOnline(Guild g) {
         if (g == null) {
-            return false;
+            return 0;
         }
-        for (UUID uuid : g.memberMap().keySet()) {
-            if (plugin.player(uuid) != null) {
-                return true;
-            }
-        }
+        int count = onlineMembers(g).size();
         if (plugin.bus() != null && plugin.bus().isReady()) {
             for (UUID uuid : g.memberMap().keySet()) {
+                if (plugin.player(uuid) != null) {
+                    continue;
+                }
                 if (plugin.bus().serverOf(uuid) != null) {
-                    return true;
+                    count++;
                 }
             }
         }
-        return false;
+        return count;
     }
 
     /**
