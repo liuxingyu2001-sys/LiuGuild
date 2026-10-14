@@ -7,6 +7,7 @@ import org.bukkit.plugin.Plugin;
 import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -32,6 +33,13 @@ public final class Database {
 
     public DbConfig config() {
         return cfg;
+    }
+
+    /** 供测试使用：判断索引是否存在（与建表时同一套判断逻辑）。 */
+    public boolean indexExistsForTests(String indexName, String table) throws SQLException {
+        try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
+            return indexExists(st, indexName, table);
+        }
     }
 
     public boolean isSqlite() {
@@ -211,12 +219,15 @@ public final class Database {
     }
 
     private void index(Statement st, String indexName, String table, String columns) {
+        if (indexExists(st, indexName, table)) {
+            return;
+        }
         String ddl = (cfg.isSqlite() ? "CREATE INDEX IF NOT EXISTS " : "CREATE INDEX ") + "`"
                 + indexName + "` ON `" + table + "` (" + columns + ")";
         try {
             st.executeUpdate(ddl);
         } catch (SQLException ignored) {
-            // MySQL 不支持 IF NOT EXISTS：已存在时报错直接忽略
+            // 并发创建等情况：已存在即忽略
         }
     }
 
@@ -224,15 +235,52 @@ public final class Database {
      * 唯一索引：从数据库层保证工会名称/缩写的大小写不敏感唯一性
      * （SQLite 列为 {@code COLLATE NOCASE}，MySQL 默认排序规则不敏感），
      * 兜底应用层的并发竞争。
+     *
+     * <p>MySQL 不支持 {@code IF NOT EXISTS}，所以先查目录判断是否已存在，
+     * 避免把「索引已存在」误报成「已有重复数据」。</p>
      */
     private void uniqueIndex(Statement st, String indexName, String table, String columns) {
+        if (indexExists(st, indexName, table)) {
+            return;
+        }
         String ddl = (cfg.isSqlite() ? "CREATE UNIQUE INDEX IF NOT EXISTS " : "CREATE UNIQUE INDEX ") + "`"
                 + indexName + "` ON `" + table + "` (" + columns + ")";
         try {
             st.executeUpdate(ddl);
         } catch (SQLException e) {
+            // 已存在（并发创建）时不算错；真的是重复数据才值得警告
+            if (isIndexAlreadyExists(e)) {
+                return;
+            }
             log.log(Level.WARNING, "创建唯一索引 " + indexName + " 失败（可能已有重复数据）: " + e.getMessage());
         }
+    }
+
+    /** 查询数据库目录，判断索引是否已存在（MySQL / SQLite 均可）。 */
+    private boolean indexExists(Statement st, String indexName, String table) {
+        String sql = cfg.isSqlite()
+                ? "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?"
+                : "SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE()"
+                        + " AND table_name = ? AND index_name = ?";
+        try (PreparedStatement ps = st.getConnection().prepareStatement(sql)) {
+            if (cfg.isSqlite()) {
+                ps.setString(1, indexName);
+            } else {
+                ps.setString(1, table);
+                ps.setString(2, indexName);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            return false; // 判断失败时交给 CREATE 语句与异常处理兜底
+        }
+    }
+
+    /** MySQL「索引已存在」错误码 1061 / SQLite 同类提示。 */
+    private static boolean isIndexAlreadyExists(SQLException e) {
+        return e.getErrorCode() == 1061
+                || (e.getMessage() != null && e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("already exist"));
     }
 
     /**

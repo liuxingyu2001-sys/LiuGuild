@@ -43,6 +43,25 @@ class GuildRepositoryTest {
         }
     }
 
+    /** 重复调用 init()（相当于重启）不应因索引已存在而报错/告警。 */
+    @Test
+    void reInitIsIdempotentAndDoesNotFailOnExistingIndexes() throws Exception {
+        Database second = new Database(db.config(), Logger.getLogger("LiuGuildTest"));
+        second.init(); // 索引已存在：必须静默跳过，而不是当成“重复数据”告警
+        second.shutdown();
+    }
+
+    /** 索引目录查询（MySQL/SQLite 共用的前置判断）必须真的能看到已建好的索引。 */
+    @Test
+    void detectsAlreadyExistingUniqueIndexes() throws Exception {
+        assertTrue(db.indexExistsForTests(db.t("guilds") + "_name", db.t("guilds")),
+                "唯一索引 " + db.t("guilds") + "_name 应已被检测到");
+        assertTrue(db.indexExistsForTests(db.t("guilds") + "_tag", db.t("guilds")),
+                "唯一索引 " + db.t("guilds") + "_tag 应已被检测到");
+        assertFalse(db.indexExistsForTests("no_such_index_at_all", db.t("guilds")),
+                "不存在的索引不应被误判为已存在");
+    }
+
     private Guild guild(String id, String name, String tag) {
         long now = System.currentTimeMillis();
         return new Guild(id, name, tag, UUID.randomUUID(), "Leader", "", "", false,
