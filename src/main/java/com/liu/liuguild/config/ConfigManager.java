@@ -124,6 +124,22 @@ public final class ConfigManager {
         }
     }
 
+    /** 删除某个配置节点（如删除竞技场）并保存。 */
+    public boolean remove(String fileName, String path) {
+        FileConfiguration f = files.get(fileName);
+        if (f == null) {
+            return false;
+        }
+        f.set(path, null);
+        try {
+            f.save(new File(configRoot, fileName));
+            return true;
+        } catch (IOException e) {
+            plugin.getLogger().warning("保存 " + fileName + " 失败: " + e.getMessage());
+            return false;
+        }
+    }
+
     /** 每服独立覆盖：plugins/LiuGuild/server.yml（不随共享配置同步），仅覆盖 server-id。 */
     private void applyServerOverride(MainSettings main) {
         File f = new File(plugin.getDataFolder(), "server.yml");

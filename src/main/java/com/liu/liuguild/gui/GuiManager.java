@@ -1,6 +1,7 @@
 package com.liu.liuguild.gui;
 
 import com.liu.liuguild.LiuGuild;
+import com.liu.liuguild.config.ArenaDef;
 import com.liu.liuguild.config.ButtonDef;
 import com.liu.liuguild.config.GuiSettings;
 import com.liu.liuguild.config.IconDef;
@@ -10,9 +11,11 @@ import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.model.GuildRank;
 import com.liu.liuguild.model.GuildWar;
 import com.liu.liuguild.module.GuildModule;
+import com.liu.liuguild.util.NumberUtil;
 import com.liu.liuguild.util.Text;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -448,6 +451,8 @@ public final class GuiManager implements GuildModule, Listener {
                     player.sendMessage(Text.mm(line.replace('&', '\u00a7')));
                 }
             }
+            case "admin:arenas" -> openArenaList(player, 0);
+            case "admin:guilds" -> openGuildList(player, 0);
             case "admin:modes" -> showAdminList(player, plugin.settings().war.modes.size(), "工会战模式", id -> {
                 com.liu.liuguild.config.WarMode m = plugin.settings().mode(id);
                 return "&f" + m.key + " &7" + m.display + " 场地=" + m.arena + " 公平装备=" + m.fairEquipment;
@@ -573,11 +578,364 @@ public final class GuiManager implements GuildModule, Listener {
             openList(player, Integer.parseInt(action.substring("page_list:".length())));
         } else if (action.startsWith("page_icons:")) {
             openIcons(player, g, Integer.parseInt(action.substring("page_icons:".length())));
+        } else if (action.startsWith("page_arenas:")) {
+            openArenaList(player, Integer.parseInt(action.substring("page_arenas:".length())));
+        } else if (action.startsWith("page_guilds:")) {
+            openGuildList(player, Integer.parseInt(action.substring("page_guilds:".length())));
+        } else if (action.startsWith("arena_edit:")) {
+            openArenaEditor(player, action.substring("arena_edit:".length()));
+        } else if (action.startsWith("arena_tp:")) {
+            String id = action.substring("arena_tp:".length());
+            ArenaDef a = plugin.settings().arena(id);
+            org.bukkit.World world = a.world != null && !a.world.isBlank() ? Bukkit.getWorld(a.world)
+                    : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
+            if (world == null) {
+                plugin.messages().send(player, "home-failed");
+            } else {
+                player.closeInventory();
+                player.teleport(a.spawnA.toLocation(world));
+            }
+        } else if (action.startsWith("arena_setspawn:")) {
+            String[] parts = action.substring("arena_setspawn:".length()).split(":", 2);
+            setArenaSpawn(player, parts[0], parts.length > 1 ? parts[1] : "a");
+        } else if (action.startsWith("arena_endspawn:")) {
+            setArenaEndSpawn(player, action.substring("arena_endspawn:".length()));
+        } else if (action.startsWith("arena_input:")) {
+            String[] parts = action.substring("arena_input:".length()).split(":", 2);
+            promptArenaInput(player, parts[0], parts.length > 1 ? parts[1] : "world");
+        } else if (action.startsWith("arena_cycle:")) {
+            String[] parts = action.substring("arena_cycle:".length()).split(":", 2);
+            cycleArena(player, parts[0], parts.length > 1 ? parts[1] : "environment");
+        } else if (action.startsWith("arena_toggle:")) {
+            String[] parts = action.substring("arena_toggle:".length()).split(":", 2);
+            toggleArena(player, parts[0], parts.length > 1 ? parts[1] : "auto-return");
+        } else if (action.startsWith("arena_delete:")) {
+            String id = action.substring("arena_delete:".length());
+            plugin.configs().remove("arena.yml", "arenas." + id);
+            plugin.reloadAll();
+            openArenaList(player, 0);
+        } else if (action.startsWith("guild_edit:")) {
+            openGuildEditor(player, action.substring("guild_edit:".length()));
+        } else if (action.startsWith("guild_disband:")) {
+            String id = action.substring("guild_disband:".length());
+            Guild target = plugin.guilds().guild(id);
+            if (target != null) {
+                confirm(player, "confirm-disband", target.name(), () -> {
+                    plugin.guilds().disband(target, true);
+                    plugin.messages().send(player, "admin-disband", "guild", target.name());
+                    openGuildList(player, 0);
+                });
+            }
+        } else if (action.startsWith("guild_input:")) {
+            String[] parts = action.substring("guild_input:".length()).split(":", 2);
+            promptGuildInput(player, parts[0], parts.length > 1 ? parts[1] : "level");
         }
+    }
+
+    // ---- 竞技场编辑动作 ----
+
+    private void setArenaSpawn(Player player, String arenaId, String point) {
+        String path = switch (point.toLowerCase(java.util.Locale.ROOT)) {
+            case "b" -> "spawn-b";
+            case "spec", "spectator" -> "spawn-spectator";
+            default -> "spawn-a";
+        };
+        Location loc = player.getLocation();
+        String base = "arenas." + arenaId + "." + path + ".";
+        plugin.configs().set("arena.yml", base + "x", round(loc.getX()));
+        plugin.configs().set("arena.yml", base + "y", round(loc.getY()));
+        plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
+        plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
+        plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
+        plugin.reloadAll();
+        plugin.messages().sendRaw(player, "arena-spawn-set", "arena", arenaId,
+                "point", point.toUpperCase(java.util.Locale.ROOT), "world", loc.getWorld().getName());
+        openArenaEditor(player, arenaId);
+    }
+
+    private void setArenaEndSpawn(Player player, String arenaId) {
+        Location loc = player.getLocation();
+        String base = "arenas." + arenaId + ".after-war.end-spawn.";
+        plugin.configs().set("arena.yml", base + "enabled", true);
+        plugin.configs().set("arena.yml", base + "world", loc.getWorld().getName());
+        plugin.configs().set("arena.yml", base + "x", round(loc.getX()));
+        plugin.configs().set("arena.yml", base + "y", round(loc.getY()));
+        plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
+        plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
+        plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
+        plugin.reloadAll();
+        plugin.messages().send(player, "home-saved", "slot", arenaId);
+        openArenaEditor(player, arenaId);
+    }
+
+    private void promptArenaInput(Player player, String arenaId, String key) {
+        player.closeInventory();
+        chatInput.request(player, plugin.messages().component("arena-input", "key", key), text -> {
+            String value = text.trim();
+            if (key.equalsIgnoreCase("radius")) {
+                plugin.configs().set("arena.yml", "arenas." + arenaId + ".radius", NumberUtil.toInt(value, 48));
+            } else if (key.equalsIgnoreCase("environment")) {
+                plugin.configs().set("arena.yml", "arenas." + arenaId + ".temporary-world.environment", value);
+            } else {
+                plugin.configs().set("arena.yml", "arenas." + arenaId + "." + key, value);
+            }
+            plugin.reloadAll();
+            openArenaEditor(player, arenaId);
+        });
+    }
+
+    private void cycleArena(Player player, String arenaId, String key) {
+        ArenaDef a = plugin.settings().arena(arenaId);
+        String base = "arenas." + arenaId + ".temporary-world.";
+        switch (key.toLowerCase(java.util.Locale.ROOT)) {
+            case "environment" -> {
+                String[] values = {"NORMAL", "NETHER", "THE_END"};
+                String next = next(values, a.tempWorld.environment);
+                plugin.configs().set("arena.yml", base + "environment", next);
+            }
+            case "time" -> {
+                long[] values = {-1, 0, 6000, 12000, 18000};
+                long next = values[0];
+                for (int i = 0; i < values.length; i++) {
+                    if (values[i] == a.tempWorld.time) {
+                        next = values[(i + 1) % values.length];
+                        break;
+                    }
+                }
+                plugin.configs().set("arena.yml", base + "time", next);
+            }
+            case "weather" -> {
+                String[] values = {"", "clear", "rain", "thunder"};
+                plugin.configs().set("arena.yml", base + "weather", next(values, a.tempWorld.weather));
+            }
+            case "difficulty" -> {
+                String[] values = {"", "PEACEFUL", "EASY", "NORMAL", "HARD"};
+                plugin.configs().set("arena.yml", base + "difficulty", next(values, a.tempWorld.difficulty));
+            }
+            default -> {
+            }
+        }
+        plugin.reloadAll();
+        openArenaEditor(player, arenaId);
+    }
+
+    private void toggleArena(Player player, String arenaId, String key) {
+        ArenaDef a = plugin.settings().arena(arenaId);
+        switch (key.toLowerCase(java.util.Locale.ROOT)) {
+            case "keep-on-end" -> plugin.configs().set("arena.yml", "arenas." + arenaId + ".temporary-world.keep-on-end", !a.tempWorld.keepOnEnd);
+            case "auto-return" -> plugin.configs().set("arena.yml", "arenas." + arenaId + ".after-war.auto-return", !a.afterWar.autoReturn);
+            default -> {
+            }
+        }
+        plugin.reloadAll();
+        openArenaEditor(player, arenaId);
+    }
+
+    private static String next(String[] values, String current) {
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equalsIgnoreCase(current == null ? "" : current)) {
+                return values[(i + 1) % values.length];
+            }
+        }
+        return values.length > 0 ? values[0] : "";
+    }
+
+    // ---- 工会编辑动作 ----
+
+    private void promptGuildInput(Player player, String guildId, String key) {
+        Guild guild = plugin.guilds().guild(guildId);
+        if (guild == null) {
+            return;
+        }
+        player.closeInventory();
+        chatInput.request(player, plugin.messages().component("guild-input", "key", key), text -> {
+            String value = text.trim();
+            switch (key.toLowerCase(java.util.Locale.ROOT)) {
+                case "level" -> plugin.guilds().setLevel(guild, NumberUtil.toInt(value, guild.level()));
+                case "points" -> plugin.guilds().setPoints(guild, NumberUtil.toLong(value, guild.points()));
+                case "bank" -> plugin.guilds().changeBank(guild.id(), NumberUtil.toLong(value, guild.bank()) - guild.bank());
+                case "notice" -> plugin.guilds().setNotice(player, guild, value);
+                case "desc" -> plugin.guilds().setDescription(player, guild, value);
+                default -> {
+                }
+            }
+            openGuildEditor(player, guildId);
+        });
     }
 
     private boolean isShiftClick() {
         return clickShift;
+    }
+
+    // =====================================================================
+    // 竞技场 / 工会 管理 GUI
+    // =====================================================================
+
+    /** 空白管理菜单（灰玻璃填充）。 */
+    private Inventory simpleInventory(Player viewer, Holder holder, int rows, String title, Map<String, String> ph) {
+        Inventory inv = Bukkit.createInventory(holder, rows * 9, Text.fmt(title, flatten(ph)));
+        holder.inv = inv;
+        ItemStack filler = GuiUtil.build(viewer, "GRAY_STAINED_GLASS_PANE", "GRAY_STAINED_GLASS_PANE",
+                " ", List.of(), Map.of(), null);
+        for (int i = 0; i < inv.getSize(); i++) {
+            inv.setItem(i, filler);
+        }
+        return inv;
+    }
+
+    public void openArenaList(Player player, int page) {
+        Holder holder = new Holder("arena_list", "", page);
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>竞技场管理", Map.of());
+        List<String> ids = new ArrayList<>(plugin.settings().arenas.arenas.keySet());
+        java.util.Collections.sort(ids);
+        int perPage = 45;
+        int from = Math.max(0, page) * perPage;
+        for (int i = 0; i < perPage && from + i < ids.size(); i++) {
+            String id = ids.get(from + i);
+            ArenaDef a = plugin.settings().arena(id);
+            inv.setItem(i, GuiUtil.build(player, "GRASS_BLOCK", "GRASS_BLOCK",
+                    "<white>" + id, List.of(
+                            "<gray>承办服：<white>" + (a.server.isBlank() ? "-" : a.server),
+                            "<gray>世界：<white>" + (a.world.isBlank() ? "主世界" : a.world),
+                            "<gray>模板：<white>" + (a.hasTemplate() ? a.template : "固定坐标"),
+                            "<gray>A 点：<white>" + fmtSpawn(a.spawnA),
+                            "<gray>B 点：<white>" + fmtSpawn(a.spawnB),
+                            "",
+                            "<yellow>点击编辑"), Map.of(), null));
+            holder.actions.put(i, "arena_edit:" + id);
+        }
+        addPageControls(player, holder, inv, "arenas", page, (ids.size() - 1) / perPage, "admin:guilds");
+        player.openInventory(inv);
+    }
+
+    public void openArenaEditor(Player player, String arenaId) {
+        ArenaDef a = plugin.settings().arenas.arenas.get(arenaId.toLowerCase(java.util.Locale.ROOT));
+        if (a == null) {
+            plugin.messages().send(player, "arena-usage");
+            return;
+        }
+        Holder holder = new Holder("arena_edit", "", 0);
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>编辑竞技场 <white>" + a.id, Map.of());
+        int slot = 0;
+        slot = put(inv, holder, slot, player, "COMPASS", "<white>传送到 A 点",
+                List.of("<gray>直接传送过去查看"), "arena_tp:" + a.id);
+        slot = put(inv, holder, slot, player, "RED_BED", "<white>设置 A 出生点",
+                List.of("<gray>使用当前位置", fmtSpawn(a.spawnA)), "arena_setspawn:" + a.id + ":a");
+        slot = put(inv, holder, slot, player, "BLUE_BED", "<white>设置 B 出生点",
+                List.of("<gray>使用当前位置", fmtSpawn(a.spawnB)), "arena_setspawn:" + a.id + ":b");
+        slot = put(inv, holder, slot, player, "ENDER_EYE", "<white>设置旁观点",
+                List.of("<gray>使用当前位置", fmtSpawn(a.spawnSpectator)), "arena_setspawn:" + a.id + ":spec");
+        slot = put(inv, holder, slot, player, "WHITE_BED", "<white>设置集合点",
+                List.of("<gray>战斗结束后统一传送点", "<gray>当前：" + (a.afterWar.endSpawnEnabled ? "已启用" : "未启用")),
+                "arena_endspawn:" + a.id);
+        slot = put(inv, holder, slot, player, "NAME_TAG", "<white>世界：<yellow>" + (a.world.isBlank() ? "主世界" : a.world),
+                List.of("<gray>点击输入世界名（留空 = 主世界）"), "arena_input:" + a.id + ":world");
+        slot = put(inv, holder, slot, player, "BEACON", "<white>承办服：<yellow>" + (a.server.isBlank() ? "默认" : a.server),
+                List.of("<gray>点击输入 server-id"), "arena_input:" + a.id + ":server");
+        slot = put(inv, holder, slot, player, "STRUCTURE_BLOCK", "<white>模板：<yellow>" + (a.hasTemplate() ? a.template : "无"),
+                List.of("<gray>liudungeon 动态模板名", "<gray>留空 = 使用固定世界坐标"), "arena_input:" + a.id + ":template");
+        slot = put(inv, holder, slot, player, "SPYGLASS", "<white>预热半径：<yellow>" + a.radius,
+                List.of("<gray>点击输入数字"), "arena_input:" + a.id + ":radius");
+        slot = put(inv, holder, slot, player, "GRASS_BLOCK", "<white>环境：<yellow>" + a.tempWorld.environment,
+                List.of("<gray>点击循环切换 NORMAL/NETHER/THE_END"), "arena_cycle:" + a.id + ":environment");
+        slot = put(inv, holder, slot, player, "CLOCK", "<white>时间：<yellow>" + (a.tempWorld.time < 0 ? "不修改" : String.valueOf(a.tempWorld.time)),
+                List.of("<gray>点击循环切换时间"), "arena_cycle:" + a.id + ":time");
+        slot = put(inv, holder, slot, player, "WATER_BUCKET", "<white>天气：<yellow>" + (a.tempWorld.weather.isBlank() ? "不修改" : a.tempWorld.weather),
+                List.of("<gray>点击循环切换 clear/rain/thunder/不修改"), "arena_cycle:" + a.id + ":weather");
+        slot = put(inv, holder, slot, player, "IRON_SWORD", "<white>难度：<yellow>" + (a.tempWorld.difficulty.isBlank() ? "不修改" : a.tempWorld.difficulty),
+                List.of("<gray>点击循环切换难度"), "arena_cycle:" + a.id + ":difficulty");
+        slot = put(inv, holder, slot, player, "OAK_DOOR", "<white>保留世界：<yellow>" + (a.tempWorld.keepOnEnd ? "是" : "否"),
+                List.of("<gray>战斗结束后是否保留动态世界"), "arena_toggle:" + a.id + ":keep-on-end");
+        slot = put(inv, holder, slot, player, "ENDER_PEARL", "<white>自动返回：<yellow>" + (a.afterWar.autoReturn ? "是" : "否"),
+                List.of("<gray>结束后送回参赛前位置"), "arena_toggle:" + a.id + ":auto-return");
+        slot = put(inv, holder, slot, player, "BARRIER", "<red>删除竞技场",
+                List.of("<gray>从 arena.yml 移除", "<red>此操作不可恢复"), "arena_delete:" + a.id);
+        int backSlot = 53;
+        inv.setItem(backSlot, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回列表", List.of(), Map.of(), null));
+        holder.actions.put(backSlot, "admin:arenas");
+        player.openInventory(inv);
+    }
+
+    public void openGuildList(Player player, int page) {
+        Holder holder = new Holder("guild_list", "", page);
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>工会管理", Map.of());
+        List<Guild> guilds = new ArrayList<>(plugin.guilds().all());
+        guilds.sort((a, b) -> Long.compare(b.points(), a.points()));
+        int perPage = 45;
+        int from = Math.max(0, page) * perPage;
+        for (int i = 0; i < perPage && from + i < guilds.size(); i++) {
+            Guild g = guilds.get(from + i);
+            inv.setItem(i, GuiUtil.build(player, "SHIELD", "SHIELD", "<white>" + g.name() + " <dark_gray>[" + g.tag() + "]",
+                    List.of("<gray>会长：<white>" + g.leaderName(),
+                            "<gray>等级：<white>" + g.level() + "  <gray>成员：<white>" + g.memberCount(),
+                            "<gray>资金：<white>" + g.points() + "  <gray>银行：<white>" + g.bank(),
+                            "<gray>战绩：<white>" + g.wins() + "胜 " + g.losses() + "负",
+                            "", "<yellow>点击管理"), Map.of(), null));
+            holder.actions.put(i, "guild_edit:" + g.id());
+        }
+        addPageControls(player, holder, inv, "guilds", page, (guilds.size() - 1) / perPage, "admin:arenas");
+        player.openInventory(inv);
+    }
+
+    public void openGuildEditor(Player player, String guildId) {
+        Guild g = plugin.guilds().guild(guildId);
+        if (g == null) {
+            plugin.messages().send(player, "guild-not-found", "name", guildId);
+            return;
+        }
+        Holder holder = new Holder("guild_edit", g.id(), 0);
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>管理工会 <white>" + g.name(), Map.of());
+        int slot = 0;
+        slot = put(inv, holder, slot, player, "EXPERIENCE_BOTTLE", "<white>设置等级：<yellow>" + g.level(),
+                List.of("<gray>点击输入新等级"), "guild_input:" + g.id() + ":level");
+        slot = put(inv, holder, slot, player, "GOLD_INGOT", "<white>设置资金：<yellow>" + g.points(),
+                List.of("<gray>点击输入新资金（点数）"), "guild_input:" + g.id() + ":points");
+        slot = put(inv, holder, slot, player, "EMERALD", "<white>设置银行：<yellow>" + g.bank(),
+                List.of("<gray>点击输入新银行余额"), "guild_input:" + g.id() + ":bank");
+        slot = put(inv, holder, slot, player, "PLAYER_HEAD", "<white>成员数：<yellow>" + g.memberCount(),
+                List.of("<gray>会长：<white>" + g.leaderName()), "noop");
+        slot = put(inv, holder, slot, player, "NAME_TAG", "<white>设置公告",
+                List.of("<gray>点击输入新公告"), "guild_input:" + g.id() + ":notice");
+        slot = put(inv, holder, slot, player, "WRITABLE_BOOK", "<white>设置简介",
+                List.of("<gray>点击输入新简介"), "guild_input:" + g.id() + ":desc");
+        slot = put(inv, holder, slot, player, "TNT", "<red>强制解散工会",
+                List.of("<red>此操作不可恢复", "<gray>点击后在聊天栏输入 yes 确认"), "guild_disband:" + g.id());
+        int backSlot = 53;
+        inv.setItem(backSlot, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回列表", List.of(), Map.of(), null));
+        holder.actions.put(backSlot, "admin:guilds");
+        player.openInventory(inv);
+    }
+
+    /** 依次放置管理按钮并登记动作。 */
+    private int put(Inventory inv, Holder holder, int slot, Player viewer, String material,
+                    String name, List<String> lore, String action) {
+        inv.setItem(slot, GuiUtil.build(viewer, material, material, name, lore, Map.of(), null));
+        holder.actions.put(slot, action);
+        return slot + 1;
+    }
+
+    private void addPageControls(Player player, Holder holder, Inventory inv, String menuKey,
+                                 int page, int maxPage, String otherButton) {
+        if (page > 0) {
+            inv.setItem(45, GuiUtil.build(player, "ARROW", "ARROW", "<white>上一页", List.of(), Map.of(), null));
+            holder.actions.put(45, "page_" + menuKey + ":" + (page - 1));
+        }
+        if (page < maxPage) {
+            inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>下一页", List.of(), Map.of(), null));
+            holder.actions.put(53, "page_" + menuKey + ":" + (page + 1));
+        }
+        inv.setItem(49, GuiUtil.build(player, "CHEST", "CHEST", "<white>切换：" + otherButton.replace("admin:", ""),
+                List.of("<gray>点击切换"), Map.of(), null));
+        holder.actions.put(49, otherButton);
+    }
+
+    private static String fmtSpawn(ArenaDef.Spawn s) {
+        return String.format(java.util.Locale.ROOT, "%.1f, %.1f, %.1f", s.x(), s.y(), s.z());
+    }
+
+    /** 坐标保留两位小数，避免配置过长。 */
+    private static double round(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
     private void sound(Player player, Sound sound, float volume, float pitch) {
@@ -800,7 +1158,8 @@ public final class GuiManager implements GuildModule, Listener {
             case "status" -> "war_status";
             case "admin_status" -> "admin:status";
             case "admin_modes" -> "admin:modes";
-            case "admin_arena" -> "admin:arena";
+            case "admin_arena" -> "admin:arenas";
+            case "admin_guilds" -> "admin:guilds";
             case "admin_kit" -> "admin:kit";
             case "admin_reload" -> "admin:reload";
             case "close" -> "close";

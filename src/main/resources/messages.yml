@@ -139,6 +139,8 @@ zh_CN:
   admin-setlevel: "<green>已将工会 <white>{guild}</white> 等级设为 <white>{level}</white>。"
   admin-setpoints: "<green>已将工会 <white>{guild}</white> 点数设为 <white>{points}</white>。"
   admin-forceend: "<green>已强制结束工会战 <white>{war}</white>。"
+  admin-broadcast: "<gold><bold>[公告]</bold></gold> <white>{message}"
+  same-guild: "<red>不能与自己所在工会开战。"
 
   # ---- 输入会话 / GUI ----
   input-cancel-hint: "<dark_gray>（输入 <white>cancel</white> 取消）"
@@ -154,6 +156,9 @@ zh_CN:
   confirm-kick: "<red>确定要踢出成员 <white>{player}</white> 吗？"
   confirm-transfer: "<red>确定将会长转让给 <white>{player}</white> 吗？（不可撤销）"
   confirm-leave: "<red>确定要退出工会 <white>{player}</white> 吗？此操作可再次加入。"
+  confirm-disband: "<red>确定要强制解散工会 <white>{player}</white> 吗？（不可恢复）"
+  arena-input: "<gray>请输入竞技场 <white>{key}</white> 的值（输入 cancel 取消）："
+  guild-input: "<gray>请输入工会 <white>{key}</white> 的新值（输入 cancel 取消）："
   promote-already-officer: "<yellow>{player} 已是副会长；如需转让会长请使用 <white>Shift+左键</white>。"
 
   # ---- 工会驻地 ----

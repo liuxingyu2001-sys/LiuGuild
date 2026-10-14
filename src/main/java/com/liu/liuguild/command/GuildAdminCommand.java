@@ -8,6 +8,7 @@ import com.liu.liuguild.model.GuildWar;
 import com.liu.liuguild.util.NumberUtil;
 import com.liu.liuguild.util.Text;
 import net.kyori.adventure.text.Component;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -19,13 +20,15 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 /** 管理指令 {@code /guildadmin}：重载、状态、场地、装备、模式、赛季、工会与工会战管理。 */
 public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBS = List.of(
             "help", "reload", "status", "import", "arena", "kit", "mode", "war",
-            "disband", "setlevel", "setpoints", "forceend", "info", "gui", "cleanup");
+            "disband", "setlevel", "setpoints", "setbank", "forceend", "info", "gui", "cleanup",
+            "guilds", "player", "broadcast");
 
     private final LiuGuild plugin;
 
@@ -47,8 +50,13 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         switch (sub) {
             case "help" -> help(sender);
             case "reload" -> {
-                plugin.reloadAll();
-                plugin.messages().send(sender, "reload-done");
+                if (args.length >= 2) {
+                    plugin.reloadAll();
+                    plugin.messages().send(sender, "reload-done");
+                } else {
+                    plugin.reloadAll();
+                    plugin.messages().send(sender, "reload-done");
+                }
             }
             case "status" -> status(sender);
             case "import" -> importData(sender, args);
@@ -59,9 +67,13 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "disband" -> disband(sender, args);
             case "setlevel" -> setLevel(sender, args);
             case "setpoints" -> setPoints(sender, args);
+            case "setbank" -> setBank(sender, args);
             case "forceend" -> forceEnd(sender, args);
             case "info" -> info(sender, args);
             case "cleanup" -> cleanup(sender, args);
+            case "guilds" -> guilds(sender, args);
+            case "player" -> player(sender, args);
+            case "broadcast" -> broadcast(sender, args);
             case "gui" -> {
                 if (sender instanceof Player p) {
                     plugin.gui().openAdmin(p);
@@ -90,8 +102,11 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "kit save <key>", "保存当前身上装备为套装");
         adminLine(sender, "kit list|info <key>|delete <key>", "装备套装管理");
         adminLine(sender, "mode list|info <模式>|start <模式>", "工会战模式 / 开启赛季");
-        adminLine(sender, "war list", "进行中的工会战与队列");
-        adminLine(sender, "disband|setlevel|setpoints|forceend|info <工会>", "工会与工会战管理");
+        adminLine(sender, "war list|start|stop|tp|score", "工会战管理（查看/强开/停止/传送/改分）");
+        adminLine(sender, "disband|setlevel|setpoints|setbank|info <工会>", "工会数据管理");
+        adminLine(sender, "guilds [页码]", "分页列出全部工会");
+        adminLine(sender, "player <玩家>", "查看玩家所属工会");
+        adminLine(sender, "broadcast <文本>", "全服广播消息");
         adminLine(sender, "cleanup [dry|confirm]", "清理不活跃（僵尸）工会");
     }
 
@@ -173,6 +188,91 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     plugin.reloadAll();
                     plugin.messages().sendRaw(sender, "arena-created", "arena", args[2]);
                 }
+            }
+            case "remove", "delete" -> {
+                if (require(sender, args, 3)) {
+                    if (!plugin.settings().arenas.arenas.containsKey(args[2].toLowerCase(Locale.ROOT))) {
+                        sender.sendMessage(cn("&c竞技场不存在：" + args[2]));
+                        return;
+                    }
+                    plugin.configs().remove("arena.yml", "arenas." + args[2]);
+                    plugin.reloadAll();
+                    sender.sendMessage(cn("&a已删除竞技场 &f" + args[2]));
+                }
+            }
+            case "setradius" -> {
+                if (require(sender, args, 4)) {
+                    plugin.configs().set("arena.yml", "arenas." + args[2] + ".radius", NumberUtil.toInt(args[3], 48));
+                    plugin.reloadAll();
+                    plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", "radius=" + args[3]);
+                }
+            }
+            case "settempworld" -> {
+                if (require(sender, args, 5)) {
+                    plugin.configs().set("arena.yml", "arenas." + args[2] + ".temporary-world." + args[3], args[4]);
+                    plugin.reloadAll();
+                    plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3] + "=" + args[4]);
+                }
+            }
+            case "setgamerule" -> {
+                if (require(sender, args, 5)) {
+                    boolean value = Boolean.parseBoolean(args[4]);
+                    plugin.configs().set("arena.yml",
+                            "arenas." + args[2] + ".temporary-world.gamerules." + args[3], value);
+                    plugin.reloadAll();
+                    plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3] + "=" + value);
+                }
+            }
+            case "setafter" -> {
+                if (require(sender, args, 5)) {
+                    Object value = args[4];
+                    if (args[4].equalsIgnoreCase("true") || args[4].equalsIgnoreCase("false")) {
+                        value = Boolean.parseBoolean(args[4]);
+                    } else if (args[3].toLowerCase(Locale.ROOT).contains("delay")) {
+                        value = NumberUtil.toInt(args[4], 0);
+                    }
+                    plugin.configs().set("arena.yml", "arenas." + args[2] + ".after-war." + args[3], value);
+                    plugin.reloadAll();
+                    plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3] + "=" + args[4]);
+                }
+            }
+            case "setendspawn" -> {
+                if (!(sender instanceof Player p)) {
+                    plugin.messages().send(sender, "players-only");
+                    return;
+                }
+                if (!require(sender, args, 3)) {
+                    return;
+                }
+                Location loc = p.getLocation();
+                String base = "arenas." + args[2] + ".after-war.end-spawn.";
+                plugin.configs().set("arena.yml", base + "enabled", true);
+                plugin.configs().set("arena.yml", base + "world", loc.getWorld().getName());
+                plugin.configs().set("arena.yml", base + "x", round(loc.getX()));
+                plugin.configs().set("arena.yml", base + "y", round(loc.getY()));
+                plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
+                plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
+                plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
+                plugin.reloadAll();
+                sender.sendMessage(cn("&a已将竞技场 &f" + args[2] + " &a的集合点设为当前位置（世界 &f" + loc.getWorld().getName() + "&a）。"));
+            }
+            case "tp", "teleport" -> {
+                if (!(sender instanceof Player p)) {
+                    plugin.messages().send(sender, "players-only");
+                    return;
+                }
+                if (!require(sender, args, 3)) {
+                    return;
+                }
+                ArenaDef a = plugin.settings().arena(args[2]);
+                org.bukkit.World world = a.world != null && !a.world.isBlank() ? Bukkit.getWorld(a.world)
+                        : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
+                if (world == null) {
+                    sender.sendMessage(cn("&c世界未加载，无法传送。"));
+                    return;
+                }
+                p.teleport(a.spawnA.toLocation(world));
+                sender.sendMessage(cn("&a已传送到竞技场 &f" + a.id + " &a的 A 点。"));
             }
             default -> plugin.messages().sendRaw(sender, "arena-usage");
         }
@@ -331,6 +431,52 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 }
                 sender.sendMessage(cn("&7匹配队列: &f" + plugin.war().queueSize() + " 个工会"));
             }
+            case "start" -> {
+                if (!require(sender, args, 5)) {
+                    return;
+                }
+                Guild ga = find(args[3]);
+                Guild gb = find(args[4]);
+                String error = plugin.war().forceStart(ga, gb, args[2]);
+                if (error != null) {
+                    plugin.messages().send(sender, error);
+                } else {
+                    sender.sendMessage(cn("&a已强制开启工会战：&f" + ga.name() + " &7VS &f" + gb.name()
+                            + " &7（模式 &f" + args[2] + "&7）"));
+                }
+            }
+            case "stop", "end" -> {
+                GuildWar w = args.length >= 3 ? plugin.war().warById(args[2]) : plugin.war().currentWar();
+                if (w == null) {
+                    plugin.messages().send(sender, "war-not-in-war");
+                    return;
+                }
+                plugin.war().forceEnd(w.id());
+                plugin.messages().send(sender, "admin-forceend", "war", w.id());
+            }
+            case "score" -> {
+                if (!require(sender, args, 5)) {
+                    return;
+                }
+                int value = NumberUtil.toInt(args[4], 0);
+                if (plugin.war().setScore(args[2], args[3], value)) {
+                    sender.sendMessage(cn("&a已将工会战 &f" + args[2].substring(0, Math.min(8, args[2].length()))
+                            + " &a的 " + args[3].toUpperCase(Locale.ROOT) + " 方比分设为 &f" + value));
+                } else {
+                    plugin.messages().send(sender, "war-not-in-war");
+                }
+            }
+            case "tp", "teleport" -> {
+                if (!(sender instanceof Player p)) {
+                    plugin.messages().send(sender, "players-only");
+                    return;
+                }
+                if (plugin.war().teleportToArena(p)) {
+                    sender.sendMessage(cn("&a已传送到竞技场。"));
+                } else {
+                    sender.sendMessage(cn("&c竞技场世界未加载，无法传送。"));
+                }
+            }
             default -> {
                 GuildWar w = plugin.war().warById(args.length >= 2 ? args[1] : null);
                 if (w == null) {
@@ -418,6 +564,88 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         long points = NumberUtil.toLong(args[2], g.points());
         plugin.guilds().setPoints(g, points);
         plugin.messages().send(sender, "admin-setpoints", "guild", g.name(), "points", points);
+    }
+
+    private void setBank(CommandSender sender, String[] args) {
+        if (!require(sender, args, 3)) {
+            return;
+        }
+        Guild g = find(args[1]);
+        if (g == null) {
+            plugin.messages().send(sender, "guild-not-found", "name", args[1]);
+            return;
+        }
+        long target = Math.max(0, NumberUtil.toLong(args[2], g.bank()));
+        long delta = target - g.bank();
+        plugin.guilds().changeBank(g.id(), delta).whenComplete((ok, error) -> plugin.sync(() -> {
+            if (error != null || !Boolean.TRUE.equals(ok)) {
+                sender.sendMessage(cn("&c设置银行余额失败（可能溢出或数据库错误）。"));
+            } else {
+                sender.sendMessage(cn("&a已将工会 &f" + g.name() + " &a的银行余额设为 &f" + target + "&a。"));
+            }
+        }));
+    }
+
+    private void guilds(CommandSender sender, String[] args) {
+        int perPage = 15;
+        int page = args.length >= 2 ? Math.max(1, NumberUtil.toInt(args[1], 1)) : 1;
+        List<Guild> all = new ArrayList<>(plugin.guilds().all());
+        all.sort((a, b) -> Long.compare(b.points(), a.points()));
+        int maxPage = Math.max(1, (all.size() + perPage - 1) / perPage);
+        page = Math.min(page, maxPage);
+        sender.sendMessage(cn("&6工会列表 &7（第 " + page + "/" + maxPage + " 页，共 " + all.size() + " 个）"));
+        int from = (page - 1) * perPage;
+        for (int i = 0; i < perPage && from + i < all.size(); i++) {
+            Guild g = all.get(from + i);
+            sender.sendMessage(cn("&7- &f" + g.name() + " &8[" + g.tag() + "] &7等级=&f" + g.level()
+                    + " &7成员=&f" + g.memberCount() + " &7资金=&f" + g.points() + " &7银行=&f" + g.bank()
+                    + " &8id=" + g.id().substring(0, 8)));
+        }
+        sender.sendMessage(cn("&7下一页：&f/guildadmin guilds " + Math.min(maxPage, page + 1)));
+    }
+
+    private void player(CommandSender sender, String[] args) {
+        if (!require(sender, args, 2)) {
+            return;
+        }
+        Player target = plugin.playerExact(args[1]);
+        if (target != null) {
+            Guild g = plugin.guilds().guildOf(target.getUniqueId());
+            sender.sendMessage(cn("&6玩家 &f" + target.getName() + " &7工会：&f"
+                    + (g == null ? "无" : g.name() + " (" + (g.member(target.getUniqueId()) == null ? "?"
+                    : g.member(target.getUniqueId()).rank().display()) + ")")));
+            return;
+        }
+        // 离线：查数据库
+        plugin.async(() -> {
+            String guildId;
+            try {
+                guildId = plugin.repo().guildIdOf(resolveUuid(args[1]));
+            } catch (Exception e) {
+                guildId = null;
+            }
+            String result = guildId == null ? "无" : guildId;
+            plugin.sync(() -> sender.sendMessage(cn("&6玩家 &f" + args[1] + " &7工会：&f" + result)));
+        });
+    }
+
+    private UUID resolveUuid(String name) {
+        Player online = plugin.playerExact(name);
+        if (online != null) {
+            return online.getUniqueId();
+        }
+        @SuppressWarnings("deprecation")
+        var offline = Bukkit.getOfflinePlayer(name);
+        return offline.getUniqueId();
+    }
+
+    private void broadcast(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            plugin.messages().sendRaw(sender, "admin-usage");
+            return;
+        }
+        String message = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length));
+        org.bukkit.Bukkit.broadcast(plugin.messages().prefixed("admin-broadcast", "message", message));
     }
 
     private void forceEnd(CommandSender sender, String[] args) {
@@ -509,10 +737,12 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2) {
             return switch (args[0].toLowerCase(Locale.ROOT)) {
-                case "arena" -> startsWith(List.of("list", "info", "setspawn", "setworld", "setserver", "settemplate", "create"), args[1]);
+                case "arena" -> startsWith(List.of("list", "info", "setspawn", "setworld", "setserver", "settemplate",
+                        "create", "remove", "setradius", "settempworld", "setgamerule", "setafter", "setendspawn", "tp"), args[1]);
                 case "kit" -> startsWith(List.of("list", "save", "delete", "info"), args[1]);
                 case "mode" -> startsWith(List.of("list", "info", "start"), args[1]);
-                case "war" -> startsWith(List.of("list"), args[1]);
+                case "war" -> startsWith(List.of("list", "start", "stop", "tp", "score"), args[1]);
+                case "reload", "status", "guilds", "cleanup" -> List.of();
                 default -> guildNames(args[1]);
             };
         }
@@ -527,9 +757,32 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             if (sub.equals("mode")) {
                 return startsWith(new ArrayList<>(plugin.settings().war.modes.keySet()), args[2]);
             }
+            if (sub.equals("war") && args[1].equalsIgnoreCase("start")) {
+                return startsWith(new ArrayList<>(plugin.settings().war.modes.keySet()), args[2]);
+            }
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("setspawn")) {
             return startsWith(List.of("a", "b", "spec"), args[3]);
+        }
+        if (args.length == 4 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("settempworld")) {
+            return startsWith(List.of("environment", "keep-on-end", "name-format", "time", "weather", "difficulty"), args[3]);
+        }
+        if (args.length == 4 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("setafter")) {
+            return startsWith(List.of("auto-return", "return-delay-seconds", "end-spawn.enabled"), args[3]);
+        }
+        if (args.length == 4 && args[0].equalsIgnoreCase("war") && args[1].equalsIgnoreCase("start")) {
+            return guildNames(args[3]);
+        }
+        if (args.length == 5 && args[0].equalsIgnoreCase("war")) {
+            if (args[1].equalsIgnoreCase("start")) {
+                return guildNames(args[4]);
+            }
+            if (args[1].equalsIgnoreCase("score")) {
+                return startsWith(List.of("a", "b"), args[3]);
+            }
+        }
+        if (args.length == 5 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("setgamerule")) {
+            return startsWith(List.of("true", "false"), args[4]);
         }
         return List.of();
     }

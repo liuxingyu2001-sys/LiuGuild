@@ -939,6 +939,68 @@ public final class WarManager implements GuildModule {
         return true;
     }
 
+    /**
+     * 管理员强制开战：直接匹配两支工会。
+     *
+     * @return null 表示已开始；否则返回失败原因对应的消息键
+     */
+    public String forceStart(Guild a, Guild b, String modeKey) {
+        if (a == null || b == null) {
+            return "guild-not-found";
+        }
+        if (a.id().equals(b.id())) {
+            return "same-guild";
+        }
+        if (warOf(a.id()) != null || warOf(b.id()) != null) {
+            return "war-in-progress";
+        }
+        WarMode mode = mode(modeKey);
+        if (!mode.enabled) {
+            return "war-mode-disabled";
+        }
+        if (plugin.bus().isReady()) {
+            plugin.bus().dequeueGuild(a.id());
+            plugin.bus().dequeueGuild(b.id());
+        }
+        createMatch(
+                CrossServerBus.map("guildId", a.id(), "server", plugin.serverId(), "mode", mode.key),
+                CrossServerBus.map("guildId", b.id(), "server", plugin.serverId(), "mode", mode.key),
+                mode.key);
+        return null;
+    }
+
+    /** 管理员设置比分（a/b）。 */
+    public boolean setScore(String warId, String side, int value) {
+        GuildWar war = warById(warId);
+        if (war == null) {
+            return false;
+        }
+        if ("b".equalsIgnoreCase(side)) {
+            war.scoreB(Math.max(0, value));
+        } else {
+            war.scoreA(Math.max(0, value));
+        }
+        publishState(war, true);
+        return true;
+    }
+
+    /** 把管理员传送到当前竞技场（旁观点）；无进行中战斗时传到默认场地 A 点。 */
+    public boolean teleportToArena(Player player) {
+        GuildWar war = current;
+        ArenaDef def = war != null ? plugin.settings().arena(modeOf(war).arena) : currentArena();
+        World world = arenaWorld();
+        if (world == null) {
+            world = def.world != null && !def.world.isBlank() ? Bukkit.getWorld(def.world)
+                    : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
+        }
+        if (world == null) {
+            return false;
+        }
+        Location target = war != null ? def.spawnSpectator.toLocation(world) : def.spawnA.toLocation(world);
+        player.teleport(target);
+        return true;
+    }
+
     private void cancelWar(GuildWar war, String reasonKey) {
         war.state(WarState.CANCELLED);
         observed.remove(war.id());

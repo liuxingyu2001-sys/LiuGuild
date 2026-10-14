@@ -51,6 +51,23 @@
 | `/guildadmin arena setserver <id> <承办服id>` | 设置承办服 |
 | `/guildadmin arena settemplate <id> <模板>` | 设置 liudungeon 动态模板 |
 | `/guildadmin arena create <id>` | 新建竞技场 |
+| `/guildadmin arena remove <id>` | 删除竞技场 |
+| `/guildadmin arena setradius <id> <半径>` | 设置动态世界预热半径 |
+| `/guildadmin arena tp <id>` | 传送到竞技场 A 点 |
+| `/guildadmin arena settempworld <id> <项> <值>` | 设置临时世界（environment / keep-on-end / time / weather / difficulty / name-format） |
+| `/guildadmin arena setgamerule <id> <规则> <true\|false>` | 设置临时世界 gamerule |
+| `/guildadmin arena setafter <id> <项> <值>` | 设置战后行为（auto-return / return-delay-seconds / end-spawn.enabled） |
+| `/guildadmin arena setendspawn <id>` | 把当前位置设为集合点 |
+| `/guildadmin war list` | 进行中的工会战与队列 |
+| `/guildadmin war start <模式> <工会A> <工会B>` | **强制开启一场工会战** |
+| `/guildadmin war stop [id]` | 停止工会战（等同 forceend） |
+| `/guildadmin war tp` | 传送到当前竞技场 |
+| `/guildadmin war score <id> <a\|b> <分>` | 修改比分 |
+| `/guildadmin guilds [页码]` | 分页列出全部工会 |
+| `/guildadmin player <玩家>` | 查看玩家所属工会 |
+| `/guildadmin broadcast <文本>` | 全服广播（支持颜色） |
+| `/guildadmin setbank <工会> <金额>` | 设置工会银行余额 |
+| `/guildadmin cleanup [dry\|confirm]` | 清理僵尸工会 |
 | `/guildadmin kit list` | 装备套装列表 |
 | `/guildadmin kit save <key>` | **把当前身上穿的装备保存为套装** |
 | `/guildadmin kit delete <key>` | 删除套装 |

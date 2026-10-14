@@ -98,7 +98,7 @@ modes:
       # 到点后开放报名/匹配的窗口时长（分钟）
       window-minutes: 10
       # 到点是否自动把符合条件的工会加入匹配队列
-      auto-enqueue: false
+      auto-enqueue: true
       # 赛季奖励点数倍率
       points-multiplier: 1.0
 

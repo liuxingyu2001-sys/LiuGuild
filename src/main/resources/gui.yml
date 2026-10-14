@@ -227,7 +227,12 @@ gui:
         slot: 14
         material: GRASS_BLOCK
         name: "<white>竞技场"
-        lore: ["<gray>查看场地（承办服 / 世界 / 坐标）", "<gray>设置：<white>/guildadmin arena setspawn <id> <a|b|spec>"]
+        lore: ["<gray>图形化编辑场地", "<gray>出生点 / 世界 / 临时世界 / 集合点", "", "<yellow>点击打开"]
+      admin_guilds:
+        slot: 24
+        material: SHIELD
+        name: "<white>工会管理"
+        lore: ["<gray>浏览全部工会", "<gray>改等级 / 资金 / 银行 / 公告", "<gray>强制解散", "", "<yellow>点击打开"]
       admin_kit:
         slot: 16
         material: DIAMOND_CHESTPLATE
