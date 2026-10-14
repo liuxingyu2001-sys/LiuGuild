@@ -307,6 +307,7 @@ public final class GuildManager {
             memberIndex.remove(player.getUniqueId(), id);
             rebuildIndexes();
             if (settings.createCost > 0 && !player.hasPermission("liuguild.create.free")
+                    && plugin.economy().available()
                     && !plugin.economy().deposit(player, settings.createCost)) {
                 plugin.getLogger().severe("工会创建回滚退款失败: 玩家=" + player.getUniqueId() + " guild=" + id);
             }

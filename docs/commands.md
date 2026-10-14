@@ -93,7 +93,7 @@
 | `liuguild.create.free` | op | 免创建费 |
 | `liuguild.war` | true | 参与 / 排队 / 进入工会战（仍需会长或官员身份） |
 | `liuguild.admin` | op | 管理总权限 |
-| `liuguild.admin.reload` / `.status` / `.import` / `.arena` / `.kit` / `.mode` / `.disband` / `.setlevel` / `.setpoints` / `.forceend` | op | 管理子权限 |
+| `liuguild.admin.reload` / `.status` / `.import` / `.arena` / `.kit` / `.mode` / `.war` / `.disband` / `.setlevel` / `.setpoints` / `.setbank` / `.forceend` / `.cleanup` / `.guilds` / `.player` / `.broadcast` / `.gui` | op | 各级管理子权限（默认由 `liuguild.admin` 控制） |
 
 > 指令均带 Tab 补全：子命令、工会名、在线玩家、模式、场地、套装、坐标点均可补全。
 
