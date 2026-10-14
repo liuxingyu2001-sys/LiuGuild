@@ -1292,16 +1292,35 @@ public final class GuildManager {
         if (reward > 0) {
             addPoints(g, reward);
         }
-        if (c.checkinMoney > 0 && plugin.economy().available()) {
+        boolean moneyGiven = c.checkinMoney > 0 && plugin.economy().available();
+        if (moneyGiven) {
             plugin.economy().deposit(player, c.checkinMoney);
         }
-        plugin.messages().send(player, "checkin-success", "streak", streak, "points", reward,
-                "money", plugin.economy().format(c.checkinMoney), "guild", g.name(),
-                "cost", plugin.economy().format(c.checkinCost),
-                "guild_cost", String.valueOf(c.checkinGuildCost));
-        if (c.checkinBroadcast) {
+        // 分行提示：只列出实际发生的项目，0 / 未配置的不占行
+        plugin.messages().sendRaw(player, "checkin-success-header", "streak", streak);
+        if (c.checkinCost > 0) {
+            plugin.messages().sendRaw(player, "checkin-line-cost",
+                    "cost", plugin.economy().format(c.checkinCost));
+        }
+        if (c.checkinGuildCost > 0) {
+            plugin.messages().sendRaw(player, "checkin-line-guild-cost",
+                    "guild_cost", String.valueOf(c.checkinGuildCost));
+        }
+        if (reward > 0) {
+            plugin.messages().sendRaw(player, "checkin-line-points", "points", String.valueOf(reward));
+        }
+        if (moneyGiven) {
+            plugin.messages().sendRaw(player, "checkin-line-money",
+                    "money", plugin.economy().format(c.checkinMoney));
+        }
+        plugin.messages().sendRaw(player, "checkin-success-footer");
+        if (c.checkinBroadcast && reward > 0) {
             notifyGuild(g.id(), plugin.messages().component("checkin-broadcast",
                     "player", player.getName(), "streak", streak, "points", reward),
+                    player.getUniqueId());
+        } else if (c.checkinBroadcast) {
+            notifyGuild(g.id(), plugin.messages().component("checkin-broadcast-plain",
+                    "player", player.getName(), "streak", streak),
                     player.getUniqueId());
         }
         try {

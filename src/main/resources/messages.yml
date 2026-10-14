@@ -123,12 +123,14 @@ zh_CN:
   war-started: "<red><bold>工会战开始！<white>{guild_a}</white> VS <white>{guild_b}</white></red>"
   war-score: "<gray>[工会战] <white>{guild_a}</white> <yellow>{score_a}</yellow> : <yellow>{score_b}</yellow> <white>{guild_b}</white>"
   war-kill: "<gray>{killer} 击杀了 {victim} <dark_gray>(+{points})</dark_gray>"
+  # 击杀不加分（score.kill <= 0）时用这条，不显示分数部分
+  war-kill-plain: "<gray>{killer} 击杀了 {victim}"
   war-ended: "<gold>工会战结束！<white>{winner}</white> 获胜（{score_a} : {score_b}）"
   war-draw: "<gold>工会战平局！（{score_a} : {score_b}）"
   war-end-early: "<yellow>工会战因人数不足提前结束。"
   war-reward-win: "<green>工会战胜利奖励：<white>{money}</white> 个人金币、<white>{guild_funds}</white> 工会资金、<white>{pass_xp}</white> 通行证经验、称号 <white>{title}</white>。"
   war-reward-lose: "<gray>工会战参与奖励：<white>{money}</white> 个人金币、<white>{guild_funds}</white> 工会资金、<white>{pass_xp}</white> 通行证经验。"
-  # 分行奖励提示：只列出实际有值的奖励，没有的项不显示。
+  # 分行奖励提示：只列出实际有值的奖励（0 / 未配置的项不显示、不占行）。
   war-reward-win-header: "<green><bold>━━━ 工会战胜利奖励 ━━━</bold>"
   war-reward-lose-header: "<gray><bold>━━━ 工会战参与奖励 ━━━</bold>"
   war-reward-line-money: "  <gray>· <white>个人金币 <yellow>+{money}"
@@ -239,6 +241,13 @@ zh_CN:
   kit-deleted: "<green>已删除套装 <white>{key}</white>。"
   kit-input: "<gray>请在聊天栏输入套装名（输入 cancel 取消）："
   checkin-success: "<green>签到成功！连续 <white>{streak}</white> 天，获得工会资金 <white>{points}</white>、个人金币 <white>{money}</white>。"
+  # 分行签到提示：只列出实际发生的项（0 / 未配置不显示、不占行）
+  checkin-success-header: "<green><bold>━━━ 签到成功 ━━━</bold> <gray>已连续 <white>{streak}</white> 天"
+  checkin-line-cost: "  <gray>· <white>消耗金币 <red>-{cost}"
+  checkin-line-guild-cost: "  <gray>· <white>消耗工会资金 <red>-{guild_cost}"
+  checkin-line-points: "  <gray>· <white>工会资金 <yellow>+{points}"
+  checkin-line-money: "  <gray>· <white>个人金币 <yellow>+{money}"
+  checkin-success-footer: "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━"
   # 签到消耗（仅当配置了 cost / guild-cost 时才会用到）
   checkin-cost-missing: "<red>签到需要消耗 <white>{cost}</white>，你的余额不足。"
   checkin-guild-cost-missing: "<red>签到需要消耗工会资金 <white>{cost}</white>，工会 <white>{guild}</white> 的余额不足。"
@@ -246,6 +255,7 @@ zh_CN:
   checkin-already: "<gray>今天已经签到过了，明天再来吧。"
   checkin-disabled: "<red>工会签到当前未开启。"
   checkin-broadcast: "<gray>[签到] <white>{player}</white> <gray>已连续签到 <yellow>{streak}</yellow> 天（+{points} 工会资金）"
+  checkin-broadcast-plain: "<gray>[签到] <white>{player}</white> <gray>已连续签到 <yellow>{streak}</yellow> 天"
   admin-cleanup-scan: "<gold>僵尸工会扫描<dark_gray>»</dark_gray> <gray>阈值 <white>{days}</white> 天，命中 <white>{count}</white> 个（试运行，未删除）。"
   admin-verify-result: "<gold>数据校验<dark_gray>»</dark_gray> <gray>发现问题 <white>{count}</white> 个。"
   admin-overrides-cleared: "<gold>覆盖层<dark_gray>»</dark_gray> <gray>已清除 <white>{count}</white> 个覆盖文件，已回退到基础配置。"

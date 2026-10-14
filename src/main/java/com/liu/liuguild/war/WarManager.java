@@ -1936,8 +1936,13 @@ public final class WarManager implements GuildModule {
             }
         }
         Bukkit.getPluginManager().callEvent(new GuildKillEvent(war, killer, victim, points));
-        broadcastWar(war, plugin.messages().component("war-kill",
-                "killer", killer.getName(), "victim", victim.getName(), "points", points));
+        // 只有击杀确实加分时才显示「(+N)」；0 / 负分不展示分数部分
+        net.kyori.adventure.text.Component killMsg = points > 0
+                ? plugin.messages().component("war-kill",
+                        "killer", killer.getName(), "victim", victim.getName(), "points", points)
+                : plugin.messages().component("war-kill-plain",
+                        "killer", killer.getName(), "victim", victim.getName());
+        broadcastWar(war, killMsg);
         publishState(war);
     }
 
