@@ -81,6 +81,7 @@ public final class LiuGuild extends JavaPlugin {
     private com.liu.liuguild.hook.McMmoHook mcmmo;
     private com.liu.liuguild.hook.GuildHomeHook guildHome;
     private com.liu.liuguild.hook.SparrowUiHook sparrowUi;
+    private com.liu.liuguild.hook.PacketEventsHook packetEvents;
 
     private BukkitTask heartbeatTask;
     private BukkitTask configWatchTask;
@@ -132,6 +133,8 @@ public final class LiuGuild extends JavaPlugin {
         guildHome = safe(() -> new com.liu.liuguild.hook.GuildHomeHook(this));
         sparrowUi = safe(() -> new com.liu.liuguild.hook.SparrowUiHook(this));
         if (sparrowUi != null) sparrowUi.init();
+        packetEvents = safe(() -> new com.liu.liuguild.hook.PacketEventsHook(this));
+        if (packetEvents != null) packetEvents.init();
 
         // 核心管理器
         guilds = new GuildManager(this);
@@ -391,6 +394,10 @@ public final class LiuGuild extends JavaPlugin {
         return luckyPeaches;
     }
 
+    public com.liu.liuguild.hook.PacketEventsHook packetEvents() {
+        return packetEvents;
+    }
+
     public NotBountiesHook notBounties() {
         return notBounties;
     }
@@ -577,7 +584,8 @@ public final class LiuGuild extends JavaPlugin {
                 + hook("NotBounties", notBounties != null && notBounties.available())
                 + hook("HuskHomes", guildHome != null && guildHome.available())
                 + hook("mcMMO", mcmmo != null && mcmmo.available())
-                + hook("SparrowUI", sparrowUi != null && sparrowUi.enabled()));
+                + hook("SparrowUI", sparrowUi != null && sparrowUi.enabled())
+                + hook("PacketEvents", packetEvents != null && packetEvents.available()));
         // 模块
         out.add("&7模块: &f" + modules.ids());
         if (!configWarnings.isEmpty()) {

@@ -50,10 +50,12 @@ war:
       per-player: 3
       balance-teams: true
       respawn-delay-seconds: 3
-    prepare-seconds: 30
+    prepare-seconds: 15
     duration-seconds: 600
     settle-seconds: 10
     allow-spectators: true
+    # 准备阶段锁定参赛者（冻结移动/视角/交互），倒计时结束才放开
+    freeze-on-prepare: true
     score:
       kill: 1
       death: -1

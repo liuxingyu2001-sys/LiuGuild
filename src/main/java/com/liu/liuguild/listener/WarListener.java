@@ -79,4 +79,76 @@ public final class WarListener implements GuildModule, Listener {
             }
         }, 1L);
     }
+
+    // =====================================================================
+    // 准备阶段锁定（Bukkit 回退；装了 PacketEvents 时由包拦截更彻底）
+    // =====================================================================
+
+    /** 无 PacketEvents 时阻止移动（有包拦截则跳过，避免双重处理）。 */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onMove(org.bukkit.event.player.PlayerMoveEvent event) {
+        if (usesPackets()) {
+            return;
+        }
+        if (!plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+            return;
+        }
+        // 锁死位置与视角；允许 Y 轴下半格微调以兼容客户端自动修正，不产生抖动
+        org.bukkit.Location from = event.getFrom();
+        org.bukkit.Location to = event.getTo();
+        if (to == null) {
+            return;
+        }
+        if (from.getX() != to.getX() || from.getY() != to.getY() || from.getZ() != to.getZ()) {
+            to.setX(from.getX());
+            to.setY(from.getY());
+            to.setZ(from.getZ());
+        }
+        to.setYaw(from.getYaw());
+        to.setPitch(from.getPitch());
+        event.setTo(to);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onInteract(org.bukkit.event.player.PlayerInteractEvent event) {
+        if (!usesPackets() && plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onDrop(org.bukkit.event.player.PlayerDropItemEvent event) {
+        if (!usesPackets() && plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onBreak(org.bukkit.event.block.BlockBreakEvent event) {
+        if (!usesPackets() && plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onPlace(org.bukkit.event.block.BlockPlaceEvent event) {
+        if (!usesPackets() && plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onDamage(EntityDamageByEntityEvent event) {
+        if (usesPackets() || !(event.getDamager() instanceof Player attacker)) {
+            return;
+        }
+        if (plugin.war().isFrozen(attacker.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** 是否由 PacketEvents 包拦截接管（此时不再走 Bukkit 事件）。 */
+    private boolean usesPackets() {
+        return plugin.packetEvents() != null && plugin.packetEvents().available();
+    }
 }

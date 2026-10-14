@@ -120,7 +120,12 @@ modes:
 - **匹配即自动参战（`war.auto-enter`，默认 `true`）**：匹配成功、竞技场就绪后，系统会自动把双方**在线成员强制传送**到各自出生点并加入名单（承办服直接进入，其余服自动转移到承办服），然后倒计时开战——无需手动执行 `/guild war join`。
   - 不具备 `liuguild.war` 权限的成员视为自愿不参战，不会被强制传送（可用权限作为退出开关）。
   - 关闭 `war.auto-enter` 后恢复手动模式，「匹配成功」消息会附带 `[点击进入竞技场]` 按钮。
-  - 传送后的准备倒计时为各模式的 `prepare-seconds`；想让匹配后尽快开打，把它调小即可。
+- **准备阶段锁定（`freeze-on-prepare`，默认 `true`）**：传送入场后到开战前的 `prepare-seconds` 内，参赛者被完全锁定：
+  - 装了 **PacketEvents** 时在包层改写移动/转视角包为锁定值（不抖动），并取消挖掘/放置/交互/攻击/丢物等包；
+  - 未装时回退 Bukkit 事件拦截（`PlayerMove` 改写 + 交互取消）。
+  - 因此开战瞬间双方都精确站在各自出生点上，位置确定。
+  - 倒计时结束的瞬间自动解锁并转为生存模式，立即开打。
+  - `prepare-seconds` 默认已调至 **15**（原 30），想更快可直接调小或设 `freeze-on-prepare: false`。
 - 非承办服玩家仍可手动使用 `/guild war join` 传送到承办服（例如中途加入）。
 - 场地字段及管理命令见 [arena.md](arena.md)。
 - `fair-equipment` 统一装备；`fair-health` 屏蔽 LuckyPeaches 蟠桃血量。

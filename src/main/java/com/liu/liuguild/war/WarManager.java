@@ -67,6 +67,36 @@ public final class WarManager implements GuildModule {
     private final Set<UUID> spectators = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Integer> livesRemaining = new ConcurrentHashMap<>();
     private final Set<UUID> eliminated = ConcurrentHashMap.newKeySet();
+    /** 准备阶段被锁定（冻结）的参赛者；开战时解除。 */
+    private final Set<UUID> frozen = ConcurrentHashMap.newKeySet();
+
+    /** 玩家是否处于「准备阶段锁定」状态。 */
+    public boolean isFrozen(UUID uuid) {
+        return frozen.contains(uuid);
+    }
+
+    /** 玩家当前的锁定坐标（准备阶段出生点）；未锁定时返回 null。 */
+    public Location freezeLocation(UUID uuid) {
+        if (!frozen.contains(uuid)) {
+            return null;
+        }
+        String side = sideOf.get(uuid);
+        GuildWar war = current;
+        if (side == null || war == null) {
+            return null;
+        }
+        WarMode mode = modeOf(war);
+        if (mode == null) {
+            return null;
+        }
+        ArenaDef def = plugin.settings().arena(mode.arena);
+        World world = arenaWorld();
+        if (def == null || world == null) {
+            return null;
+        }
+        ArenaDef.Spawn spawn = def.teamSpawn(side);
+        return spawn == null ? null : spawn.toLocation(world);
+    }
 
     /** 所有服务器共享的「进行中工会战」镜像，用于战况展示。 */
     private final Map<String, GuildWar> observed = new ConcurrentHashMap<>();
@@ -1030,12 +1060,115 @@ public final class WarManager implements GuildModule {
         plugin.bus().transfer().connect(player, war.hostServer());
     }
 
+    // =====================================================================
+    // 准备阶段锁定（冻结）
+    // =====================================================================
+
+    /** 锁定一名参赛者：固定位置/视角、禁动、禁交互，确保开战瞬间站位一致。 */
+    private void freezePlayer(Player player, GuildWar war, String side) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        WarMode mode = modeOf(war);
+        if (mode == null || !mode.freezeOnPrepare) {
+            return;
+        }
+        // 再次盯回出生点，避免传送偏差
+        ArenaDef def = plugin.settings().arena(mode.arena);
+        ArenaDef.Spawn spawn = def == null ? null : def.teamSpawn(side);
+        if (spawn != null && arenaWorld() != null) {
+            player.teleport(spawn.toLocation(arenaWorld()));
+        }
+        frozen.add(player.getUniqueId());
+        player.setWalkSpeed(0f);
+        player.setFlySpeed(0f);
+        player.setAllowFlight(false);
+        player.setFlying(false);
+        player.setInvulnerable(true);
+        player.setCollidable(false);
+        if (!player.getGameMode().isInvulnerable()) {
+            player.setGameMode(org.bukkit.GameMode.ADVENTURE);
+        }
+        // 清空速度，避免开战瞬间弹飞
+        player.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+    }
+
+    /** 解除锁定：恢复行走速度与生存模式。 */
+    private void unfreezePlayer(Player player) {
+        if (player == null) {
+            return;
+        }
+        if (!frozen.remove(player.getUniqueId())) {
+            return;
+        }
+        player.setWalkSpeed(0.2f);
+        player.setFlySpeed(0.1f);
+        player.setInvulnerable(false);
+        player.setCollidable(true);
+        if (player.getGameMode() == org.bukkit.GameMode.ADVENTURE) {
+            player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+        }
+    }
+
+    /** 解除当前战局所有参赛者的锁定（开战 / 结束时调用）。 */
+    private void unfreezeAll(GuildWar war) {
+        if (frozen.isEmpty()) {
+            return;
+        }
+        java.util.Set<UUID> targets = new java.util.HashSet<>(frozen);
+        for (UUID u : targets) {
+            Player p = plugin.player(u);
+            if (p != null) {
+                unfreezePlayer(p);
+            } else {
+                frozen.remove(u);
+            }
+        }
+    }
+
+    /** 准备阶段每秒调用：把被抓回出生点或被改速度的玩家重新锁好。 */
+    private void enforceFreeze(GuildWar war) {
+        if (frozen.isEmpty()) {
+            return;
+        }
+        WarMode mode = modeOf(war);
+        if (mode == null || !mode.freezeOnPrepare) {
+            unfreezeAll(war);
+            return;
+        }
+        for (UUID u : new java.util.ArrayList<>(frozen)) {
+            Player p = plugin.player(u);
+            if (p == null) {
+                frozen.remove(u);
+                continue;
+            }
+            String side = sideOf.get(u);
+            ArenaDef def = plugin.settings().arena(mode.arena);
+            ArenaDef.Spawn spawn = def == null || side == null ? null : def.teamSpawn(side);
+            World world = arenaWorld();
+            if (spawn != null && world != null) {
+                Location target = spawn.toLocation(world);
+                Location cur = p.getLocation();
+                if (cur.getWorld() != world || cur.distanceSquared(target) > 1.0) {
+                    p.teleport(target);
+                }
+            }
+            if (p.getWalkSpeed() != 0f) {
+                p.setWalkSpeed(0f);
+            }
+            if (!p.isInvulnerable()) {
+                p.setInvulnerable(true);
+            }
+        }
+    }
+
     private void beginActive(GuildWar war) {
         WarMode mode = modeOf(war);
         if (war.rosterA().isEmpty() || war.rosterB().isEmpty()) {
             cancelWar(war, "war-no-participants");
             return;
         }
+        unfreezeAll(war);
         war.state(WarState.ACTIVE);
         initializeLives(war, modeOf(war));
         war.startedAt(System.currentTimeMillis());
@@ -1074,6 +1207,7 @@ public final class WarManager implements GuildModule {
         }
         switch (war.state()) {
             case PREPARING -> {
+                enforceFreeze(war);
                 if (sec != lastBroadcastSecond && (sec <= 10 || sec % 30 == 0)) {
                     lastBroadcastSecond = sec;
                     broadcastWar(war, plugin.messages().component("war-countdown", "seconds", sec));
@@ -1327,6 +1461,7 @@ public final class WarManager implements GuildModule {
         livesRemaining.clear();
         eliminated.clear();
         handledLethal.clear();
+        frozen.clear();
         settling = false;
         settleQueue.clear();
         clearWarBar();
@@ -1419,8 +1554,11 @@ public final class WarManager implements GuildModule {
         plugin.kits().apply(player, mode);
         teleportToSpawn(player, war, s);
         plugin.messages().send(player, "war-joined");
-        // 传送后确保 game mode
+        // 传送后确保 game mode，并在准备阶段锁定（开战时自动解除）
         player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+        if (war.state() == WarState.PREPARING) {
+            freezePlayer(player, war, s);
+        }
         showWarBar(player.getUniqueId());
     }
 
@@ -1450,6 +1588,7 @@ public final class WarManager implements GuildModule {
 
     private void leaveLocal(UUID uuid) {
         Player p = plugin.player(uuid);
+        unfreezePlayer(p);
         finishTeleport(uuid, p);
         restoreSnapshot(uuid, p);
         if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
@@ -1691,6 +1830,7 @@ public final class WarManager implements GuildModule {
         if (!handledLethal.add(uuid)) {
             return true;
         }
+        unfreezePlayer(victim); // 死亡时先解除锁定，避免观战/复活后仍被冻结
         int remaining = Math.max(0, livesRemaining.getOrDefault(uuid, modeOf(war).livesPerPlayer) - 1);
         livesRemaining.put(uuid, remaining);
         victim.setFireTicks(0);

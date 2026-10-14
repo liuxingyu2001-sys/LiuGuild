@@ -39,7 +39,7 @@ public final class WarMode {
     public int respawnDelaySeconds = 3;
 
     // ---- 节奏 ----
-    public int prepareSeconds = 30;
+    public int prepareSeconds = 15;
     public int durationSeconds = 600;
     public int settleSeconds = 10;
 
@@ -50,6 +50,11 @@ public final class WarMode {
 
     // ---- 场地 / 承办 ----
     public boolean allowSpectators = true;
+    /**
+     * 准备阶段是否锁定参赛者：冻结位置与视角、禁止移动/转视角/交互/丢物，倒计时结束才放开（默认开）。
+     * <p>保证开战瞬间双方都在出生点上，避免等待期间乱跑导致开战位置不确定。</p>
+     */
+    public boolean freezeOnPrepare = true;
     /** 引用 arena.yml 中的竞技场 id。 */
     public String arena = "main";
     /** 覆盖竞技场/全局的承办服；留空 = 使用竞技场或全局设置。 */
@@ -105,6 +110,7 @@ public final class WarMode {
         m.scoreDeath = sec.getInt("score.death", m.scoreDeath);
         m.scoreObjective = sec.getInt("score.objective", m.scoreObjective);
         m.allowSpectators = sec.getBoolean("allow-spectators", m.allowSpectators);
+        m.freezeOnPrepare = sec.getBoolean("freeze-on-prepare", m.freezeOnPrepare);
         m.arena = sec.getString("arena", m.arena);
         m.dedicatedServer = sec.getString("dedicated-server", m.dedicatedServer);
         m.winPlayerMoney = Math.max(0, sec.getDouble("rewards.win-player-money", m.winPlayerMoney));
@@ -152,6 +158,7 @@ public final class WarMode {
         c.scoreDeath = scoreDeath;
         c.scoreObjective = scoreObjective;
         c.allowSpectators = allowSpectators;
+        c.freezeOnPrepare = freezeOnPrepare;
         c.arena = arena;
         c.dedicatedServer = dedicatedServer;
         c.winPlayerMoney = winPlayerMoney;

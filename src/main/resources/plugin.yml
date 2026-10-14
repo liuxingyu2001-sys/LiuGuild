@@ -22,6 +22,7 @@ softdepend:
   - Vault
   - PlaceholderAPI
   - LuckPerms
+  - packetevents
 
 # 依赖库交给 Paper 自己下载并挂到本插件类加载器，不打进 jar。
 # 版本刻意与服务器 libraries/ 里已有坐标保持一致，避免重复下载与版本冲突。

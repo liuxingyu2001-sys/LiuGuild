@@ -1,7 +1,18 @@
 # 软依赖钩子
 
-所有钩子均通过反射访问，缺失时对应功能自动降级，不影响插件启动。
+所有钩子均通过反射/软依赖访问，缺失时对应功能自动降级，不影响插件启动。
 `/guildadmin status` 会显示每个钩子的可用状态。
+
+## PacketEvents（包级拦截，工会战准备阶段锁定）
+
+用于在**网络包层**锁定准备阶段的参赛者，比 Bukkit 事件更彻底、开销更低：
+
+- 移动/转视角包（`PLAYER_POSITION` / `PLAYER_POSITION_AND_ROTATION` / `PLAYER_ROTATION` / `PLAYER_FLYING`）
+  被直接**改写为锁定坐标与朝向**后放行 —— 客户端不会抖动，服务端也无需回调拉回。
+- 挖掘 / 放置 / 使用物品 / 攻击 / 交互 / 丢物 / 快捷栏 / 载具等交互包**直接取消**。
+- 未安装 PacketEvents 时自动回退到 Bukkit 事件拦截（功能等价，但可能有轻微位置抖动）。
+- 开关：各模式的 `freeze-on-prepare`（默认 `true`）；`prepare-seconds` 为锁定持续时长。
+- 软依赖：`plugin.yml` 的 `softdepend: packetevents`，未安装不影响启动。
 
 ## liudungeon（动态竞技场世界）
 
