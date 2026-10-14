@@ -71,6 +71,20 @@ guild:
     max-streak-bonus: 50
     # 是否向全会成员广播签到
     broadcast: true
+  # 玩家在线活跃 → 工会资金
+  # 只统计「活跃」在线成员（afk-seconds 内移动/交互/战斗/钓鱼过），避免挂机白嫖
+  activity:
+    enabled: true
+    # 结算间隔（秒，至少 30）
+    interval-seconds: 300
+    # 每个活跃在线成员每次结算贡献的工会资金
+    points-per-player: 2
+    # 每个工会每天最多通过在线活跃获得的工会资金（0 = 不限）
+    daily-cap: 1000
+    # 多久没有任何操作算挂机（秒，0 = 不检测，纯在线即算）
+    afk-seconds: 180
+    # 至少需要多少名活跃成员才结算（0 = 有 1 名即可）
+    min-online: 1
   # 工会改名字
   rename:
     # 是否允许会长改名字（/guild rename 或设置菜单）

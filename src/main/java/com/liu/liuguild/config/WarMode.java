@@ -73,6 +73,8 @@ public final class WarMode {
     public double losePlayerMoney = 100.0;
     public long winGuildFunds = 5000L;
     public long loseGuildFunds = 1000L;
+    /** 该模式每个工会每天最多能通过工会战获得的工会资金（0 = 不限）。 */
+    public long dailyGuildFundsCap = 0L;
     public int winPassXp = 500;
     public int losePassXp = 100;
     public String passId = "";
@@ -240,6 +242,7 @@ public final class WarMode {
                 (long) sec.getDouble("rewards.win-money", m.winGuildFunds)));
         m.loseGuildFunds = Math.max(0, sec.getLong("rewards.lose-guild-funds",
                 (long) sec.getDouble("rewards.lose-money", m.loseGuildFunds)));
+        m.dailyGuildFundsCap = Math.max(0, sec.getLong("rewards.daily-guild-funds-cap", m.dailyGuildFundsCap));
         m.winPassXp = Math.max(0, sec.getInt("rewards.win-pass-xp", m.winPassXp));
         m.losePassXp = Math.max(0, sec.getInt("rewards.lose-pass-xp", m.losePassXp));
         m.passId = sec.getString("rewards.pass-id", m.passId);
@@ -289,6 +292,7 @@ public final class WarMode {
         c.losePlayerMoney = losePlayerMoney;
         c.winGuildFunds = winGuildFunds;
         c.loseGuildFunds = loseGuildFunds;
+        c.dailyGuildFundsCap = dailyGuildFundsCap;
         c.winPassXp = winPassXp;
         c.losePassXp = losePassXp;
         c.passId = passId;

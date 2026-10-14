@@ -79,6 +79,7 @@ public final class LiuGuild extends JavaPlugin {
     private LuckyPeachesHook luckyPeaches;
     private com.liu.liuguild.hook.ResidenceHook residence;
     private com.liu.liuguild.warehouse.WarehouseService warehouse;
+    private com.liu.liuguild.activity.ActivityService activity;
     private com.liu.liuguild.title.TitleService titles;
     private com.liu.liuguild.shop.ShopService shop;
     private com.liu.liuguild.hook.LiuShopHook liuShop;
@@ -167,6 +168,8 @@ public final class LiuGuild extends JavaPlugin {
         modules.register(new com.liu.liuguild.listener.WarFreezeListener(this));
         warehouse = new com.liu.liuguild.warehouse.WarehouseService(this);
         modules.register(warehouse);
+        activity = new com.liu.liuguild.activity.ActivityService(this);
+        modules.register(activity);
         titles = new com.liu.liuguild.title.TitleService(this);
         modules.register(titles);
         shop = new com.liu.liuguild.shop.ShopService(this);
@@ -416,6 +419,10 @@ public final class LiuGuild extends JavaPlugin {
 
     public com.liu.liuguild.warehouse.WarehouseService warehouse() {
         return warehouse;
+    }
+
+    public com.liu.liuguild.activity.ActivityService activity() {
+        return activity;
     }
 
     public com.liu.liuguild.title.TitleService titles() {

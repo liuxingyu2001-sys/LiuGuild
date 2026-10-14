@@ -1358,6 +1358,91 @@ public final class GuildManager {
         });
     }
 
+    // =====================================================================
+    // 带每日上限的工会资金（工会战 / 在线活跃）
+    // =====================================================================
+
+    /** 工会战奖励（带每日上限）；返回预计发放额（用于展示），实际以数据库原子判定为准。 */
+    public long grantWarFunds(Guild g, long nominal, long dailyCap) {
+        return grantDailyCapped(g, nominal, dailyCap, true);
+    }
+
+    /** 玩家在线活跃奖励（每日上限来自 guild.activity.daily-cap）。 */
+    public long grantActivityFunds(Guild g, long nominal) {
+        return grantDailyCapped(g, nominal, conf().activityDailyCap, false);
+    }
+
+    /** 某工会当日已通过工会战 / 在线活跃获得的工会资金（用于展示/占位符）。 */
+    public long dailyEarned(Guild g, boolean war) {
+        if (g == null) {
+            return 0;
+        }
+        long day = com.liu.liuguild.util.TimeUtil.todayEpochDay();
+        return war ? (g.warFundsDay() == day ? g.warFundsEarned() : 0)
+                : (g.activityDay() == day ? g.activityEarned() : 0);
+    }
+
+    /**
+     * 发放带每日上限的工会资金。
+     *
+     * <p>先按本地缓存算出发放额（用于即时展示，并保证同一 tick 内多次发放也受上限约束），
+     * 再异步用数据库的原子「读-算-乐观锁写」落库，多台子服并发也不会超发；
+     * 写入后回读点数与每日计数校正缓存。</p>
+     */
+    public long grantDailyCapped(Guild g, long nominal, long dailyCap, boolean war) {
+        if (g == null || nominal <= 0) {
+            return 0;
+        }
+        long day = com.liu.liuguild.util.TimeUtil.todayEpochDay();
+        long used = war ? (g.warFundsDay() == day ? g.warFundsEarned() : 0)
+                : (g.activityDay() == day ? g.activityEarned() : 0);
+        long granted = dailyCap <= 0 ? nominal : Math.min(nominal, Math.max(0, dailyCap - used));
+        if (granted <= 0) {
+            return 0;
+        }
+        // 乐观累加：同一 tick 内多次发放也受上限约束
+        if (war) {
+            g.warFundsDay(day);
+            g.warFundsEarned(used + granted);
+        } else {
+            g.activityDay(day);
+            g.activityEarned(used + granted);
+        }
+        final String id = g.id();
+        final long amount = granted;
+        plugin.async(() -> {
+            try {
+                plugin.repo().grantDailyCapped(id, amount, day, dailyCap, war);
+            } catch (Exception e) {
+                plugin.getLogger().warning("发放每日上限工会资金失败: " + e.getMessage());
+            }
+            plugin.broadcastGuildChange(id);
+            pullPoints(id, true);
+            pullDaily(id);
+        });
+        return granted;
+    }
+
+    /** 从数据库回读每日计数并校正缓存。 */
+    private void pullDaily(String guildId) {
+        long[] d;
+        try {
+            d = plugin.repo().loadDailyFunds(guildId);
+        } catch (Exception e) {
+            return;
+        }
+        plugin.sync(() -> {
+            Guild cached = guild(guildId);
+            if (cached == null) {
+                return;
+            }
+            cached.warFundsDay(d[0]);
+            cached.warFundsEarned(d[1]);
+            cached.activityDay(d[2]);
+            cached.activityEarned(d[3]);
+        });
+    }
+
     /**
      * 每日工会签到：以本地自然日为准，连续签到获得额外工会资金。
      */

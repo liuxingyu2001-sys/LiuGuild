@@ -53,9 +53,11 @@ modes:
       # Vault 个人金币（发给每位参赛者）
       win-player-money: 500.0
       lose-player-money: 100.0
-      # 工会银行资金（不发点券/点数）
-      win-guild-funds: 5000
-      lose-guild-funds: 1000
+      # 工会资金（点数，发给工会）；匹配战已下调，避免刷分
+      win-guild-funds: 800
+      lose-guild-funds: 100
+      # 每个工会每天通过工会战最多获得的工会资金（0 = 不限）
+      daily-guild-funds-cap: 2000
       win-pass-xp: 500
       lose-pass-xp: 100
       pass-id: ""
@@ -116,6 +118,8 @@ modes:
       lose-player-money: 300.0
       win-guild-funds: 12000
       lose-guild-funds: 3000
+      # 赛季奖励更高，单独抬高每日上限
+      daily-guild-funds-cap: 20000
       win-pass-xp: 1500
       lose-pass-xp: 300
       pass-id: ""

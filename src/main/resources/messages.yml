@@ -136,6 +136,7 @@ zh_CN:
   war-reward-lose-header: "<gray><bold>━━━ 工会战参与奖励 ━━━</bold>"
   war-reward-line-money: "  <gray>· <white>个人金币 <yellow>+{money}"
   war-reward-line-funds: "  <gray>· <white>工会资金 <yellow>+{funds}"
+  war-reward-line-funds-capped: "  <gray>· <white>工会资金 <red>已达今日上限({cap})，本场不再获得"
   war-reward-line-pass: "  <gray>· <white>通行证经验 <yellow>+{pass_xp} <dark_gray>({pass})"
   war-reward-line-title: "  <gray>· <white>称号 <aqua>#{title}"
   # {label} = rewards.command-labels 里的自定义名称；未配置则显示指令本身

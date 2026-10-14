@@ -237,4 +237,44 @@ class GuildSettingsTest {
         // 完全没有 fallback → 至少 1 天
         assertArrayEquals(new int[]{1}, GuildSettings.parseDayOptions(null, null));
     }
+
+    // =====================================================================
+    // 在线活跃 → 工会资金
+    // =====================================================================
+
+    @Test
+    void activityConfigParsesAndClamps() {
+        org.bukkit.configuration.file.YamlConfiguration c =
+                new org.bukkit.configuration.file.YamlConfiguration();
+        try {
+            c.loadFromString("""
+                    guild:
+                      activity:
+                        enabled: false
+                        interval-seconds: 5
+                        points-per-player: -8
+                        daily-cap: -1
+                        afk-seconds: -3
+                        min-online: -2
+                    """);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        GuildSettings s = GuildSettings.parse(c);
+        assertFalse(s.activityEnabled);
+        assertEquals(30, s.activityIntervalSeconds, "间隔不能小于 30 秒");
+        assertEquals(0, s.activityPointsPerPlayer, "负点数归零");
+        assertEquals(0, s.activityDailyCap);
+        assertEquals(0, s.activityAfkSeconds);
+        assertEquals(0, s.activityMinOnline);
+    }
+
+    @Test
+    void activityRewardRequiresMinOnline() {
+        assertEquals(0, GuildSettings.activityReward(0, 1, 5));
+        assertEquals(5, GuildSettings.activityReward(1, 1, 5));
+        assertEquals(0, GuildSettings.activityReward(2, 3, 5), "人数不足 min-online 不发");
+        assertEquals(15, GuildSettings.activityReward(3, 3, 5));
+        assertEquals(0, GuildSettings.activityReward(5, 0, 0), "每人 0 点时不发");
+    }
 }

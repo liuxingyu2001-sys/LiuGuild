@@ -384,4 +384,52 @@ class GuildRepositoryTest {
         assertTrue(repo.raiseLevel(id, 4));
         assertEquals(4, repo.loadGuild(id).level());
     }
+
+    // =====================================================================
+    // 每日上限发放（工会战 / 在线活跃）
+    // =====================================================================
+
+    @Test
+    void dailyCappedGrantStopsAtCap() throws Exception {
+        String id = newGuild("Daily", "DL");
+        assertEquals(300, repo.grantDailyCapped(id, 300, 100, 500, true));
+        assertEquals(200, repo.grantDailyCapped(id, 300, 100, 500, true), "第二次只能补到上限");
+        assertEquals(0, repo.grantDailyCapped(id, 300, 100, 500, true), "已达上限不再发");
+        assertEquals(500, repo.loadGuild(id).points());
+        long[] d = repo.loadDailyFunds(id);
+        assertEquals(100, d[0]);
+        assertEquals(500, d[1]);
+        // 活跃计数不受影响
+        assertEquals(0, d[2]);
+        assertEquals(0, d[3]);
+    }
+
+    @Test
+    void dailyCappedGrantResetsOnNewDay() throws Exception {
+        String id = newGuild("Reset", "RS");
+        assertEquals(100, repo.grantDailyCapped(id, 100, 5, 100, true));
+        assertEquals(0, repo.grantDailyCapped(id, 100, 5, 100, true));
+        assertEquals(100, repo.grantDailyCapped(id, 100, 6, 100, true), "新自然日上限重置");
+        assertEquals(200, repo.loadGuild(id).points());
+    }
+
+    @Test
+    void dailyCappedGrantUnlimitedWhenCapIsZero() throws Exception {
+        String id = newGuild("Unlimited", "UL");
+        assertEquals(5000, repo.grantDailyCapped(id, 5000, 7, 0, false));
+        assertEquals(5000, repo.grantDailyCapped(id, 5000, 7, 0, false));
+        assertEquals(10000, repo.loadGuild(id).points());
+    }
+
+    @Test
+    void warAndActivityDailyCountersAreIndependent() throws Exception {
+        String id = newGuild("Independent", "IN");
+        assertEquals(80, repo.grantDailyCapped(id, 80, 9, 100, true));
+        assertEquals(100, repo.grantDailyCapped(id, 100, 9, 100, false));
+        long[] d = repo.loadDailyFunds(id);
+        assertEquals(9, d[0]);
+        assertEquals(80, d[1]);
+        assertEquals(9, d[2]);
+        assertEquals(100, d[3]);
+    }
 }

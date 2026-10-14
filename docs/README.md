@@ -21,6 +21,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [home.md](home.md) | 工会驻地（HuskHomes 传送） |
 | [cleanup.md](cleanup.md) | 僵尸工会清理（自动/手动） |
 | [checkin.md](checkin.md) | 工会每日签到（连续奖励） |
+| [activity.md](activity.md) | 玩家在线活跃发工会资金（活跃判定 + 每日上限） |
 | [residence.md](residence.md) | Residence 领地共享 |
 | [warehouse.md](warehouse.md) | 工会仓库（跨服共享 + 原子锁） |
 | [titles.md](titles.md) | 工会自定义头衔 |

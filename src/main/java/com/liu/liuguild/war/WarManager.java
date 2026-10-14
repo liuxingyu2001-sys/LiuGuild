@@ -1384,32 +1384,41 @@ public final class WarManager implements GuildModule {
         // 平局时两方均按参与奖励结算，不发胜利称号。
         boolean aWon = winnerId != null && winnerId.equals(war.guildA());
         boolean bWon = winnerId != null && winnerId.equals(war.guildB());
-        rewardGuild(plugin.guilds().guild(war.guildA()), aWon, w, mult);
-        rewardGuild(plugin.guilds().guild(war.guildB()), bWon, w, mult);
+        long nominalA = wonGuildFunds(aWon, w, mult);
+        long nominalB = wonGuildFunds(bWon, w, mult);
+        long fundsA = rewardGuild(plugin.guilds().guild(war.guildA()), aWon, w, mult);
+        long fundsB = rewardGuild(plugin.guilds().guild(war.guildB()), bWon, w, mult);
         for (UUID u : new ArrayList<>(war.rosterA())) {
-            settleQueue.add(() -> rewardPlayer(u, aWon, w, mult));
+            settleQueue.add(() -> rewardPlayer(u, aWon, w, mult, fundsA, nominalA));
         }
         for (UUID u : new ArrayList<>(war.rosterB())) {
-            settleQueue.add(() -> rewardPlayer(u, bWon, w, mult));
+            settleQueue.add(() -> rewardPlayer(u, bWon, w, mult, fundsB, nominalB));
         }
     }
 
-    private void rewardGuild(Guild guild, boolean won, WarMode mode, double multiplier) {
+    /**
+     * 发放工会资金奖励（受该模式每日上限约束）。
+     *
+     * @return 实际（预计）发放的点数，用于结算消息展示
+     */
+    private long rewardGuild(Guild guild, boolean won, WarMode mode, double multiplier) {
         if (guild == null) {
-            return;
+            return 0;
         }
-        plugin.guilds().addPoints(guild, Math.round((won ? mode.winGuildFunds : mode.loseGuildFunds) * multiplier));
+        long nominal = wonGuildFunds(won, mode, multiplier);
+        long granted = plugin.guilds().grantWarFunds(guild, nominal, mode.dailyGuildFundsCap);
         if (won) {
             guild.wins(guild.wins() + 1);
         } else {
             guild.losses(guild.losses() + 1);
         }
         plugin.guilds().saveGuild(guild);
+        return granted;
     }
 
-    private void rewardPlayer(UUID uuid, boolean win, WarMode mode, double multiplier) {
+    private void rewardPlayer(UUID uuid, boolean win, WarMode mode, double multiplier,
+                              long guildFundsGranted, long guildFundsNominal) {
         double money = (win ? mode.winPlayerMoney : mode.losePlayerMoney) * multiplier;
-        double guildFunds = wonGuildFunds(win, mode, multiplier);
         int passXp = (int) Math.min(Integer.MAX_VALUE,
                 Math.round((win ? mode.winPassXp : mode.losePassXp) * multiplier));
         int titleId = win ? mode.winTitleId : 0;
@@ -1435,8 +1444,11 @@ public final class WarManager implements GuildModule {
             plugin.messages().sendRaw(player, "war-reward-line-money",
                     "money", plugin.economy().format(money));
         }
-        if (guildFunds > 0) {
-            plugin.messages().sendRaw(player, "war-reward-line-funds", "funds", String.valueOf(guildFunds));
+        if (guildFundsGranted > 0) {
+            plugin.messages().sendRaw(player, "war-reward-line-funds", "funds", String.valueOf(guildFundsGranted));
+        } else if (guildFundsNominal > 0) {
+            plugin.messages().sendRaw(player, "war-reward-line-funds-capped",
+                    "cap", String.valueOf(mode.dailyGuildFundsCap));
         }
         if (passXp > 0) {
             plugin.messages().sendRaw(player, "war-reward-line-pass",

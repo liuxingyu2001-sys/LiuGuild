@@ -297,6 +297,77 @@ public final class GuildRepository {
     }
 
     /**
+     * 发放「带每日上限」的工会资金：扣减无，直接给 points 加值，并累加当日计数。
+     *
+     * <p>跨服并发用「读-算-乐观锁写」：读当前日与当日已发放额，算出本次实发额，
+     * 再用 {@code WHERE day=? AND earned=?} 作乐观锁写入；影响 0 行则重试。
+     * 这样多台子服同时发放也不会突破每日上限，且同一语句内完成 points 与计数更新。</p>
+     *
+     * @param war true = 工会战计数列；false = 在线活跃计数列
+     * @return 实际发放的点数（0 = 已达上限或工会不存在）
+     */
+    public long grantDailyCapped(String guildId, long delta, long day, long cap, boolean war) throws SQLException {
+        if (delta <= 0) {
+            return 0;
+        }
+        String dayCol = war ? "war_funds_day" : "activity_day";
+        String earnedCol = war ? "war_funds_earned" : "activity_earned";
+        String select = "SELECT `" + dayCol + "`,`" + earnedCol + "` FROM `" + db.t("guilds") + "` WHERE `guild_id`=?";
+        String update = "UPDATE `" + db.t("guilds") + "` SET `points`=`points`+?,`" + dayCol + "`=?,`" + earnedCol + "`=?"
+                + " WHERE `guild_id`=? AND `" + dayCol + "`=? AND `" + earnedCol + "`=?";
+        for (int attempt = 0; attempt < 8; attempt++) {
+            long curDay;
+            long earned;
+            try (Connection c = db.source().getConnection();
+                 PreparedStatement ps = c.prepareStatement(select)) {
+                ps.setString(1, guildId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        return 0;
+                    }
+                    curDay = rs.getLong(1);
+                    earned = rs.getLong(2);
+                }
+            }
+            long used = curDay == day ? earned : 0;
+            long granted = cap <= 0 ? delta : Math.min(delta, Math.max(0, cap - used));
+            if (granted <= 0) {
+                return 0;
+            }
+            long newEarned = used + granted;
+            try (Connection c = db.source().getConnection();
+                 PreparedStatement ps = c.prepareStatement(update)) {
+                ps.setLong(1, granted);
+                ps.setLong(2, day);
+                ps.setLong(3, newEarned);
+                ps.setString(4, guildId);
+                ps.setLong(5, curDay);
+                ps.setLong(6, earned);
+                if (ps.executeUpdate() > 0) {
+                    return granted;
+                }
+            }
+        }
+        return 0;
+    }
+
+    /** 读取每日上限计数：{工会战日, 工会战已发, 活跃日, 活跃已发}。 */
+    public long[] loadDailyFunds(String guildId) throws SQLException {
+        String sql = "SELECT `war_funds_day`,`war_funds_earned`,`activity_day`,`activity_earned`"
+                + " FROM `" + db.t("guilds") + "` WHERE `guild_id`=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, guildId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return new long[]{0, 0, 0, 0};
+                }
+                return new long[]{rs.getLong(1), rs.getLong(2), rs.getLong(3), rs.getLong(4)};
+            }
+        }
+    }
+
+    /**
      * 原子购买工会仓库使用时间：扣点数并把到期时间延长 {@code durationMillis}。
      *
      * <p>用一条 UPDATE 同时完成扣费与续期，且续期以「当前到期时间与 now 的较大值」为基准，
@@ -833,6 +904,10 @@ public final class GuildRepository {
         try {
             g.warehouseLevel(rs.getInt("warehouse_level"));
             g.warehouseExpiresAt(rs.getLong("warehouse_expires_at"));
+            g.warFundsDay(rs.getLong("war_funds_day"));
+            g.warFundsEarned(rs.getLong("war_funds_earned"));
+            g.activityDay(rs.getLong("activity_day"));
+            g.activityEarned(rs.getLong("activity_earned"));
         } catch (SQLException ignored) {
             // 旧库尚未补列时忽略（migrate 会补齐）
         }

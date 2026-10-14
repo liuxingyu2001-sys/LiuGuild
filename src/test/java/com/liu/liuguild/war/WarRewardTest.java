@@ -106,4 +106,21 @@ class WarRewardTest {
         WarMode m = parse("rewards: {win-player-money: 10.0}");
         assertTrue(m.extraRewards.isEmpty());
     }
+
+    @Test
+    void dailyGuildFundsCapParsesAndCopies() {
+        WarMode m = parse("""
+                rewards:
+                  win-guild-funds: 800
+                  lose-guild-funds: 100
+                  daily-guild-funds-cap: 2000
+                """);
+        assertEquals(800, m.winGuildFunds);
+        assertEquals(100, m.loseGuildFunds);
+        assertEquals(2000, m.dailyGuildFundsCap);
+        assertEquals(2000, m.copy().dailyGuildFundsCap, "copy 必须带上每日上限");
+        assertEquals(0, new WarMode().dailyGuildFundsCap, "默认不限");
+        // 负值归零（= 不限），不会变成负数
+        assertEquals(0, parse("rewards: {daily-guild-funds-cap: -5}").dailyGuildFundsCap);
+    }
 }

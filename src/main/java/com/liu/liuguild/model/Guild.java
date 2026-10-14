@@ -37,6 +37,12 @@ public final class Guild {
     private volatile int warehouseLevel;
     /** 工会仓库使用到期时间（epoch 毫秒，0 = 从未购买）。 */
     private volatile long warehouseExpiresAt;
+    /** 工会战工会资金每日上限计数：自然日（epoch day）与当日已发放额。 */
+    private volatile long warFundsDay;
+    private volatile long warFundsEarned;
+    /** 玩家在线活跃每日上限计数：自然日（epoch day）与当日已发放额。 */
+    private volatile long activityDay;
+    private volatile long activityEarned;
 
     private final Map<UUID, GuildMember> members = new ConcurrentHashMap<>();
 
@@ -236,6 +242,38 @@ public final class Guild {
     /** 仓库使用是否在有效期内（到期时间 0 = 从未购买，视为未开通）。 */
     public boolean warehouseActive(long now) {
         return warehouseExpiresAt > now;
+    }
+
+    public long warFundsDay() {
+        return warFundsDay;
+    }
+
+    public void warFundsDay(long warFundsDay) {
+        this.warFundsDay = warFundsDay;
+    }
+
+    public long warFundsEarned() {
+        return warFundsEarned;
+    }
+
+    public void warFundsEarned(long warFundsEarned) {
+        this.warFundsEarned = Math.max(0, warFundsEarned);
+    }
+
+    public long activityDay() {
+        return activityDay;
+    }
+
+    public void activityDay(long activityDay) {
+        this.activityDay = activityDay;
+    }
+
+    public long activityEarned() {
+        return activityEarned;
+    }
+
+    public void activityEarned(long activityEarned) {
+        this.activityEarned = Math.max(0, activityEarned);
     }
 
     public String homeServer() {

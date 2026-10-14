@@ -68,6 +68,20 @@ public final class GuildSettings {
     /** 每日签到消耗的工会资金（点数，0 = 不扣）。 */
     public long checkinGuildCost = 0;
 
+    // ---- 在线活跃发工会资金 ----
+    /** 是否启用「玩家在线活跃 → 工会资金」。 */
+    public boolean activityEnabled = true;
+    /** 结算间隔（秒），至少 30。 */
+    public int activityIntervalSeconds = 300;
+    /** 每个活跃在线成员每次结算贡献的工会资金。 */
+    public long activityPointsPerPlayer = 2;
+    /** 每个工会每天最多通过在线活跃获得的工会资金（0 = 不限）。 */
+    public long activityDailyCap = 1000;
+    /** 多久没有任何操作（移动/交互/战斗）算挂机（秒，0 = 不检测，纯在线即算）。 */
+    public int activityAfkSeconds = 180;
+    /** 至少需要多少名活跃成员才结算（0 = 有 1 名即可）。 */
+    public int activityMinOnline = 1;
+
     // ---- 改名字 ----
     /** 是否允许工会改名字（/guild rename <新名>）。 */
     public boolean renameEnabled = true;
@@ -175,6 +189,12 @@ public final class GuildSettings {
         s.checkinBroadcast = c.getBoolean("guild.checkin.broadcast", s.checkinBroadcast);
         s.checkinCost = Math.max(0, c.getDouble("guild.checkin.cost", s.checkinCost));
         s.checkinGuildCost = Math.max(0, c.getLong("guild.checkin.guild-cost", s.checkinGuildCost));
+        s.activityEnabled = c.getBoolean("guild.activity.enabled", s.activityEnabled);
+        s.activityIntervalSeconds = Math.max(30, c.getInt("guild.activity.interval-seconds", s.activityIntervalSeconds));
+        s.activityPointsPerPlayer = Math.max(0, c.getLong("guild.activity.points-per-player", s.activityPointsPerPlayer));
+        s.activityDailyCap = Math.max(0, c.getLong("guild.activity.daily-cap", s.activityDailyCap));
+        s.activityAfkSeconds = Math.max(0, c.getInt("guild.activity.afk-seconds", s.activityAfkSeconds));
+        s.activityMinOnline = Math.max(0, c.getInt("guild.activity.min-online", s.activityMinOnline));
         s.renameEnabled = c.getBoolean("guild.rename.enabled", s.renameEnabled);
         s.renameCooldownSeconds = Math.max(0, c.getInt("guild.rename.cooldown-seconds", s.renameCooldownSeconds));
         s.renameCost = Math.max(0, c.getDouble("guild.rename.cost", s.renameCost));
@@ -233,6 +253,24 @@ public final class GuildSettings {
     /** 纯函数：今天是否已经签到。 */
     public static boolean alreadyCheckedIn(long today, long lastDay) {
         return lastDay > 0 && lastDay == today;
+    }
+
+    /**
+     * 纯函数：一次在线活跃结算应发放的工会资金 = 活跃人数 × 每人点数；
+     * 活跃人数不足 {@code minOnline}（至少按 1 计）时返回 0。
+     */
+    public static long activityReward(int activeMembers, int minOnline, long pointsPerPlayer) {
+        if (activeMembers <= 0 || pointsPerPlayer <= 0) {
+            return 0;
+        }
+        if (activeMembers < Math.max(1, minOnline)) {
+            return 0;
+        }
+        try {
+            return Math.multiplyExact((long) activeMembers, pointsPerPlayer);
+        } catch (ArithmeticException e) {
+            return Long.MAX_VALUE;
+        }
     }
 
     /**
