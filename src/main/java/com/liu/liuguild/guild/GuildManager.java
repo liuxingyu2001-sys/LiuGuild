@@ -434,6 +434,7 @@ public final class GuildManager {
             }
         });
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
+        if (plugin.war() != null) plugin.war().onGuildDisbanded(g.id());
         Bukkit.getPluginManager().callEvent(new GuildDisbandEvent(g, cause));
         return true;
     }

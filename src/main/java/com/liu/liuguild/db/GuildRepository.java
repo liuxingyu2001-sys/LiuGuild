@@ -168,17 +168,26 @@ public final class GuildRepository {
 
     public void deleteGuild(String id) throws SQLException {
         try (Connection c = db.source().getConnection()) {
-            try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_members") + "` WHERE `guild_id`=?")) {
-                ps.setString(1, id);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_homes") + "` WHERE `guild_id`=?")) {
-                ps.setString(1, id);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guilds") + "` WHERE `guild_id`=?")) {
-                ps.setString(1, id);
-                ps.executeUpdate();
+            c.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_members") + "` WHERE `guild_id`=?")) {
+                    ps.setString(1, id);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_homes") + "` WHERE `guild_id`=?")) {
+                    ps.setString(1, id);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guilds") + "` WHERE `guild_id`=?")) {
+                    ps.setString(1, id);
+                    ps.executeUpdate();
+                }
+                c.commit();
+            } catch (SQLException e) {
+                try { c.rollback(); } catch (SQLException ignored) { }
+                throw e;
+            } finally {
+                c.setAutoCommit(true);
             }
         }
     }

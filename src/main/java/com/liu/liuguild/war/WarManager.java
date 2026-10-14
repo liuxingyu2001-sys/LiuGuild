@@ -1112,6 +1112,20 @@ public final class WarManager implements GuildModule {
         return true;
     }
 
+    /** 工会被解散时：若其正在进行工会战，则取消该场战斗。 */
+    public void onGuildDisbanded(String guildId) {
+        GuildWar war = current;
+        if (war != null && (guildId.equals(war.guildA()) || guildId.equals(war.guildB()))) {
+            cancelWar(war, "war-guild-disbanded");
+        }
+        localQueue.remove(guildId);
+        localQueuedAt.remove(guildId);
+        localMode.remove(guildId);
+        if (plugin.bus().isReady()) {
+            plugin.async(() -> plugin.bus().dequeueGuild(guildId));
+        }
+    }
+
     private void cancelWar(GuildWar war, String reasonKey) {
         war.state(WarState.CANCELLED);
         observed.remove(war.id());
@@ -1341,7 +1355,7 @@ public final class WarManager implements GuildModule {
         }
         final Location target = destination;
         // 仅当世界不会被销毁（固定世界）时才延迟，避免玩家滞留在被销毁的世界
-        long delay = arena == null ? Math.max(0, aw.returnDelaySeconds) * 20L : 0L;
+        long delay = (arena == null && builtinWorld == null) ? Math.max(0, aw.returnDelaySeconds) * 20L : 0L;
         if (delay > 0) {
             plugin.syncDelayed(() -> {
                 if (player.isOnline()) {
