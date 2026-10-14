@@ -162,3 +162,37 @@ ls target/Liu-LiuGuild-0.1.0.jar
 ### 遗留风险更新
 - 名称/标签唯一性：已增加**进程内**预留，跨服并发仍有极小概率；DB 唯一索引仍建议后续补。
 - `temporary-world` 内置世界为全新地形，管理员需重新用 `setspawn` 设定 A/B/旁观出生点。
+
+---
+
+## 十一、生产化加固（从未部署 → 面向正式开服）
+
+由于插件尚未上线，本轮按“全新部署”标准收紧约束，不再保留历史包袱，并对生产环境的关键点逐项加固。
+
+### 数据层
+- **名称/缩写数据库唯一索引**：`guilds.name`、`guilds.tag` 在 SQLite（`COLLATE NOCASE`）与 MySQL（默认大小写不敏感排序规则）上建立 `UNIQUE` 索引，从数据库层兜底跨服并发，不再只依赖应用层检查。
+- **重复键识别**：新增 `GuildRepository.isDuplicateKey`，并发撞名时给出“名称被占用”而非“创建失败”。
+- **删会事务化**：`deleteGuild` 改为单事务 + 回滚，避免残留孤儿成员/驻地。
+- **关服刷写**：新增 `flushAll`（单事务批处理）与 `GuildManager.saveAllSync`，`onDisable` 时同步刷写全部工会/成员，消除异步写入的最后丢失窗口。
+- **SCAN 替代 KEYS**：`RedisBridge.onlineServers` 改用游标 `SCAN`，避免在共享 Redis 上阻塞。
+
+### 生命周期与热重载
+- **区分重载**：新增 `reloadConfig()`（仅配置/消息/定时任务）与 `reloadAll()`（含数据重读）。竞技场/套装/模式等 GUI 与指令编辑只做配置热重载，不再全表重读。
+- **配置检查**：启动后自动校验并在控制台列出可操作告警（缺经济、缺 HuskHomes/mcMMO、场地/模式引用错误、模板缺失、Redis 未连接等），`/guildadmin status` 同步展示。
+
+### 权限
+- **子权限可独立授予**：移除 `/guildadmin` 的命令级父权限门槛与 in-code 父权限硬校验，`liuguild.admin.arena` 等可单独授予；Tab 补全按发送者权限过滤。
+
+### 正确性与安全
+- **公平装备强制清包**：`fairEquipment` 模式下无视 `clear-inventory:false` 强制清空，杜绝自带物品带入。
+- **竞技场保留世界生效**：`keep-on-end` 真正决定内置/动态世界是否保留与回收。
+- **内置临时世界**：`environment` / `name-format` / `world-type` 真正生效，结束后卸载并异步删除目录。
+
+### 验证
+- `mvn -o clean package -Dlicense.enabled=false` → **BUILD SUCCESS**，**37** 用例全绿（新增唯一索引与 flushAll 回归）。
+- `target/Liu-LiuGuild-0.1.0.jar`：578 个已重定位 Sparrow 类，0 处 `net/momirealms` 泄漏。
+- 新增 `docs/deployment.md`：部署形态、配置清单、权限、备份升级、排障、并发说明。
+
+### 仍建议（非阻塞）
+- 真实服务器端到端验证（跨服 Redis、模板世界、传送、mcMMO 屏蔽、Sparrow 渲染）。
+- 工会战结算目前仍在主线程同步发放（每场一次）；超大规模奖励场景可评估异步化。
