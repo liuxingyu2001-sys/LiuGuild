@@ -108,7 +108,11 @@ modes:
 ## 跨服和竞技场
 
 - 承办服优先级：模式 `dedicated-server` → 场地 `server` → 全局 `dedicated-server` → 发起匹配的服务器。
-- 非承办服玩家使用 `/guild war join` 传送到承办服。
+- **匹配即自动参战（`war.auto-enter`，默认 `true`）**：匹配成功、竞技场就绪后，系统会自动把双方**在线成员强制传送**到各自出生点并加入名单（承办服直接进入，其余服自动转移到承办服），然后倒计时开战——无需手动执行 `/guild war join`。
+  - 不具备 `liuguild.war` 权限的成员视为自愿不参战，不会被强制传送（可用权限作为退出开关）。
+  - 关闭 `war.auto-enter` 后恢复手动模式，「匹配成功」消息会附带 `[点击进入竞技场]` 按钮。
+  - 传送后的准备倒计时为各模式的 `prepare-seconds`；想让匹配后尽快开打，把它调小即可。
+- 非承办服玩家仍可手动使用 `/guild war join` 传送到承办服（例如中途加入）。
 - 场地字段及管理命令见 [arena.md](arena.md)。
 - `fair-equipment` 统一装备；`fair-health` 屏蔽 LuckyPeaches 蟠桃血量。
 - Sparrow Sync 可用时优先使用其快照；否则回退本地快照还原玩家状态。

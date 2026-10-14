@@ -34,6 +34,8 @@ public final class WarSettings {
     public int settleBatchPerTick = 8;
     /** 工会战事件是否全服（含跨服）公告；默认仅通知参赛工会，避免刷屏与重复。 */
     public boolean announceServer = false;
+    /** 匹配成功后是否自动把双方在线成员强制传送进竞技场并参战（无需手动 /guild war join）。 */
+    public boolean autoEnter = true;
 
     /** 模式公共默认值（来自 war.defaults 或 war 根节点）。 */
     public WarMode defaults = new WarMode();
@@ -52,6 +54,7 @@ public final class WarSettings {
         s.bossBarEnabled = c.getBoolean("war.bossbar", s.bossBarEnabled);
         s.settleBatchPerTick = Math.max(1, Math.min(200, c.getInt("war.settle-batch-per-tick", s.settleBatchPerTick)));
         s.announceServer = c.getBoolean("war.announce-server", s.announceServer);
+        s.autoEnter = c.getBoolean("war.auto-enter", s.autoEnter);
 
         WarMode base = new WarMode();
         ConfigurationSection defaults = c.getConfigurationSection("war.defaults");

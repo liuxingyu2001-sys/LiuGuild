@@ -670,6 +670,12 @@ public final class WarManager implements GuildModule {
         switch (type) {
             case "WAR_MATCHED" -> handleWarMatched(data);
             case "WAR_STATE" -> handleWarState(data);
+            case "WAR_AUTOJOIN" -> {
+                GuildWar w = data.get("war") == null ? null : observed.get(data.get("war"));
+                if (w != null && !w.hostServer().equals(plugin.serverId())) {
+                    plugin.sync(() -> autoEnterLocal(w));
+                }
+            }
             case "SEASON_OPEN" -> {
                 WarMode mode = plugin.settings().mode(data.get("mode"));
                 plugin.sync(() -> applySeasonOpen(mode));
@@ -954,12 +960,74 @@ public final class WarManager implements GuildModule {
         phaseUntil = System.currentTimeMillis() + mode.prepareSeconds * 1000L;
         lastBroadcastSecond = -1;
         Bukkit.getPluginManager().callEvent(new GuildWarMatchEvent(war));
-        plugin.guilds().announceGuild(war.guildA(), plugin.messages().component("war-match-found",
-                "enemy", war.nameB(), "seconds", mode.prepareSeconds).append(arenaJoinButton()), null);
-        plugin.guilds().announceGuild(war.guildB(), plugin.messages().component("war-match-found",
-                "enemy", war.nameA(), "seconds", mode.prepareSeconds).append(arenaJoinButton()), null);
+        boolean auto = plugin.settings().war.autoEnter;
+        String key = auto ? "war-match-found-auto" : "war-match-found";
+        Component msgA = plugin.messages().component(key, "enemy", war.nameB(), "seconds", mode.prepareSeconds);
+        Component msgB = plugin.messages().component(key, "enemy", war.nameA(), "seconds", mode.prepareSeconds);
+        if (!auto) {
+            msgA = msgA.append(arenaJoinButton());
+            msgB = msgB.append(arenaJoinButton());
+        }
+        plugin.guilds().announceGuild(war.guildA(), msgA, null);
+        plugin.guilds().announceGuild(war.guildB(), msgB, null);
         plugin.getLogger().info("工会战 " + war.id() + " [" + mode.display + "] 进入准备阶段: "
                 + war.nameA() + " vs " + war.nameB() + "，竞技场=" + arenaName());
+        if (auto) {
+            // 本服在线成员直接传送参战；其余服收到 WAR_AUTOJOIN 后把本服成员转移过来。
+            autoEnterLocal(war);
+            String wid = war.id();
+            String host = war.hostServer();
+            String ga = war.guildA();
+            String gb = war.guildB();
+            plugin.async(() -> plugin.bus().publish("WAR_AUTOJOIN",
+                    CrossServerBus.map("war", wid, "host", host, "a", ga, "b", gb)));
+        }
+    }
+
+    /** 匹配成功后自动把本服在线成员传送进竞技场（承办服直接加入，其余服转移过去）。 */
+    private void autoEnterLocal(GuildWar war) {
+        if (!plugin.settings().war.autoEnter || war == null) {
+            return;
+        }
+        autoEnterGuild(war, war.guildA(), "A");
+        autoEnterGuild(war, war.guildB(), "B");
+    }
+
+    private void autoEnterGuild(GuildWar war, String guildId, String side) {
+        Guild guild = plugin.guilds().guild(guildId);
+        if (guild == null) {
+            return;
+        }
+        Set<UUID> roster = "A".equals(side) ? war.rosterA() : war.rosterB();
+        WarMode mode = modeOf(war);
+        boolean host = war.hostServer().equals(plugin.serverId());
+        for (Player p : plugin.guilds().onlineMembers(guild)) {
+            if (p == null || !p.isOnline()) {
+                continue;
+            }
+            if (!p.hasPermission("liuguild.war")) {
+                continue; // 无权限视为自愿不参战
+            }
+            if (roster.contains(p.getUniqueId()) || spectators.contains(p.getUniqueId())) {
+                continue;
+            }
+            if (host) {
+                if (roster.size() >= mode.teamSize) {
+                    continue; // 名额已满，不强制观战
+                }
+                joinLocal(p, war);
+            } else {
+                transferToWar(p, war);
+            }
+        }
+    }
+
+    private void transferToWar(Player player, GuildWar war) {
+        if (!plugin.bus().isReady() || !plugin.bus().transfer().available()) {
+            return;
+        }
+        plugin.bus().setPendingWar(player.getUniqueId(), war.id());
+        plugin.bus().transfer().connect(player, war.hostServer());
     }
 
     private void beginActive(GuildWar war) {

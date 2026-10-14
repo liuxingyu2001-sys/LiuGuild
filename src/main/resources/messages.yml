@@ -106,6 +106,7 @@ zh_CN:
   war-not-queued: "<red>你的工会不在匹配队列中。"
   war-in-progress: "<red>你的工会正在工会战中。"
   war-match-found: "<gold>匹配成功！对手：<white>{enemy}</white>，{seconds} 秒后开战。"
+  war-match-found-auto: "<gold>匹配成功！对手：<white>{enemy}</white>，已自动传送进竞技场，<white>{seconds}</white> 秒后开战。"
   war-countdown: "<gold>工会战即将开始：<white>{seconds}</white> 秒"
   war-started: "<red><bold>工会战开始！<white>{guild_a}</white> VS <white>{guild_b}</white></red>"
   war-score: "<gray>[工会战] <white>{guild_a}</white> <yellow>{score_a}</yellow> : <yellow>{score_b}</yellow> <white>{guild_b}</white>"
