@@ -108,12 +108,7 @@ public final class GuiManager implements GuildModule, Listener {
         if (def == null) {
             return;
         }
-        Map<String, String> ph = placeholders(g);
-        GuildMember self = g.member(player.getUniqueId());
-        ph.put("checkin_streak", String.valueOf(self == null ? 0 : self.checkinStreak()));
-        ph.put("checkin_state", !plugin.settings().guild.checkinEnabled ? "未开启"
-                : (self != null && com.liu.liuguild.config.GuildSettings.alreadyCheckedIn(
-                        com.liu.liuguild.util.TimeUtil.todayEpochDay(), self.lastCheckin()) ? "已签到" : "未签到"));
+        Map<String, String> ph = mainPlaceholders(player, g);
         Holder holder = new Holder("main", g.id(), 0);
         Inventory inv = create(holder, def, ph, player);
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
@@ -1316,6 +1311,17 @@ public final class GuiManager implements GuildModule, Listener {
     /** 供外部界面引擎复用的占位符。 */
     public Map<String, String> placeholdersFor(Guild g) {
         return placeholders(g);
+    }
+
+    /** 主菜单占位符（含与具体玩家相关的签到状态）；内置 GUI 与 Sparrow UI 共用。 */
+    public Map<String, String> mainPlaceholders(Player player, Guild g) {
+        Map<String, String> ph = placeholders(g);
+        GuildMember self = (g == null || player == null) ? null : g.member(player.getUniqueId());
+        ph.put("checkin_streak", String.valueOf(self == null ? 0 : self.checkinStreak()));
+        ph.put("checkin_state", !plugin.settings().guild.checkinEnabled ? "未开启"
+                : (self != null && com.liu.liuguild.config.GuildSettings.alreadyCheckedIn(
+                        com.liu.liuguild.util.TimeUtil.todayEpochDay(), self.lastCheckin()) ? "已签到" : "未签到"));
+        return ph;
     }
 
     private Map<String, String> basePlaceholders() {

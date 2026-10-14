@@ -76,7 +76,7 @@ public final class SparrowUiHook {
             if (def == null) {
                 return false;
             }
-            Map<String, String> ph = plugin.gui().placeholdersFor(guild);
+            Map<String, String> ph = plugin.gui().mainPlaceholders(player, guild);
             NormalPane pane = NormalPane.empty(new PaneSize(9, def.rows));
 
             ButtonDef filler = plugin.settings().gui.filler;
