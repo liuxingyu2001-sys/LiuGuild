@@ -194,6 +194,9 @@ public final class LiuGuild extends JavaPlugin {
         if (cleanupTask != null) {
             cleanupTask.cancel();
         }
+        if (guilds != null && database != null) {
+            guilds.saveAllSync();
+        }
         if (database != null) {
             database.shutdown();
         }

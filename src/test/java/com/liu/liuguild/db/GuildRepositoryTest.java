@@ -158,6 +158,27 @@ class GuildRepositoryTest {
     }
 
     @Test
+    void flushAllPersistsGuildAndMemberChanges() throws Exception {
+        String id = UUID.randomUUID().toString();
+        Guild g = guild(id, "Flush", "FL");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", id, GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+
+        g.points(9999);
+        g.level(7);
+        leader.addKill();
+        leader.addDeath();
+        repo.flushAll(java.util.List.of(g), java.util.List.of(leader));
+
+        assertEquals(9999, repo.loadGuild(id).points());
+        assertEquals(7, repo.loadGuild(id).level());
+        GuildMember loaded = repo.loadMembers(id).get(0);
+        assertEquals(1, loaded.kills());
+        assertEquals(1, loaded.deaths());
+    }
+
+    @Test
     void homesPersistAndDeletePerSlot() throws Exception {
         String id = UUID.randomUUID().toString();
         Guild g = guild(id, "Delta", "DE");

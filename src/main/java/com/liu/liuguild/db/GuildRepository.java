@@ -151,30 +151,74 @@ public final class GuildRepository {
     }
 
     public void updateGuild(Guild g) throws SQLException {
-        String sql = "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(guildUpdateSql())) {
+            bindGuildUpdate(ps, g);
+            ps.executeUpdate();
+        }
+    }
+
+    private String guildUpdateSql() {
+        return "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
                 + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,`points`=?,`level`=?,`wins`=?,`losses`=?,"
                 + "`home_server`=?,`member_count`=?,`last_active_at`=? WHERE `guild_id`=?";
-        try (Connection c = db.source().getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, g.name());
-            ps.setString(2, g.tag());
-            ps.setString(3, g.leaderUuid() == null ? null : g.leaderUuid().toString());
-            ps.setString(4, g.leaderName());
-            ps.setString(5, g.description());
-            ps.setString(6, g.notice());
-            ps.setString(7, g.icon());
-            ps.setString(8, g.iconData());
-            ps.setInt(9, g.open() ? 1 : 0);
-            ps.setLong(10, g.updatedAt());
-            ps.setLong(11, g.points());
-            ps.setInt(12, g.level());
-            ps.setInt(13, g.wins());
-            ps.setInt(14, g.losses());
-            ps.setString(15, g.homeServer());
-            ps.setInt(16, g.memberCount());
-            ps.setLong(17, g.lastActiveAt());
-            ps.setString(18, g.id());
-            ps.executeUpdate();
+    }
+
+    private void bindGuildUpdate(PreparedStatement ps, Guild g) throws SQLException {
+        ps.setString(1, g.name());
+        ps.setString(2, g.tag());
+        ps.setString(3, g.leaderUuid() == null ? null : g.leaderUuid().toString());
+        ps.setString(4, g.leaderName());
+        ps.setString(5, g.description());
+        ps.setString(6, g.notice());
+        ps.setString(7, g.icon());
+        ps.setString(8, g.iconData());
+        ps.setInt(9, g.open() ? 1 : 0);
+        ps.setLong(10, g.updatedAt());
+        ps.setLong(11, g.points());
+        ps.setInt(12, g.level());
+        ps.setInt(13, g.wins());
+        ps.setInt(14, g.losses());
+        ps.setString(15, g.homeServer());
+        ps.setInt(16, g.memberCount());
+        ps.setLong(17, g.lastActiveAt());
+        ps.setString(18, g.id());
+    }
+
+    /**
+     * 关服前批量保存全部工会与成员（单事务 + 批处理），消除异步写入的最后一小段丢失窗口。
+     */
+    public void flushAll(List<Guild> guilds, List<GuildMember> members) throws SQLException {
+        if (guilds.isEmpty() && members.isEmpty()) {
+            return;
+        }
+        String memberSql = "UPDATE `" + db.t("guild_members") + "` SET `player_name`=?,`guild_id`=?,`rank`=?,"
+                + "`contributed`=?,`kills`=?,`deaths`=? WHERE `player_uuid`=?";
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try (PreparedStatement gs = c.prepareStatement(guildUpdateSql());
+                 PreparedStatement ms = c.prepareStatement(memberSql)) {
+                for (Guild g : guilds) {
+                    bindGuildUpdate(gs, g);
+                    gs.addBatch();
+                }
+                for (GuildMember m : members) {
+                    bindMemberUpdate(ms, m);
+                    ms.addBatch();
+                }
+                if (!guilds.isEmpty()) {
+                    gs.executeBatch();
+                }
+                if (!members.isEmpty()) {
+                    ms.executeBatch();
+                }
+                c.commit();
+            } catch (SQLException e) {
+                try { c.rollback(); } catch (SQLException ignored) { }
+                throw e;
+            } finally {
+                c.setAutoCommit(true);
+            }
         }
     }
 
@@ -370,15 +414,19 @@ public final class GuildRepository {
                 + "`contributed`=?,`kills`=?,`deaths`=? WHERE `player_uuid`=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, m.name());
-            ps.setString(2, m.guildId());
-            ps.setString(3, m.rank().name());
-            ps.setLong(4, m.contributed());
-            ps.setInt(5, m.kills());
-            ps.setInt(6, m.deaths());
-            ps.setString(7, m.uuid().toString());
+            bindMemberUpdate(ps, m);
             ps.executeUpdate();
         }
+    }
+
+    private void bindMemberUpdate(PreparedStatement ps, GuildMember m) throws SQLException {
+        ps.setString(1, m.name());
+        ps.setString(2, m.guildId());
+        ps.setString(3, m.rank().name());
+        ps.setLong(4, m.contributed());
+        ps.setInt(5, m.kills());
+        ps.setInt(6, m.deaths());
+        ps.setString(7, m.uuid().toString());
     }
 
     public void deleteMember(UUID uuid) throws SQLException {

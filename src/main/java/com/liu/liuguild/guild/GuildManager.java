@@ -355,6 +355,21 @@ public final class GuildManager {
         return out;
     }
 
+    /** 关服前同步刷写全部内存数据（主线程调用，尽力而为）。 */
+    public void saveAllSync() {
+        List<Guild> gs = new ArrayList<>(guilds.values());
+        List<GuildMember> ms = new ArrayList<>();
+        for (Guild g : gs) {
+            ms.addAll(g.memberMap().values());
+        }
+        try {
+            plugin.repo().flushAll(gs, ms);
+            plugin.getLogger().info("关服前已刷写 " + gs.size() + " 个工会 / " + ms.size() + " 名成员。");
+        } catch (Exception e) {
+            plugin.getLogger().warning("关服前刷写工会数据失败: " + e.getMessage());
+        }
+    }
+
     /**
      * 校验内存数据一致性：member_count、会长成员关系、双向成员索引。
      *
