@@ -168,6 +168,12 @@ zh_CN:
   res-unshared: "<green>已取消领地 <white>{name}</white> 的共享（{count} 名成员）。"
   res-list-header: "<gold>你的领地（当前工会：<white>{guild}</white>）："
   res-list-line: "<gray>  · <white>{name}"
+  # ---- 工会仓库 ----
+  wh-title: "<dark_gray>工会仓库 · <white>{guild}"
+  wh-disabled: "<yellow>工会仓库当前未启用。"
+  wh-busy: "<red>工会仓库正在被其他成员使用，请稍后再试。"
+  wh-busy-player: "<red>工会仓库正在被 <white>{player}</white> 打开，请等对方关闭后再试。"
+  wh-flush-failed: "<red>工会仓库保存失败，已保留在当前界面，请稍后重试。"
   war-queue-broadcast: "<gold>[工会战] <white>{player}</white> 代表工会 <white>{guild}</white> 参与了 <white>{mode}</white> 匹配！"
   war-queue-join-button: "<yellow><bold>[点击参与匹配]</bold></yellow>"
   war-queue-join-hover: "<gray>点击加入 <white>{mode}</white> 的匹配队列"

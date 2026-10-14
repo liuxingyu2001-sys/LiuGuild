@@ -538,6 +538,17 @@ public final class GuiManager implements GuildModule, Listener {
                 }
             }
             case "bank" -> bankAction(player, g, clickRight);
+            case "guild:warehouse" -> {
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    break;
+                }
+                if (plugin.warehouse() == null) {
+                    plugin.messages().send(player, "wh-disabled");
+                    break;
+                }
+                plugin.warehouse().open(player, g);
+            }
             case "home" -> {
                 if (g == null) {
                     plugin.messages().send(player, "not-in-guild");
@@ -1829,6 +1840,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "info_history" -> "info:history";
             case "info_back" -> "info:back";
             case "leave" -> "leave";
+            case "warehouse" -> "guild:warehouse";
             case "toggle_open" -> "set:open";
             case "notice" -> "set:notice";
             case "desc" -> "set:desc";

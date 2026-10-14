@@ -78,6 +78,7 @@ public final class LiuGuild extends JavaPlugin {
     private PlayerTitleHook playerTitle;
     private LuckyPeachesHook luckyPeaches;
     private com.liu.liuguild.hook.ResidenceHook residence;
+    private com.liu.liuguild.warehouse.WarehouseService warehouse;
     private NotBountiesHook notBounties;
     private com.liu.liuguild.hook.McMmoHook mcmmo;
     private com.liu.liuguild.hook.GuildHomeHook guildHome;
@@ -159,6 +160,8 @@ public final class LiuGuild extends JavaPlugin {
         modules.register(new GuildListener(this));
         modules.register(new WarListener(this));
         modules.register(new com.liu.liuguild.listener.WarFreezeListener(this));
+        warehouse = new com.liu.liuguild.warehouse.WarehouseService(this);
+        modules.register(warehouse);
         modules.register(new com.liu.liuguild.listener.GuildSyncModule(this));
         bus.addListener(modules::dispatchCrossServer);
         modules.enableAll();
@@ -400,6 +403,10 @@ public final class LiuGuild extends JavaPlugin {
 
     public com.liu.liuguild.hook.ResidenceHook residence() {
         return residence;
+    }
+
+    public com.liu.liuguild.warehouse.WarehouseService warehouse() {
+        return warehouse;
     }
 
     public com.liu.liuguild.hook.PacketEventsHook packetEvents() {

@@ -26,7 +26,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             "help", "menu", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
             "kick", "promote", "demote", "transfer", "members", "seticon", "icon", "rename", "set", "bank",
             "home", "hq", "info", "list", "top", "war", "chat", "c", "checkin", "sign", "qiandao",
-            "residence", "res", "lingdi");
+            "residence", "res", "lingdi", "warehouse", "wh", "cangku");
 
     private final LiuGuild plugin;
 
@@ -80,6 +80,22 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                     ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : "");
             case "checkin", "sign", "qiandao" -> plugin.guilds().checkin(player);
             case "res", "residence", "lingdi" -> residence(player, args);
+            case "warehouse", "wh", "cangku" -> {
+                Guild g = plugin.guilds().guildOf(player.getUniqueId());
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    break;
+                }
+                if (!player.hasPermission("liuguild.warehouse")) {
+                    plugin.messages().send(player, "no-permission");
+                    break;
+                }
+                if (plugin.warehouse() != null) {
+                    plugin.warehouse().open(player, g);
+                } else {
+                    plugin.messages().send(player, "wh-disabled");
+                }
+            }
             case "rename" -> rename(player, args);
             case "war" -> war(player, args);
             default -> plugin.messages().send(player, "unknown-command");
@@ -118,6 +134,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "领地", "/guild residence list", "列出自己的领地（需 Residence）");
         helpLine(player, "领地", "/guild residence share <领地>", "把自己的领地在工会内共享");
         helpLine(player, "领地", "/guild residence unshare <领地>", "取消领地共享");
+        helpLine(player, "仓库", "/guild warehouse", "打开工会共享仓库（同一时间仅一人）");
         helpLine(player, "信息", "/guild info", "查看工会信息");
         helpLine(player, "信息", "/guild list", "浏览全服工会");
         helpLine(player, "信息", "/guild top points", "查看排行榜（points/level/wins/losses/members）");

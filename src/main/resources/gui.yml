@@ -69,6 +69,11 @@ gui:
         material: WRITABLE_BOOK
         name: "<white>工会列表"
         lore: ["<gray>浏览全服工会"]
+      warehouse:
+        slot: 21
+        material: CHEST
+        name: "<white>工会仓库"
+        lore: ["<gray>跨服共享物品存储", "<gray>同一时间只能一人打开", "", "<yellow>点击打开"]
 
   # ---------------- 工会详情面板（点击主菜单名片 / 列表右键） ----------------
   info:

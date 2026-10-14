@@ -33,7 +33,7 @@ class CommandSurfaceTest {
      */
     private static final List<String> ALIASES_OR_SUBOPTIONS = List.of(
             "help", "menu", "icon", "hq", "c", "sign", "qiandao",
-            "res", "lingdi", "wins", "losses", "level", "members");
+            "res", "lingdi", "wh", "cangku", "wins", "losses", "level", "members");
 
     private static String source() throws Exception {
         return Files.readString(CMD);

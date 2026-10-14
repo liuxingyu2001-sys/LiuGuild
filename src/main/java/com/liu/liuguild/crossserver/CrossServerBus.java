@@ -148,6 +148,85 @@ public final class CrossServerBus {
         return Boolean.TRUE.equals(ok);
     }
 
+    // =====================================================================
+    // 分布式命名锁（带持有者令牌，可续期、可安全释放）
+    // =====================================================================
+
+    /** 锁键前缀。 */
+    private static final String LOCK_PREFIX = "lock:";
+
+    /**
+     * 尝试获取一个带持有者令牌的锁。
+     *
+     * <p>用 {@code SET key token NX EX ttl} 原子抢占；成功仅当**当前无锁或旧锁已过期**。
+     * 持有者令牌在释放/续期时做比对，避免“误删别人的锁”。</p>
+     *
+     * @param key   业务键（如 {@code warehouse:<guildId>}）
+     * @param token 持有者令牌（全局唯一，建议 serverId:uuid）
+     * @param ttl   过期秒数；防止持有方崩溃后死锁
+     * @return true = 本次抢到锁
+     */
+    public boolean tryLock(String key, String token, long ttlSeconds) {
+        if (token == null || token.isBlank()) {
+            return false;
+        }
+        if (!bridge.isHealthy()) {
+            return false; // 调用方应回退到本地锁
+        }
+        Boolean ok = bridge.withJedis(jedis -> "OK".equals(jedis.set(
+                bridge.prefix() + LOCK_PREFIX + key, token,
+                redis.clients.jedis.params.SetParams.setParams().nx().ex(Math.max(1, ttlSeconds)))));
+        return Boolean.TRUE.equals(ok);
+    }
+
+    /**
+     * 续期（心跳）：仅当锁仍属于该 token 时才刷新 TTL。
+     *
+     * @return true = 续期成功（仍持有锁）
+     */
+    public boolean refreshLock(String key, String token, long ttlSeconds) {
+        if (token == null || token.isBlank() || !bridge.isHealthy()) {
+            return false;
+        }
+        Boolean ok = bridge.withJedis(jedis -> {
+            String current = jedis.get(bridge.prefix() + LOCK_PREFIX + key);
+            if (!token.equals(current)) {
+                return Boolean.FALSE;
+            }
+            jedis.expire(bridge.prefix() + LOCK_PREFIX + key, Math.max(1, ttlSeconds));
+            return Boolean.TRUE;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
+    /**
+     * 释放锁：仅当锁仍属于该 token 时才删除，避免误删他人刚抢到的锁。
+     *
+     * @return true = 本次确实释放了锁
+     */
+    public boolean releaseLock(String key, String token) {
+        if (token == null || token.isBlank() || !bridge.isHealthy()) {
+            return false;
+        }
+        Boolean ok = bridge.withJedis(jedis -> {
+            String current = jedis.get(bridge.prefix() + LOCK_PREFIX + key);
+            if (!token.equals(current)) {
+                return Boolean.FALSE;
+            }
+            jedis.del(bridge.prefix() + LOCK_PREFIX + key);
+            return Boolean.TRUE;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
+    /** 查询锁当前持有者令牌（null = 无锁）。 */
+    public String lockOwner(String key) {
+        if (!bridge.isHealthy()) {
+            return null;
+        }
+        return bridge.withJedis(jedis -> jedis.get(bridge.prefix() + LOCK_PREFIX + key));
+    }
+
     public void shutdown() {
         ready = false;
         bridge.removeHeartbeat();

@@ -209,6 +209,38 @@ public final class Database {
                     + "PRIMARY KEY (`guild_id`,`slot`)"
                     + ")" + engine);
 
+            // 工会仓库：物品以 ItemStack.serializeAsBytes 的 Base64 存储，可完整保留 NBT/组件
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_warehouse") + "` ("
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`slot` INT NOT NULL,"
+                    + "`item_data` TEXT NOT NULL,"
+                    + "`updated_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`guild_id`,`slot`)"
+                    + ")" + engine);
+
+            // 工会商店：上架物品（同样完整序列化），价格以工会资金计价
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_shop") + "` ("
+                    + "`listing_id` VARCHAR(36) NOT NULL,"
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`item_data` TEXT NOT NULL,"
+                    + "`amount` INT NOT NULL DEFAULT 1,"
+                    + "`price` BIGINT NOT NULL DEFAULT 0,"
+                    + "`seller_uuid` VARCHAR(36),"
+                    + "`seller_name` VARCHAR(64),"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`listing_id`)"
+                    + ")" + engine);
+
+            // 工会头衔定义
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_titles") + "` ("
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`title_id` VARCHAR(32) NOT NULL,"
+                    + "`display` VARCHAR(64) NOT NULL,"
+                    + "`min_rank` VARCHAR(16) NOT NULL DEFAULT 'MEMBER',"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`guild_id`,`title_id`)"
+                    + ")" + engine);
+
             uniqueIndex(st, t("guilds") + "_name", t("guilds"), "`name`");
             uniqueIndex(st, t("guilds") + "_tag", t("guilds"), "`tag`");
             index(st, t("guild_members") + "_guild", t("guild_members"), "`guild_id`");
@@ -308,6 +340,7 @@ public final class Database {
         columns.add(new String[]{"guild_wars", "arena_world", "`arena_world` VARCHAR(128)"});
         columns.add(new String[]{"guild_wars", "tag_a", "`tag_a` VARCHAR(32)"});
         columns.add(new String[]{"guild_wars", "tag_b", "`tag_b` VARCHAR(32)"});
+        columns.add(new String[]{"guild_members", "title_id", "`title_id` VARCHAR(32)"});
         try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
             for (String[] col : columns) {
                 String ddl = "ALTER TABLE `" + t(col[0]) + "` ADD COLUMN " + col[2];

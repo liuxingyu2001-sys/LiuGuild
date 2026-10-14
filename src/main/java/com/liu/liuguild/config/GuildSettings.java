@@ -79,6 +79,16 @@ public final class GuildSettings {
     /** 是否启用 Residence 领地共享（需安装 Residence）。 */
     public boolean residenceEnabled = true;
 
+    // ---- 工会仓库 ----
+    /** 是否启用工会仓库（跨服共享，同一时刻仅一人可打开）。 */
+    public boolean warehouseEnabled = true;
+    /** 仓库基础槽位数（至少 9，向上取整到 9 的倍数由代码保证）。 */
+    public int warehouseBaseSlots = 27;
+    /** 每提升 1 级增加的槽位数。 */
+    public int warehouseSlotsPerLevel = 9;
+    /** 仓库槽位上限。 */
+    public int warehouseMaxSlots = 54;
+
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
         s.nameMin = Math.max(1, c.getInt("guild.name.min-length", s.nameMin));
@@ -127,6 +137,13 @@ public final class GuildSettings {
         s.renameCost = Math.max(0, c.getDouble("guild.rename.cost", s.renameCost));
         s.renameAllowTag = c.getBoolean("guild.rename.allow-tag", s.renameAllowTag);
         s.residenceEnabled = c.getBoolean("guild.residence.enabled", s.residenceEnabled);
+        s.warehouseEnabled = c.getBoolean("guild.warehouse.enabled", s.warehouseEnabled);
+        s.warehouseBaseSlots = clamp9(c.getInt("guild.warehouse.base-slots", s.warehouseBaseSlots));
+        s.warehouseSlotsPerLevel = Math.max(0, c.getInt("guild.warehouse.slots-per-level", s.warehouseSlotsPerLevel));
+        s.warehouseMaxSlots = clamp9(c.getInt("guild.warehouse.max-slots", s.warehouseMaxSlots));
+        if (s.warehouseBaseSlots > s.warehouseMaxSlots) {
+            s.warehouseBaseSlots = s.warehouseMaxSlots;
+        }
         return s;
     }
 
@@ -212,5 +229,31 @@ public final class GuildSettings {
 
     private static double clamp(double v, double min, double max) {
         return Math.max(min, Math.min(max, v));
+    }
+
+    /**
+     * 工会仓库槽位数计算（纯函数，便于测试）。
+     *
+     * @param base     基础槽位
+     * @param perLevel 每级增加
+     * @param max      上限
+     * @param level    当前等级
+     * @return 9 的倍数，且在 9..54 之间
+     */
+    public static int warehouseSlots(int base, int perLevel, int max, int level) {
+        int cap = clamp9(max);
+        int floor = Math.min(clamp9(base), cap);
+        long extra = (long) Math.max(0, level - 1) * Math.max(0, perLevel);
+        long total = Math.min(cap, floor + extra);
+        return clamp9((int) Math.max(9, total));
+    }
+
+    /**
+     * 把槽位数规整到 Minecraft 容器允许的范围：向上取整到 9 的倍数，并限制在 9~54。
+     * （Bukkit 只接受 9 的倍数作为容器尺寸，配错的数字会让 createInventory 抛异常）
+     */
+    public static int clamp9(int slots) {
+        int v = Math.max(9, Math.min(54, slots));
+        return ((v + 8) / 9) * 9;
     }
 }

@@ -128,4 +128,49 @@ class GuildSettingsTest {
         assertEquals(0.0, s.checkinCost, "负费用应被归零，否则会变成发钱");
         assertEquals(0, s.checkinGuildCost);
     }
+
+    // =====================================================================
+    // 工会仓库槽位
+    // =====================================================================
+
+    @Test
+    void warehouseSlotsScaleWithLevelAndStayMultiplesOfNine() {
+        // base 27, +9/级, 上限 54
+        assertEquals(27, GuildSettings.warehouseSlots(27, 9, 54, 1));
+        assertEquals(36, GuildSettings.warehouseSlots(27, 9, 54, 2));
+        assertEquals(45, GuildSettings.warehouseSlots(27, 9, 54, 3));
+        assertEquals(54, GuildSettings.warehouseSlots(27, 9, 54, 4));
+        // 超过上限后恒为上限
+        assertEquals(54, GuildSettings.warehouseSlots(27, 9, 54, 99));
+    }
+
+    @Test
+    void warehouseSlotsAreAlwaysLegalInventorySizes() {
+        // Bukkit 只接受 9 的倍数且 9..54；配错数字不能让 createInventory 抛异常
+        int[][] cases = {
+                {0, 0, 0, 1}, {1, 1, 1, 1}, {100, 100, 200, 50},
+                {27, 9, 27, 1}, {9, 3, 20, 3}, {54, 0, 9, 1}, {5, 2, 7, 10},
+        };
+        for (int[] c : cases) {
+            int slots = GuildSettings.warehouseSlots(c[0], c[1], c[2], c[3]);
+            assertTrue(slots >= 9 && slots <= 54,
+                    "槽位必须落在 9..54，实际=" + slots + " case=" + java.util.Arrays.toString(c));
+            assertEquals(0, slots % 9,
+                    "槽位必须是 9 的倍数，实际=" + slots + " case=" + java.util.Arrays.toString(c));
+        }
+    }
+
+    @Test
+    void warehouseSlotsNeverBelowNineEvenWhenMisconfigured() {
+        assertEquals(9, GuildSettings.warehouseSlots(0, 0, 0, 1));
+        assertEquals(9, GuildSettings.warehouseSlots(-5, -5, -5, 1));
+        assertEquals(9, GuildSettings.warehouseSlots(1, 1, 1, 1));
+    }
+
+    @Test
+    void warehouseBaseCannotExceedCap() {
+        // 基础槽位配得比上限还大时，不能突破上限
+        assertEquals(9, GuildSettings.warehouseSlots(54, 9, 9, 1));
+        assertEquals(18, GuildSettings.warehouseSlots(54, 9, 18, 1));
+    }
 }

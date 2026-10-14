@@ -509,6 +509,14 @@ public final class GuildManager {
         });
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
         if (plugin.war() != null) plugin.war().onGuildDisbanded(g.id());
+        // 释放仓库锁并清空仓库数据，避免锁残留导致同名新工会永远打不开
+        if (plugin.warehouse() != null) {
+            for (UUID u : g.memberMap().keySet()) {
+                plugin.warehouse().kick(u);
+            }
+            plugin.warehouse().lock().release(g.id(), null);
+            plugin.warehouse().purge(g.id());
+        }
         Bukkit.getPluginManager().callEvent(new GuildDisbandEvent(g, cause));
         return true;
     }
@@ -792,6 +800,10 @@ public final class GuildManager {
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
         // 退会/被踢：收回工会共享领地上的权限（避免退会后仍能破坏共享领地）
         revokeSharedResidences(g, uuid);
+        // 若该成员正开着工会仓库，先落库并关掉，避免退会后继续操作
+        if (plugin.warehouse() != null) {
+            plugin.warehouse().kick(uuid);
+        }
         // 若正处于工会战，先把该玩家从战局里摘出来，避免继续上 BossBar / 领参赛奖励
         if (plugin.war() != null) {
             plugin.war().onMemberRemoved(uuid, g.id());

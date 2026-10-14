@@ -56,6 +56,9 @@ permissions:
   liuguild.war:
     description: 发起 / 参与工会战（仍需会长或官员身份）
     default: true
+  liuguild.warehouse:
+    description: 打开工会共享仓库（同一时间仅一人可开）
+    default: true
   liuguild.admin:
     description: 工会管理总权限
     default: op

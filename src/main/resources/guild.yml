@@ -85,6 +85,15 @@ guild:
   residence:
     # 是否启用：允许会长把自有领地在工会内共享
     enabled: true
+  # 工会仓库：跨服共享物品存储，同一时刻只允许一个成员打开（跨服原子锁）
+  warehouse:
+    enabled: true
+    # 基础槽位数（9/18/27/36/45/54；非 9 的倍数会自动向上取整）
+    base-slots: 27
+    # 每提升 1 级增加的槽位数
+    slots-per-level: 9
+    # 槽位上限
+    max-slots: 54
   # 僵尸工会清理（不活跃工会）
   cleanup:
     # 自动定期清理开关（默认关闭，建议先用 dry-run 确认）
