@@ -31,7 +31,7 @@ plugins/LiuGuild/
 | `database.yml` | ✅ 共享 | 跨服必须同一库、同一表前缀 |
 | `cross-server.yml` | ✅ 共享 | 同一 Redis、同一 `channel`、同一 `database` |
 | `guild.yml` / `war.yml` / `war-modes.yml` / `arena.yml` / `kit.yml` / `gui.yml` / `icons.yml` / `messages.yml` / `tasks.yml` | ✅ 共享 | 玩法与展示配置，全服一致 |
-| 共享目录 `config.yml` | ✅ 共享 | 除 `server-id`（用 server.yml 覆盖）外全服一致 |
+| 共享目录 `config.yml` | ✅ 共享 | 全服一致（`server-id` 已移至 `server.yml`） |
 
 **结论：唯一必须每服独立的是 `server.yml`（核心是 `server-id`）。** 其余共享即可。
 如果某台子服需要不同的语言或调试级别，用 `server.yml` 覆盖，不要改共享 `config.yml`。

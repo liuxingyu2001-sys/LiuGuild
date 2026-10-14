@@ -244,9 +244,19 @@ public final class ConfigManager {
         }
         YamlConfiguration yml = YamlConfiguration.loadConfiguration(f);
         String sid = yml.getString("server-id", "").trim();
-        if (!sid.isBlank()) {
-            main.serverId = sid;
+        if (sid.isBlank()) {
+            // 未设置则生成一个稳定且各服不同的 id 并写回，避免多服全部为空白导致串服。
+            sid = "server-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+            yml.set("server-id", sid);
+            try {
+                yml.save(f);
+            } catch (IOException e) {
+                plugin.getLogger().warning("写入自动生成的 server-id 失败: " + e.getMessage());
+            }
+            plugin.getLogger().warning("server.yml 未设置 server-id，已自动生成 &f" + sid
+                    + " &e并写入 " + f.getAbsolutePath() + "（多服请确认每台不同）。");
         }
+        main.serverId = sid;
         String lang = yml.getString("language", "").trim();
         if (!lang.isBlank()) {
             main.language = lang;

@@ -2,7 +2,7 @@ package com.liu.liuguild.config;
 
 import org.bukkit.configuration.file.FileConfiguration;
 
-/** 主配置模块（config.yml：settings / server-id / cross-server）。 */
+/** 主配置模块（config.yml：settings / cross-server；server-id 来自每服的 server.yml）。 */
 public final class MainSettings {
 
     public String language = "zh_CN";
@@ -39,7 +39,7 @@ public final class MainSettings {
         s.language = c.getString("settings.language", s.language);
         s.autoReload = c.getBoolean("settings.auto-reload-config", s.autoReload);
         s.debug = c.getBoolean("settings.debug", s.debug);
-        s.serverId = c.getString("server-id", s.serverId);
+        // server-id 只从每服的 server.yml 读取（见 ConfigManager#applyServerOverride），不再由 config.yml 提供。
 
         s.crossServerEnabled = c.getBoolean("cross-server.enabled", s.crossServerEnabled);
         s.redisHost = c.getString("cross-server.redis.host", s.redisHost);

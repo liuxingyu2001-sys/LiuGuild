@@ -4,7 +4,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| `config.yml` | 本服系统设置、`server-id` |
+| `config.yml` | 本服系统设置（不含 `server-id`，已移至 `server.yml`） |
 | `database.yml` | 数据库（SQLite / MySQL） |
 | `cross-server.yml` | 跨服 Redis、传送、心跳 |
 | `guild.yml` | 工会玩法、权限、银行、图标费用 |
@@ -15,7 +15,7 @@
 | `gui.yml` | GUI 菜单布局 |
 | `icons.yml` | 工会图标定义 |
 | `messages.yml` | 多语言消息 |
-| `server.yml` | **每服独立**，覆盖 `server-id` / `language` / `debug` / `auto-reload-config`（不随共享配置同步） |
+| `server.yml` | **每服独立**，设置唯一 `server-id`，并可覆盖 `language` / `debug` / `auto-reload-config`（不随共享配置同步） |
 
 ## 共享配置目录
 
@@ -41,7 +41,7 @@ settings:
   auto-reload-config: true
   language: zh_CN
   debug: false
-server-id: ""
+# server-id 不在此文件，见 server.yml
 ```
 
 ## database.yml

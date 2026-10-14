@@ -2,7 +2,7 @@
 #  LiuGuild 主配置（config.yml）
 # ----------------------------------------------------------
 #  配置按功能模块拆分，各模块独立成文件，改一个模块无需碰其它文件：
-#    config.yml        本服系统设置、server-id
+#    config.yml        本服系统设置（server-id 见 server.yml）
 #    database.yml      数据库
 #    cross-server.yml  跨服 Redis / 传送 / 心跳
 #    guild.yml         工会玩法、权限、银行、图标费用
@@ -14,8 +14,7 @@
 #    icons.yml         工会图标定义
 #    messages.yml      多语言消息
 #  多台子服可把 settings.shared-config-path 指向同一共享目录，改一处全服生效。
-#  【仅本文件的以下项为每服相关】server-id / language / debug / auto-reload-config，
-#  可在 plugins/LiuGuild/server.yml 里按子服覆盖（server.yml 不参与共享）。
+#  server-id 在 plugins/LiuGuild/server.yml 设置（每服独立，不参与共享）。
 # ==========================================================
 
 settings:
@@ -28,10 +27,6 @@ settings:
   language: zh_CN
   # 调试日志
   debug: false
-
-# 本服在群组中的唯一标识（每台子服必须不同）。
-# 建议留空并在 plugins/LiuGuild/server.yml 里覆盖。
-server-id: ""
 
 # 可选插件钩子（未安装对应插件时自动跳过，不影响启动）。
 hooks:
