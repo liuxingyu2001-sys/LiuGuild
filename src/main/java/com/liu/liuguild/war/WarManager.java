@@ -358,8 +358,25 @@ public final class WarManager implements GuildModule {
         plugin.guilds().notifyGuild(guild.id(), plugin.messages().component("war-queue-joined", "mode", mode.display), player.getUniqueId());
         if (mode.broadcastQueue) {
             plugin.guilds().broadcastAll(plugin.messages().component("war-queue-broadcast",
-                    "player", player.getName(), "guild", guild.name(), "mode", mode.display));
+                    "player", player.getName(), "guild", guild.name(), "mode", mode.display)
+                    .append(queueJoinButton(mode)));
         }
+    }
+
+    /** 「点击参与匹配」可点击按钮（带具体模式）。 */
+    private Component queueJoinButton(WarMode mode) {
+        return Component.text(" ").append(plugin.messages().component("war-queue-join-button")
+                .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/guild war queue " + mode.key))
+                .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
+                        plugin.messages().component("war-queue-join-hover", "mode", mode.display))));
+    }
+
+    /** 「点击进入竞技场」可点击按钮。 */
+    private Component arenaJoinButton() {
+        return Component.text(" ").append(plugin.messages().component("war-arena-join-button")
+                .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/guild war join"))
+                .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
+                        plugin.messages().component("war-arena-join-hover"))));
     }
 
     public void leaveQueue(Player player, Guild guild) {
@@ -468,7 +485,7 @@ public final class WarManager implements GuildModule {
             return;
         }
         plugin.guilds().broadcastAll(plugin.messages().component("war-season-open",
-                "mode", mode.display, "minutes", mode.seasonWindowMinutes));
+                "mode", mode.display, "minutes", mode.seasonWindowMinutes).append(queueJoinButton(mode)));
         if (mode.autoEnqueue) {
             for (Guild g : plugin.guilds().all()) {
                 if (g.level() < mode.minLevel || warOf(g.id()) != null || isQueued(g.id())) {
@@ -938,9 +955,9 @@ public final class WarManager implements GuildModule {
         lastBroadcastSecond = -1;
         Bukkit.getPluginManager().callEvent(new GuildWarMatchEvent(war));
         plugin.guilds().announceGuild(war.guildA(), plugin.messages().component("war-match-found",
-                "enemy", war.nameB(), "seconds", mode.prepareSeconds), null);
+                "enemy", war.nameB(), "seconds", mode.prepareSeconds).append(arenaJoinButton()), null);
         plugin.guilds().announceGuild(war.guildB(), plugin.messages().component("war-match-found",
-                "enemy", war.nameA(), "seconds", mode.prepareSeconds), null);
+                "enemy", war.nameA(), "seconds", mode.prepareSeconds).append(arenaJoinButton()), null);
         plugin.getLogger().info("工会战 " + war.id() + " [" + mode.display + "] 进入准备阶段: "
                 + war.nameA() + " vs " + war.nameB() + "，竞技场=" + arenaName());
     }
