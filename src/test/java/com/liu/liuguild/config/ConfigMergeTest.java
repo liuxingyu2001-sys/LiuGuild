@@ -35,6 +35,20 @@ class ConfigMergeTest {
     }
 
     @Test
+    void deletedSectionCannotBeResurrectedByChildOverrides() {
+        YamlConfiguration base = new YamlConfiguration();
+        base.set("arenas.main.world", "world");
+        YamlConfiguration overrides = new YamlConfiguration();
+        // 同一个覆盖层里既要改子键、又要删除父节点：删除必须胜出。
+        overrides.set("arenas.main.world", "nether");
+        overrides.set("arenas.main", ConfigManager.DELETED);
+
+        ConfigManager.mergeOverrides(base, overrides);
+
+        assertFalse(base.isSet("arenas.main"));
+    }
+
+    @Test
     void overridesCanAddNewKeys() {
         YamlConfiguration base = new YamlConfiguration();
         base.set("war.enabled", true);

@@ -15,11 +15,11 @@
 | `gui.yml` | GUI 菜单布局 |
 | `icons.yml` | 工会图标定义 |
 | `messages.yml` | 多语言消息 |
-| `server.yml` | **每服独立**，覆盖 `server-id`（不随共享配置同步） |
+| `server.yml` | **每服独立**，覆盖 `server-id` / `language` / `debug` / `auto-reload-config`（不随共享配置同步） |
 
 ## 共享配置目录
 
-在 `config.yml`：
+在 **本服** 的 `plugins/LiuGuild/config.yml`：
 
 ```yaml
 settings:
@@ -29,6 +29,9 @@ settings:
 
 多台子服指向同一目录，改一处全服生效（插件每 5 秒检测 mtime 自动热重载）。
 `server.yml` 始终从各服自己的插件目录读取，用于区分 `server-id`。
+
+> 共享目录下哪些文件共享、哪些必须每服独立，以及多服定时任务如何避免重复执行、
+> 游戏内编辑如何不破坏带注释的基础文件，详见 **[shared-config.md](shared-config.md)**。
 
 ## config.yml
 

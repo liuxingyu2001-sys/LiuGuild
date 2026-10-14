@@ -182,16 +182,21 @@ public final class ConfigManager {
 
     /** 把覆盖层合并进基础配置（标记为删除的键会被移除）。可单测。 */
     static void mergeOverrides(FileConfiguration base, ConfigurationSection overrides) {
+        java.util.List<String> deletions = new java.util.ArrayList<>();
         for (String key : overrides.getKeys(true)) {
             if (overrides.isConfigurationSection(key)) {
                 continue;
             }
             Object v = overrides.get(key);
             if (DELETED.equals(v)) {
-                base.set(key, null);
+                deletions.add(key);
             } else {
                 base.set(key, v);
             }
+        }
+        // 删除放在最后：删除父节点会一并清掉由覆盖层写入的子键，避免“复活”。
+        for (String key : deletions) {
+            base.set(key, null);
         }
     }
 
