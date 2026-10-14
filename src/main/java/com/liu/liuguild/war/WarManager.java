@@ -990,8 +990,6 @@ public final class WarManager implements GuildModule {
     }
 
     private void applyRewards(GuildWar war, String winnerId) {
-        Guild guildA = plugin.guilds().guild(war.guildA());
-        Guild guildB = plugin.guilds().guild(war.guildB());
         WarMode w = modeOf(war);
         double mult = w.scheduled() ? Math.max(1.0, w.seasonPointsMultiplier) : 1.0;
         // 平局时两方均按参与奖励结算，不发胜利称号。
