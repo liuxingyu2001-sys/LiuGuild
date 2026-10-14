@@ -102,6 +102,7 @@ public final class GuildHomeHook {
             return;
         }
         long now = System.currentTimeMillis();
+        cooldownUntil.values().removeIf(v -> v <= now);
         Long until = cooldownUntil.get(player.getUniqueId());
         if (until != null && until > now) {
             plugin.messages().send(player, "home-cooldown", "seconds", (until - now) / 1000 + 1);

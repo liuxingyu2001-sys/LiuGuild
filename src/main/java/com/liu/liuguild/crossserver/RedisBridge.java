@@ -9,7 +9,6 @@ import redis.clients.jedis.JedisPubSub;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -212,10 +211,17 @@ public final class RedisBridge {
     public Map<String, String> onlineServers() {
         Map<String, String> out = new LinkedHashMap<>();
         withJedis(jedis -> {
-            Set<String> keys = jedis.keys(prefix + "srv:*");
-            for (String k : keys) {
-                out.put(k.substring((prefix + "srv:").length()), jedis.get(k));
-            }
+            // 使用 SCAN 而非 KEYS，避免在共享 Redis 上阻塞。
+            redis.clients.jedis.params.ScanParams params = new redis.clients.jedis.params.ScanParams()
+                    .match(prefix + "srv:*").count(100);
+            String cursor = redis.clients.jedis.params.ScanParams.SCAN_POINTER_START;
+            do {
+                redis.clients.jedis.resps.ScanResult<String> res = jedis.scan(cursor, params);
+                cursor = res.getCursor();
+                for (String k : res.getResult()) {
+                    out.put(k.substring((prefix + "srv:").length()), jedis.get(k));
+                }
+            } while (!redis.clients.jedis.params.ScanParams.SCAN_POINTER_START.equals(cursor));
             return null;
         });
         return out;
