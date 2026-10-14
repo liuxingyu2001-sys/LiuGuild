@@ -39,6 +39,10 @@ public final class ArenaDef {
     public static final class TempWorld {
         /** 结束后是否保留该世界（false = 销毁）。 */
         public boolean keepOnEnd = false;
+        /** true = 由 LiuGuild 直接创建（不依赖 liudungeon 模板），environment/name-format 生效。 */
+        public boolean builtin = false;
+        /** 内置世界类型：flat / normal。 */
+        public String worldType = "flat";
         /** 环境：NORMAL / NETHER / THE_END。 */
         public String environment = "NORMAL";
         /** 动态世界名格式，{id} 会被替换为竞技场 id。 */
@@ -91,6 +95,8 @@ public final class ArenaDef {
             return;
         }
         tw.keepOnEnd = sec.getBoolean("keep-on-end", tw.keepOnEnd);
+        tw.builtin = sec.getBoolean("builtin", tw.builtin);
+        tw.worldType = sec.getString("world-type", tw.worldType);
         tw.environment = sec.getString("environment", tw.environment);
         tw.nameFormat = sec.getString("name-format", tw.nameFormat);
         tw.time = sec.getLong("time", tw.time);

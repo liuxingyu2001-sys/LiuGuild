@@ -45,6 +45,8 @@ class ArenaDefTest {
         ArenaDef a = parse("""
                 temporary-world:
                   keep-on-end: true
+                  builtin: true
+                  world-type: normal
                   environment: THE_END
                   name-format: "war_{id}"
                   time: 18000
@@ -55,6 +57,8 @@ class ArenaDefTest {
                     keepInventory: true
                 """);
         assertTrue(a.tempWorld.keepOnEnd);
+        assertTrue(a.tempWorld.builtin);
+        assertEquals("normal", a.tempWorld.worldType);
         assertEquals("THE_END", a.tempWorld.environment);
         assertEquals("war_{id}", a.tempWorld.nameFormat);
         assertEquals(18000, a.tempWorld.time);
@@ -93,6 +97,8 @@ class ArenaDefTest {
         assertEquals(0, a.afterWar.returnDelaySeconds);
         assertFalse(a.afterWar.endSpawnEnabled);
         assertFalse(a.tempWorld.keepOnEnd);
+        assertFalse(a.tempWorld.builtin);
+        assertEquals("flat", a.tempWorld.worldType);
         assertEquals("NORMAL", a.tempWorld.environment);
         assertEquals(-1, a.tempWorld.time);
     }

@@ -864,6 +864,10 @@ public final class GuiManager implements GuildModule, Listener {
                 String[] values = {"", "PEACEFUL", "EASY", "NORMAL", "HARD"};
                 plugin.configs().set("arena.yml", base + "difficulty", next(values, a.tempWorld.difficulty));
             }
+            case "world-type" -> {
+                String[] values = {"flat", "normal"};
+                plugin.configs().set("arena.yml", base + "world-type", next(values, a.tempWorld.worldType));
+            }
             default -> {
             }
         }
@@ -875,6 +879,7 @@ public final class GuiManager implements GuildModule, Listener {
         ArenaDef a = plugin.settings().arena(arenaId);
         switch (key.toLowerCase(java.util.Locale.ROOT)) {
             case "keep-on-end" -> plugin.configs().set("arena.yml", "arenas." + arenaId + ".temporary-world.keep-on-end", !a.tempWorld.keepOnEnd);
+            case "builtin" -> plugin.configs().set("arena.yml", "arenas." + arenaId + ".temporary-world.builtin", !a.tempWorld.builtin);
             case "auto-return" -> plugin.configs().set("arena.yml", "arenas." + arenaId + ".after-war.auto-return", !a.afterWar.autoReturn);
             default -> {
             }
@@ -990,6 +995,11 @@ public final class GuiManager implements GuildModule, Listener {
                 List.of("<gray>点击输入数字"), "arena_input:" + a.id + ":radius");
         slot = put(inv, holder, slot, player, "GRASS_BLOCK", "<white>环境：<yellow>" + a.tempWorld.environment,
                 List.of("<gray>点击循环切换 NORMAL/NETHER/THE_END"), "arena_cycle:" + a.id + ":environment");
+        slot = put(inv, holder, slot, player, "DEEPSLATE", "<white>内置临时世界：<yellow>" + (a.tempWorld.builtin ? "开" : "关"),
+                List.of("<gray>开启后由本插件自建世界", "<gray>environment / name-format / world-type 生效"),
+                "arena_toggle:" + a.id + ":builtin");
+        slot = put(inv, holder, slot, player, "STONE", "<white>世界类型：<yellow>" + a.tempWorld.worldType,
+                List.of("<gray>点击循环切换 flat/normal", "<gray>仅内置临时世界生效"), "arena_cycle:" + a.id + ":world-type");
         slot = put(inv, holder, slot, player, "CLOCK", "<white>时间：<yellow>" + (a.tempWorld.time < 0 ? "不修改" : String.valueOf(a.tempWorld.time)),
                 List.of("<gray>点击循环切换时间"), "arena_cycle:" + a.id + ":time");
         slot = put(inv, holder, slot, player, "WATER_BUCKET", "<white>天气：<yellow>" + (a.tempWorld.weather.isBlank() ? "不修改" : a.tempWorld.weather),

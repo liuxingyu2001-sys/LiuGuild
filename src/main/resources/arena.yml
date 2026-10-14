@@ -39,11 +39,16 @@ arenas:
     temporary-world:
       # 结束后是否保留世界（false = 销毁）
       keep-on-end: false
+      # 开启后由 LiuGuild 自建临时世界（无需 liudungeon 模板），
+      # 此时 environment / name-format / world-type 均生效，战斗结束后自动卸载并删除目录。
+      builtin: false
+      # 内置临时世界类型：flat / normal
+      world-type: flat
       # 环境：NORMAL / NETHER / THE_END
       environment: NORMAL
-      # 动态世界名格式，{id} 替换为竞技场 id
+      # 世界名格式，{id} 替换为竞技场 id，{time} 替换为时间戳
       name-format: "guild_arena_{id}"
-      # 只能通过 liudungeon 模板决定地形；以下为可选的附加设置
+      # 未开启 builtin 且使用 liudungeon 模板时，地形由模板决定；以下为可选附加设置
       time: -1                 # 固定世界时间（-1 = 不修改）
       weather: ""              # clear / rain / thunder（空 = 不修改）
       difficulty: ""           # PEACEFUL / EASY / NORMAL / HARD（空 = 不修改）

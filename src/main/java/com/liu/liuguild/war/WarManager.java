@@ -23,9 +23,12 @@ import com.liu.liuguild.module.GuildModule;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.WorldCreator;
+import org.bukkit.WorldType;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -52,6 +55,8 @@ public final class WarManager implements GuildModule {
     /** 当前竞技场世界。 */
     private volatile ArenaWorld arena;
     private volatile World fallbackWorld;
+    /** 由 LiuGuild 自建并负责销毁的临时竞技场世界。 */
+    private volatile World builtinWorld;
     /** 当前使用的竞技场定义。 */
     private volatile ArenaDef currentArena;
 
@@ -678,6 +683,19 @@ public final class WarManager implements GuildModule {
         ArenaDef def = plugin.settings().arena(mode.arena);
         currentArena = def;
         fallbackWorld = null;
+        builtinWorld = null;
+        if (def.tempWorld.builtin && !def.hasTemplate()) {
+            World world = createBuiltinWorld(def);
+            if (world == null) {
+                cancelWar(war, "war-arena-failed");
+                return;
+            }
+            fallbackWorld = world;
+            applyWorldSettings(def, world);
+            war.arenaWorld(world.getName());
+            beginPrepare(war);
+            return;
+        }
         if (plugin.dungeon() != null && plugin.dungeon().available() && def.hasTemplate()
                 && plugin.dungeon().hasTemplate(def.template)) {
             Set<ChunkPosition> chunks = plugin.settings().arenas.pregenerate ? computeChunks(def) : new HashSet<>();
@@ -709,6 +727,78 @@ public final class WarManager implements GuildModule {
             applyWorldSettings(def, world);
             war.arenaWorld(world.getName());
             beginPrepare(war);
+        }
+    }
+
+    /** 创建 LiuGuild 自建临时世界（environment / name-format / world-type 均生效）。 */
+    private World createBuiltinWorld(ArenaDef def) {
+        try {
+            String raw = def.tempWorld.nameFormat == null ? "guild_arena_{id}" : def.tempWorld.nameFormat;
+            String name = raw.replace("{id}", def.id)
+                    .replace("{time}", Long.toString(System.currentTimeMillis() % 1_000_000L))
+                    .replaceAll("[^A-Za-z0-9_\\-]", "_");
+            if (name.length() > 48) {
+                name = name.substring(0, 48);
+            }
+            World existing = Bukkit.getWorld(name);
+            if (existing != null) {
+                builtinWorld = existing;
+                return existing;
+            }
+            World.Environment env;
+            try {
+                env = World.Environment.valueOf(def.tempWorld.environment.toUpperCase(java.util.Locale.ROOT));
+            } catch (Throwable t) {
+                env = World.Environment.NORMAL;
+            }
+            WorldCreator wc = new WorldCreator(name).environment(env).generateStructures(false);
+            wc.type("normal".equalsIgnoreCase(def.tempWorld.worldType) ? WorldType.NORMAL : WorldType.FLAT);
+            World world = wc.createWorld();
+            if (world != null) {
+                builtinWorld = world;
+                plugin.getLogger().info("已创建内置临时竞技场世界 " + name + "（" + env + "/" + wc.type() + "）");
+            }
+            return world;
+        } catch (Throwable t) {
+            plugin.getLogger().warning("创建内置临时世界失败: " + t.getMessage());
+            return null;
+        }
+    }
+
+    /** 卸载并异步删除内置临时世界。 */
+    private void destroyBuiltinWorld() {
+        World world = builtinWorld;
+        builtinWorld = null;
+        if (world == null) {
+            return;
+        }
+        World fallback = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0);
+        if (fallback != null && !fallback.equals(world)) {
+            for (Player p : new ArrayList<>(world.getPlayers())) {
+                p.teleport(fallback.getSpawnLocation());
+            }
+        }
+        File folder = world.getWorldFolder();
+        String name = world.getName();
+        if (!Bukkit.unloadWorld(world, false)) {
+            plugin.getLogger().warning("内置临时世界卸载失败: " + name);
+            return;
+        }
+        plugin.async(() -> deleteFolder(folder));
+    }
+
+    private void deleteFolder(File dir) {
+        if (dir == null || !dir.exists()) {
+            return;
+        }
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                deleteFolder(f);
+            }
+        }
+        if (!dir.delete()) {
+            plugin.getLogger().warning("内置临时世界目录删除失败: " + dir.getAbsolutePath());
         }
     }
 
@@ -1049,7 +1139,14 @@ public final class WarManager implements GuildModule {
         war.rosterB().clear();
         ArenaDef activeDef = currentArena;
         boolean keepWorld = activeDef != null && activeDef.tempWorld.keepOnEnd;
-        if (plugin.dungeon() != null && arena != null && !keepWorld) {
+        if (builtinWorld != null) {
+            if (keepWorld) {
+                plugin.getLogger().info("工会战 " + war.id() + " 已结束，按配置保留内置世界（" + builtinWorld.getName() + "）。");
+                builtinWorld = null;
+            } else {
+                destroyBuiltinWorld();
+            }
+        } else if (plugin.dungeon() != null && arena != null && !keepWorld) {
             plugin.dungeon().destroy(arena);
         } else if (keepWorld && arena != null) {
             plugin.getLogger().info("工会战 " + war.id() + " 已结束，按配置保留动态世界（" + arena.worldName() + "）。");

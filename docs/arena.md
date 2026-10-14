@@ -66,9 +66,11 @@ arenas:
 | `template` | liudungeon 动态模板（填了则优先动态开世界） |
 | `radius` | 动态世界预热半径 |
 | `spawn-a` / `spawn-b` / `spawn-spectator` | 三方出生点（x/y/z/yaw/pitch） |
-| `temporary-world.environment` | 动态世界环境：`NORMAL` / `NETHER` / `THE_END` |
+| `temporary-world.builtin` | 开启后由 LiuGuild 自建临时世界（无需 liudungeon 模板），结束后自动卸载并删除 |
+| `temporary-world.world-type` | 内置临时世界类型：`flat` / `normal` |
+| `temporary-world.environment` | 动态世界环境：`NORMAL` / `NETHER` / `THE_END`（内置世界时生效） |
 | `temporary-world.keep-on-end` | 结束后是否保留世界 |
-| `temporary-world.name-format` | 动态世界名格式（`{id}`） |
+| `temporary-world.name-format` | 动态世界名格式（`{id}` / `{time}`，内置世界时生效） |
 | `temporary-world.time` | 固定时间（-1 = 不修改） |
 | `temporary-world.weather` | `clear` / `rain` / `thunder`（空 = 不修改） |
 | `temporary-world.difficulty` | `PEACEFUL` / `EASY` / `NORMAL` / `HARD` |
@@ -81,3 +83,8 @@ arenas:
 
 > 若 `after-war` 同时关闭 `auto-return` 且未启用 `end-spawn`，玩家将停留在原位；
 > 当使用的是**动态世界**时该世界会被销毁，因此这种组合仅建议在 `keep-on-end: true` 时使用。
+
+> **内置临时世界**：在竞技场 `temporary-world` 下设置 `builtin: true` 且不配置 `template` 时，
+> LiuGuild 会用 Bukkit `WorldCreator` 自行创建世界——此时 `environment`、`world-type`、`name-format`
+> 全部生效，战斗结束后自动卸载并异步删除世界目录（`keep-on-end: true` 时保留）。
+> 由于是全新世界，请务必用 `/guildadmin arena setspawn` 重新设置 A/B/旁观出生点到实际地形高度。

@@ -236,7 +236,13 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             }
             case "settempworld" -> {
                 if (require(sender, args, 5)) {
-                    plugin.configs().set("arena.yml", "arenas." + args[2] + ".temporary-world." + args[3], args[4]);
+                    Object value = args[4];
+                    if (args[4].equalsIgnoreCase("true") || args[4].equalsIgnoreCase("false")) {
+                        value = Boolean.parseBoolean(args[4]);
+                    } else if (args[3].equalsIgnoreCase("time")) {
+                        value = NumberUtil.toInt(args[4], -1);
+                    }
+                    plugin.configs().set("arena.yml", "arenas." + args[2] + ".temporary-world." + args[3], value);
                     plugin.reloadAll();
                     plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3] + "=" + args[4]);
                 }
@@ -807,7 +813,25 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             return startsWith(List.of("a", "b", "spec"), args[3]);
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("settempworld")) {
-            return startsWith(List.of("environment", "keep-on-end", "name-format", "time", "weather", "difficulty"), args[3]);
+            return startsWith(List.of("environment", "keep-on-end", "builtin", "world-type", "name-format",
+                    "time", "weather", "difficulty"), args[3]);
+        }
+        if (args.length == 5 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("settempworld")) {
+            if (args[3].equalsIgnoreCase("world-type")) {
+                return startsWith(List.of("flat", "normal"), args[4]);
+            }
+            if (args[3].equalsIgnoreCase("environment")) {
+                return startsWith(List.of("NORMAL", "NETHER", "THE_END"), args[4]);
+            }
+            if (args[3].equalsIgnoreCase("weather")) {
+                return startsWith(List.of("clear", "rain", "thunder", ""), args[4]);
+            }
+            if (args[3].equalsIgnoreCase("difficulty")) {
+                return startsWith(List.of("PEACEFUL", "EASY", "NORMAL", "HARD", ""), args[4]);
+            }
+            if (args[3].equalsIgnoreCase("builtin") || args[3].equalsIgnoreCase("keep-on-end")) {
+                return startsWith(List.of("true", "false"), args[4]);
+            }
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("setafter")) {
             return startsWith(List.of("auto-return", "return-delay-seconds", "end-spawn.enabled"), args[3]);
