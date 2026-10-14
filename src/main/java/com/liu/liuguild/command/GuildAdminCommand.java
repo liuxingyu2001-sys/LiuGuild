@@ -77,13 +77,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         switch (sub) {
             case "help" -> help(sender);
             case "reload" -> {
-                if (args.length >= 2) {
-                    plugin.reloadAll();
-                    plugin.messages().send(sender, "reload-done");
-                } else {
-                    plugin.reloadAll();
-                    plugin.messages().send(sender, "reload-done");
-                }
+                plugin.reloadAll();
+                plugin.messages().send(sender, "reload-done");
             }
             case "status" -> status(sender);
             case "import" -> importData(sender, args);
@@ -193,21 +188,21 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "setworld" -> {
                 if (require(sender, args, 4)) {
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".world", args[3]);
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3]);
                 }
             }
             case "setserver" -> {
                 if (require(sender, args, 4)) {
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".server", args[3]);
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3]);
                 }
             }
             case "settemplate" -> {
                 if (require(sender, args, 4)) {
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".template", args[3]);
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3]);
                 }
             }
@@ -215,7 +210,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 if (require(sender, args, 3)) {
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".template", "");
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".world", "");
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "arena-created", "arena", args[2]);
                 }
             }
@@ -226,14 +221,14 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                         return;
                     }
                     plugin.configs().remove("arena.yml", "arenas." + args[2]);
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     sender.sendMessage(cn("&a已删除竞技场 &f" + args[2]));
                 }
             }
             case "setradius" -> {
                 if (require(sender, args, 4)) {
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".radius", NumberUtil.toInt(args[3], 48));
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", "radius=" + args[3]);
                 }
             }
@@ -246,7 +241,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                         value = NumberUtil.toInt(args[4], -1);
                     }
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".temporary-world." + args[3], value);
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3] + "=" + args[4]);
                 }
             }
@@ -255,7 +250,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     boolean value = Boolean.parseBoolean(args[4]);
                     plugin.configs().set("arena.yml",
                             "arenas." + args[2] + ".temporary-world.gamerules." + args[3], value);
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3] + "=" + value);
                 }
             }
@@ -268,7 +263,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                         value = NumberUtil.toInt(args[4], 0);
                     }
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".after-war." + args[3], value);
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", args[3] + "=" + args[4]);
                 }
             }
@@ -289,7 +284,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
                 plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
                 plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
-                plugin.reloadAll();
+                plugin.reloadConfig();
                 sender.sendMessage(cn("&a已将竞技场 &f" + args[2] + " &a的集合点设为当前位置（世界 &f" + loc.getWorld().getName() + "&a）。"));
             }
             case "tp", "teleport" -> {
@@ -342,7 +337,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
         plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
         plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
-        plugin.reloadAll();
+        plugin.reloadConfig();
         plugin.messages().sendRaw(sender, "arena-spawn-set", "arena", arenaId,
                 "point", point.toUpperCase(Locale.ROOT), "world", loc.getWorld().getName());
     }
@@ -377,13 +372,13 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 String snapshot = plugin.kits().capture(player);
                 plugin.configs().set("kit.yml", "kits." + key + ".enabled", true);
                 plugin.configs().set("kit.yml", "kits." + key + ".snapshot", snapshot);
-                plugin.reloadAll();
+                plugin.reloadConfig();
                 plugin.messages().sendRaw(sender, "kit-saved", "key", key);
             }
             case "delete" -> {
                 if (require(sender, args, 3)) {
                     plugin.configs().set("kit.yml", "kits." + args[2], null);
-                    plugin.reloadAll();
+                    plugin.reloadConfig();
                     plugin.messages().sendRaw(sender, "kit-deleted", "key", args[2]);
                 }
             }

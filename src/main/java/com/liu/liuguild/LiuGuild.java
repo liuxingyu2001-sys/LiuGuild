@@ -231,13 +231,21 @@ public final class LiuGuild extends JavaPlugin {
 
     /** 重载全部配置与模块（命令 / 自动热重载调用）。 */
     public void reloadAll() {
+        reloadConfig();
+        if (guilds != null) {
+            guilds.reloadAll();
+        }
+    }
+
+    /**
+     * 仅重载配置与消息、重启定时任务；不重读数据库中的工会数据。
+     * 适用于修改竞技场 / 套装 / 模式等配置后的热重载，避免无意义的全表加载。
+     */
+    public void reloadConfig() {
         configManager.load();
         configFingerprint = configManager.fingerprint();
         if (modules != null) {
             modules.reloadAll();
-        }
-        if (guilds != null) {
-            guilds.reloadAll();
         }
     }
 

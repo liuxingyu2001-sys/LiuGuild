@@ -491,7 +491,7 @@ public final class GuiManager implements GuildModule, Listener {
                 return "&f" + k.key + " 快照=" + (k.hasSnapshot() ? "有" : "无") + " 物品=" + k.items.size();
             }, plugin.settings().kit.kits.keySet());
             case "admin:reload" -> {
-                plugin.reloadAll();
+                plugin.reloadConfig();
                 plugin.messages().send(player, "reload-done");
                 openAdmin(player);
             }
@@ -635,7 +635,7 @@ public final class GuiManager implements GuildModule, Listener {
         } else if (action.startsWith("arena_delete:")) {
             String id = action.substring("arena_delete:".length());
             plugin.configs().remove("arena.yml", "arenas." + id);
-            plugin.reloadAll();
+            plugin.reloadConfig();
             openArenaList(player, 0);
         } else if (action.startsWith("guild_edit:")) {
             openGuildEditor(player, action.substring("guild_edit:".length()));
@@ -672,7 +672,7 @@ public final class GuiManager implements GuildModule, Listener {
         } else if (action.startsWith("kit_delete:")) {
             String key = sanitizeKey(action.substring("kit_delete:".length()));
             plugin.configs().remove("kit.yml", "kits." + key);
-            plugin.reloadAll();
+            plugin.reloadConfig();
             plugin.messages().sendRaw(player, "kit-deleted", "key", key);
             openKitList(player);
         } else if (action.equals("kit_new")) {
@@ -741,7 +741,7 @@ public final class GuiManager implements GuildModule, Listener {
         String snapshot = plugin.kits().capture(player);
         plugin.configs().set("kit.yml", "kits." + key + ".enabled", true);
         plugin.configs().set("kit.yml", "kits." + key + ".snapshot", snapshot);
-        plugin.reloadAll();
+        plugin.reloadConfig();
         plugin.messages().sendRaw(player, "kit-saved", "key", key);
         openKitEditor(player, key);
     }
@@ -817,7 +817,7 @@ public final class GuiManager implements GuildModule, Listener {
         plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
         plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
         plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
-        plugin.reloadAll();
+        plugin.reloadConfig();
         plugin.messages().sendRaw(player, "arena-spawn-set", "arena", arenaId,
                 "point", point.toUpperCase(java.util.Locale.ROOT), "world", loc.getWorld().getName());
         openArenaEditor(player, arenaId);
@@ -833,7 +833,7 @@ public final class GuiManager implements GuildModule, Listener {
         plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
         plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
         plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
-        plugin.reloadAll();
+        plugin.reloadConfig();
         plugin.messages().send(player, "arena-endspawn-set", "arena", arenaId, "world", loc.getWorld().getName());
         openArenaEditor(player, arenaId);
     }
@@ -849,7 +849,7 @@ public final class GuiManager implements GuildModule, Listener {
             } else {
                 plugin.configs().set("arena.yml", "arenas." + arenaId + "." + key, value);
             }
-            plugin.reloadAll();
+            plugin.reloadConfig();
             openArenaEditor(player, arenaId);
         });
     }
@@ -889,7 +889,7 @@ public final class GuiManager implements GuildModule, Listener {
             default -> {
             }
         }
-        plugin.reloadAll();
+        plugin.reloadConfig();
         openArenaEditor(player, arenaId);
     }
 
@@ -902,7 +902,7 @@ public final class GuiManager implements GuildModule, Listener {
             default -> {
             }
         }
-        plugin.reloadAll();
+        plugin.reloadConfig();
         openArenaEditor(player, arenaId);
     }
 
