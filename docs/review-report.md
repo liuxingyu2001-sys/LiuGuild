@@ -235,3 +235,31 @@ ls target/Liu-LiuGuild-0.1.0.jar
 
 ### 验证
 - `mvn -o clean package -Dlicense.enabled=false` → **BUILD SUCCESS**，**40** 用例全绿（新增覆盖层合并/删除 3 例）。
+
+---
+
+## 十三、非阻塞项落实（结算分帧 / 预加载 / 端到端自检）
+
+### 结算不再阻塞主线程
+- 玩家层奖励（Vault 金币、通行证经验、称号、消息）改为**分帧队列**：`endWar` 只入队，`warTick` 的 SETTLING 阶段每 tick 发放 `war.settle-batch-per-tick`（默认 8）人。
+- 单玩家发放异常由 `WarMath.drainBatch` 独立捕获，不影响其余玩家；`cleanup`/取消时清空队列。
+- 选择“主线程分帧”而非“异步发放”，是因为第三方 API 线程安全不受本插件控制，分帧同样消除长 tick，且无跨线程风险。
+- 新增纯函数 `WarMath.drainBatch` 及回归测试。
+
+### 预加载
+- **套装护甲/物品**：`KitService.preload()` 在启动与每次配置重载时一次性解析（含 CraftEngine 物品），入场直接取缓存并克隆。
+- **套装玩家快照**：`KitProfile.decodedSnapshot()` 懒解码 + 启动预热，避免每次入场 Base64 解码 41 件物品。
+- `/guildadmin status` 新增“预加载计数（套装/场地/模式/图标）”与“待发放奖励数”。
+
+### 配置更清晰
+- `server-id` 统一从 **`server.yml`** 读取（`config.yml` 已移除该键）；若为空则自动生成并写回，避免多服串号。
+
+### 端到端自检
+- 新增 **`/guildadmin doctor`**：逐项检查 server-id / 数据库 / 跨服 / 传送 / 经济 / HuskHomes / mcMMO / 每个模式的场地·模板·世界·套装，输出 ✓/✗ 清单。
+- `docs/deployment.md` 增补“上线自检与端到端验收”清单（匹配→传送→击杀→结算→回原位、赛季单次公告、跨服频道、驻地、宕机降级）。
+
+### 文档
+- 新增 **`docs/threading.md`**：线程模型、预加载清单、每服定时任务与单写者、工会战生命周期与结算分帧、DB/Redis 线程规则、排查手段。
+
+### 验证
+- `mvn -o clean package -Dlicense.enabled=false` → **BUILD SUCCESS**，**41** 用例全绿。

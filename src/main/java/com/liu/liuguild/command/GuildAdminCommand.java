@@ -49,6 +49,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             Map.entry("forceend", "liuguild.admin.forceend"),
             Map.entry("cleanup", "liuguild.admin.cleanup"),
             Map.entry("verify", "liuguild.admin.verify"),
+            Map.entry("doctor", "liuguild.admin.status"),
             Map.entry("overrides", "liuguild.admin.reload"),
             Map.entry("guilds", "liuguild.admin.guilds"),
             Map.entry("player", "liuguild.admin.player"),
@@ -95,6 +96,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "info" -> info(sender, args);
             case "cleanup" -> cleanup(sender, args);
             case "verify" -> verify(sender, args);
+            case "doctor" -> doctor(sender);
             case "overrides" -> overrides(sender, args);
             case "guilds" -> guilds(sender, args);
             case "player" -> player(sender, args);
@@ -135,6 +137,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "broadcast <文本>", "全服广播消息");
         adminLine(sender, "cleanup [dry|confirm]", "清理不活跃（僵尸）工会");
         adminLine(sender, "verify [fix]", "校验并修复内存数据一致性");
+        adminLine(sender, "doctor", "部署自检：跨服/经济/场地/模板/套装/世界");
         adminLine(sender, "overrides [list|clear <文件|all>]", "查看 / 清除游戏内编辑覆盖层");
     }
 
@@ -745,6 +748,97 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             }
         }
         sender.sendMessage(cn("&7清除：&f/guildadmin overrides clear <文件|all>"));
+    }
+
+    private void doctor(CommandSender sender) {
+        var s = plugin.settings();
+        java.util.List<String> ok = new java.util.ArrayList<>();
+        java.util.List<String> bad = new java.util.ArrayList<>();
+
+        if (plugin.serverId() == null || plugin.serverId().isBlank()) {
+            bad.add("server-id 为空（server.yml）");
+        } else {
+            ok.add("server-id = " + plugin.serverId());
+        }
+        if (!plugin.db().healthy()) {
+            bad.add("数据库连接不健康（database.yml）");
+        } else {
+            ok.add("数据库连接正常（" + (plugin.db().isSqlite() ? "SQLite" : "MySQL") + "）");
+        }
+        if (s.main.crossServerEnabled) {
+            if (plugin.bus().isReady()) {
+                ok.add("跨服 Redis 已连接");
+                if (!plugin.bus().transfer().available()) {
+                    bad.add("跨服传送不可用（检查代理 / server-id 是否为代理中已登记名）");
+                }
+            } else {
+                bad.add("跨服已启用但 Redis 未连接（将退回单服）");
+            }
+        } else {
+            ok.add("跨服未启用（单服模式）");
+        }
+        if (s.guild.createCost > 0) {
+            if (plugin.economy().available()) {
+                ok.add("经济插件可用（Vault）");
+            } else {
+                bad.add("guild.create-cost > 0 但无经济插件，费用将被忽略");
+            }
+        }
+        if (s.guild.homeEnabled && !(plugin.guildHome() != null && plugin.guildHome().available())) {
+            bad.add("guild.home.enabled=true 但 HuskHomes 不可用");
+        }
+        if (s.main.mcmmoEnabled && !(plugin.mcmmo() != null && plugin.mcmmo().available())) {
+            bad.add("hooks.mcmmo.enabled=true 但未检测到 mcMMO");
+        }
+        if (s.war.enabled) {
+            if (s.war.modes.isEmpty()) {
+                bad.add("工会战已启用但无任何模式");
+            }
+            for (com.liu.liuguild.config.WarMode m : s.war.modes.values()) {
+                com.liu.liuguild.config.ArenaDef a = s.arenas.arenas.get(
+                        m.arena == null ? "" : m.arena.toLowerCase(Locale.ROOT));
+                if (a == null) {
+                    bad.add("模式 " + m.key + " 引用不存在的场地: " + m.arena);
+                    continue;
+                }
+                if (a.hasTemplate()) {
+                    boolean liuOk = plugin.dungeon() != null && plugin.dungeon().available();
+                    if (!liuOk) {
+                        bad.add("模式 " + m.key + " 使用模板但 liudungeon 不可用");
+                    } else if (!plugin.dungeon().hasTemplate(a.template)) {
+                        bad.add("场地 " + a.id + " 模板不存在: " + a.template);
+                    } else {
+                        ok.add("模式 " + m.key + " 模板可用: " + a.template);
+                    }
+                } else if (!a.tempWorld.builtin) {
+                    org.bukkit.World w = a.world.isBlank()
+                            ? (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0))
+                            : Bukkit.getWorld(a.world);
+                    if (w == null) {
+                        bad.add("场地 " + a.id + " 世界不存在: " + a.world);
+                    } else {
+                        ok.add("模式 " + m.key + " 世界可用: " + w.getName());
+                    }
+                } else {
+                    ok.add("模式 " + m.key + " 使用内置临时世界（无需 liudungeon）");
+                }
+                var kp = s.kit.profile(m.kit);
+                if (kp == null || (!kp.hasSnapshot() && kp.items.isEmpty() && kp.armor.isEmpty())) {
+                    bad.add("模式 " + m.key + " 套装为空: " + m.kit);
+                } else {
+                    ok.add("模式 " + m.key + " 套装已配置: " + m.kit);
+                }
+            }
+        }
+
+        sender.sendMessage(cn("&6===== 部署自检（doctor）====="));
+        for (String o : ok) {
+            sender.sendMessage(cn("&a[✓] &7" + o));
+        }
+        for (String b : bad) {
+            sender.sendMessage(cn("&c[✗] &7" + b));
+        }
+        sender.sendMessage(cn(bad.isEmpty() ? "&a全部通过，可用于生产。" : "&e共 &f" + bad.size() + " &e项需处理。"));
     }
 
     private void verify(CommandSender sender, String[] args) {
