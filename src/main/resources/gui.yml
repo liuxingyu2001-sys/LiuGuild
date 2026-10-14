@@ -238,6 +238,11 @@ gui:
         material: NETHERITE_SWORD
         name: "<white>工会战管理"
         lore: ["<gray>查看进行中的比赛", "<gray>改比分 / 传送 / 强制结束", "", "<yellow>点击打开"]
+      admin_kits:
+        slot: 34
+        material: DIAMOND_CHESTPLATE
+        name: "<white>装备套装"
+        lore: ["<gray>浏览 / 保存 / 删除套装", "<gray>用当前身上装备创建快照", "", "<yellow>点击打开"]
       admin_kit:
         slot: 16
         material: DIAMOND_CHESTPLATE

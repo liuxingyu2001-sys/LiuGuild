@@ -457,6 +457,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin:arenas" -> openArenaList(player, 0);
             case "admin:guilds" -> openGuildList(player, 0);
             case "admin:wars" -> openWarList(player);
+            case "admin:kits" -> openKitList(player);
             case "admin:modes" -> showAdminList(player, plugin.settings().war.modes.size(), "工会战模式", id -> {
                 com.liu.liuguild.config.WarMode m = plugin.settings().mode(id);
                 return "&f" + m.key + " &7" + m.display + " 场地=" + m.arena + " 公平装备=" + m.fairEquipment;
@@ -646,7 +647,75 @@ public final class GuiManager implements GuildModule, Listener {
             if (!plugin.war().teleportToArena(player)) {
                 plugin.messages().send(player, "war-transfer-failed");
             }
+        } else if (action.startsWith("kit_edit:")) {
+            openKitEditor(player, action.substring("kit_edit:".length()));
+        } else if (action.startsWith("kit_save:")) {
+            saveKitFromPlayer(player, action.substring("kit_save:".length()));
+        } else if (action.startsWith("kit_delete:")) {
+            String key = action.substring("kit_delete:".length());
+            plugin.configs().remove("kit.yml", "kits." + key);
+            plugin.reloadAll();
+            plugin.messages().sendRaw(player, "kit-deleted", "key", key);
+            openKitList(player);
+        } else if (action.equals("kit_new")) {
+            player.closeInventory();
+            chatInput.request(player, plugin.messages().component("arena-input", "key", "套装名"), text -> {
+                saveKitFromPlayer(player, text.trim().toLowerCase(java.util.Locale.ROOT));
+            });
         }
+    }
+
+    public void openKitList(Player player) {
+        Holder holder = new Holder("kit_list", "", 0);
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>装备套装管理", Map.of());
+        int slot = 0;
+        for (Map.Entry<String, com.liu.liuguild.config.KitSettings.KitProfile> e : plugin.settings().kit.kits.entrySet()) {
+            var k = e.getValue();
+            inv.setItem(slot, GuiUtil.build(player, "DIAMOND_CHESTPLATE", "DIAMOND_CHESTPLATE",
+                    "<white>" + e.getKey(), List.of(
+                            "<gray>快照：" + (k.hasSnapshot() ? "<green>已保存" : "<dark_gray>无"),
+                            "<gray>物品：<white>" + k.items.size() + "  <gray>效果：<white>" + k.effects.size(),
+                            "<gray>清空背包：<white>" + k.clearInventory,
+                            "", "<yellow>点击编辑"), Map.of(), null));
+            holder.actions.put(slot, "kit_edit:" + e.getKey());
+            slot++;
+        }
+        inv.setItem(49, GuiUtil.build(player, "ANVIL", "ANVIL", "<green>新建套装（使用当前装备）",
+                List.of("<gray>点击后输入名字"), Map.of(), null));
+        holder.actions.put(49, "kit_new");
+        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
+        holder.actions.put(53, "admin:wars_back");
+        player.openInventory(inv);
+    }
+
+    public void openKitEditor(Player player, String key) {
+        var k = plugin.settings().kit.profile(key);
+        Holder holder = new Holder("kit_edit", "", 0);
+        Inventory inv = simpleInventory(player, holder, 3, "<gold>套装 <white>" + key, Map.of());
+        inv.setItem(11, GuiUtil.build(player, "DIAMOND_CHESTPLATE", "DIAMOND_CHESTPLATE",
+                "<white>保存当前装备到该套装", List.of("<gray>覆盖已有快照"), Map.of(), null));
+        holder.actions.put(11, "kit_save:" + key);
+        inv.setItem(13, GuiUtil.build(player, "PAPER", "PAPER", "<white>详细信息",
+                List.of("<gray>物品：<white>" + k.items.size(), "<gray>效果：<white>" + k.effects.size(),
+                        "<gray>快照：" + (k.hasSnapshot() ? "<green>已保存" : "<dark_gray>无")), Map.of(), null));
+        holder.actions.put(13, "noop");
+        inv.setItem(15, GuiUtil.build(player, "TNT", "TNT", "<red>删除该套装", List.of(), Map.of(), null));
+        holder.actions.put(15, "kit_delete:" + key);
+        inv.setItem(22, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回列表", List.of(), Map.of(), null));
+        holder.actions.put(22, "admin:kits");
+        player.openInventory(inv);
+    }
+
+    private void saveKitFromPlayer(Player player, String key) {
+        if (key == null || key.isBlank()) {
+            return;
+        }
+        String snapshot = plugin.kits().capture(player);
+        plugin.configs().set("kit.yml", "kits." + key + ".enabled", true);
+        plugin.configs().set("kit.yml", "kits." + key + ".snapshot", snapshot);
+        plugin.reloadAll();
+        plugin.messages().sendRaw(player, "kit-saved", "key", key);
+        openKitEditor(player, key);
     }
 
     public void openWarList(Player player) {
@@ -1234,6 +1303,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin_arena" -> "admin:arenas";
             case "admin_guilds" -> "admin:guilds";
             case "admin_wars" -> "admin:wars";
+            case "admin_kits" -> "admin:kits";
             case "admin_kit" -> "admin:kit";
             case "admin_reload" -> "admin:reload";
             case "close" -> "close";
