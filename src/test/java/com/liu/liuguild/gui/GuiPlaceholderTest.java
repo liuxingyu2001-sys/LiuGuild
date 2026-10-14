@@ -26,7 +26,7 @@ class GuiPlaceholderTest {
             "guild", "tag", "leader", "level", "max_level", "points", "members", "member_limit",
             "wins", "losses", "bank", "home_slots", "notice", "description", "icon", "open",
             // members
-            "player", "rank", "contributed", "kills", "deaths", "joined",
+            "player", "rank", "contributed", "kills", "deaths", "joined", "title",
             // list
             "count",
             // war 状态 / 模式

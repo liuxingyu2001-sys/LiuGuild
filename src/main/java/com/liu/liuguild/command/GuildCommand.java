@@ -2,8 +2,11 @@ package com.liu.liuguild.command;
 
 import com.liu.liuguild.LiuGuild;
 import com.liu.liuguild.model.Guild;
+import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.model.GuildRank;
+import com.liu.liuguild.model.GuildTitle;
 import com.liu.liuguild.model.GuildWar;
+import com.liu.liuguild.title.TitleService;
 import com.liu.liuguild.util.Text;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
@@ -26,7 +29,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             "help", "menu", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
             "kick", "promote", "demote", "transfer", "members", "seticon", "icon", "rename", "set", "bank",
             "home", "hq", "info", "list", "top", "war", "chat", "c", "checkin", "sign", "qiandao",
-            "residence", "res", "lingdi", "warehouse", "wh", "cangku");
+            "residence", "res", "lingdi", "warehouse", "wh", "cangku", "title", "titles", "chenghao");
 
     private final LiuGuild plugin;
 
@@ -96,6 +99,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                     plugin.messages().send(player, "wh-disabled");
                 }
             }
+            case "title", "titles", "chenghao" -> title(player, args);
             case "rename" -> rename(player, args);
             case "war" -> war(player, args);
             default -> plugin.messages().send(player, "unknown-command");
@@ -135,6 +139,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "领地", "/guild residence share <领地>", "把自己的领地在工会内共享");
         helpLine(player, "领地", "/guild residence unshare <领地>", "取消领地共享");
         helpLine(player, "仓库", "/guild warehouse", "打开工会共享仓库（同一时间仅一人）");
+        helpLine(player, "头衔", "/guild title", "打开头衔面板 / 装备自定义头衔");
         helpLine(player, "信息", "/guild info", "查看工会信息");
         helpLine(player, "信息", "/guild list", "浏览全服工会");
         helpLine(player, "信息", "/guild top points", "查看排行榜（points/level/wins/losses/members）");
@@ -457,6 +462,181 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
      * /guild residence share <领地名>    把自己拥有的领地在工会内共享
      * /guild residence unshare <领地名>  取消共享
      */
+    /**
+     * 工会头衔：查看 / 装备 / 创建 / 删除。
+     *
+     * <p>不带子命令时直接开 GUI —— 文字指令在手机上/命令方块里太难用。</p>
+     */
+    private void title(Player player, String[] args) {
+        if (plugin.titles() == null || !plugin.settings().guild.titlesEnabled) {
+            plugin.messages().send(player, "title-disabled");
+            return;
+        }
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        String action = args.length >= 2 ? args[1].toLowerCase(java.util.Locale.ROOT) : "gui";
+        switch (action) {
+            case "gui", "menu" -> plugin.gui().openTitles(player, g);
+            case "list" -> listTitles(player, g);
+            case "set", "equip" -> {
+                if (args.length < 3) {
+                    plugin.messages().send(player, "title-usage");
+                    return;
+                }
+                GuildMember m = g.member(player.getUniqueId());
+                if (m == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    return;
+                }
+                String err = plugin.titles().equip(g, m, args[2].toLowerCase(java.util.Locale.ROOT));
+                if (err != null) {
+                    plugin.messages().send(player, err, "id", args[2]);
+                    return;
+                }
+                GuildTitle t = plugin.titles().equipped(player.getUniqueId());
+                plugin.messages().send(player, "title-equipped",
+                        "display", t == null ? args[2] : t.display());
+                announce(g, "title-broadcast-equip", player, "display",
+                        t == null ? args[2] : t.display());
+            }
+            case "clear", "unequip", "off" -> {
+                if (plugin.titles().equippedId(player.getUniqueId()) == null) {
+                    plugin.messages().send(player, "title-none");
+                    return;
+                }
+                plugin.titles().unequip(g, player.getUniqueId());
+                plugin.messages().send(player, "title-unequipped");
+            }
+            case "create", "add", "new" -> createTitle(player, g, args);
+            case "delete", "del" -> {
+                if (!canManageTitles(player, g)) {
+                    plugin.messages().send(player, "title-no-permission");
+                    return;
+                }
+                if (args.length < 3) {
+                    plugin.messages().send(player, "title-usage");
+                    return;
+                }
+                String id = args[2].toLowerCase(java.util.Locale.ROOT);
+                if (!plugin.titles().delete(g.id(), id)) {
+                    plugin.messages().send(player, "title-not-found");
+                    return;
+                }
+                plugin.messages().send(player, "title-deleted", "id", id);
+                announce(g, "title-broadcast-delete", player, "id", id);
+            }
+            default -> plugin.messages().send(player, "title-usage");
+        }
+    }
+
+    /** 列出工会头衔，标出自己够格/已装备的。 */
+    private void listTitles(Player player, Guild g) {
+        GuildMember me = g.member(player.getUniqueId());
+        GuildRank rank = me == null ? GuildRank.MEMBER : me.rank();
+        String equipped = plugin.titles().equippedId(player.getUniqueId());
+        java.util.List<GuildTitle> all = plugin.titles().titlesOf(g.id());
+        if (all.isEmpty()) {
+            plugin.messages().send(player, "title-list-empty");
+            if (canManageTitles(player, g)) {
+                plugin.messages().send(player, "title-create-hint");
+            }
+            return;
+        }
+        plugin.messages().sendRaw(player, "title-list-header",
+                "count", String.valueOf(all.size()),
+                "max", String.valueOf(plugin.settings().guild.titlesMax));
+        for (GuildTitle t : all) {
+            if (t.id().equals(equipped)) {
+                plugin.messages().sendRaw(player, "title-list-line-equipped",
+                        "display", t.display(), "id", t.id());
+            } else if (t.usableBy(rank)) {
+                plugin.messages().sendRaw(player, "title-list-line",
+                        "display", t.display(), "id", t.id());
+            } else {
+                plugin.messages().sendRaw(player, "title-list-line-req",
+                        "display", t.display(), "id", t.id(), "rank", t.minRank().display());
+            }
+        }
+        plugin.messages().send(player, "title-list-hint");
+    }
+
+    /** `/guild title create <标识> <显示…> [最低职位]`。 */
+    private void createTitle(Player player, Guild g, String[] args) {
+        if (!canManageTitles(player, g)) {
+            plugin.messages().send(player, "title-no-permission");
+            return;
+        }
+        if (args.length < 4) {
+            plugin.messages().send(player, "title-usage");
+            return;
+        }
+        int max = plugin.settings().guild.titlesMax;
+        String id = args[2].toLowerCase(java.util.Locale.ROOT);
+        boolean updating = plugin.titles().title(g.id(), id) != null;
+        if (!updating && plugin.titles().titlesOf(g.id()).size() >= max) {
+            plugin.messages().send(player, "title-limit", "max", String.valueOf(max));
+            return;
+        }
+        // 末尾若是职位名，则作为最低职位，其余全部作为显示文本
+        int end = args.length;
+        GuildRank minRank = GuildRank.MEMBER;
+        if (end > 4) {
+            GuildRank maybe = rankOf(args[end - 1]);
+            if (maybe != null) {
+                minRank = maybe;
+                end--;
+            }
+        }
+        String display = String.join(" ", java.util.Arrays.copyOfRange(args, 3, end));
+        String err = plugin.titles().create(g.id(), id, display, minRank);
+        if (err != null) {
+            plugin.messages().send(player, err, "max", String.valueOf(TitleService.maxDisplayLength()));
+            return;
+        }
+        GuildTitle t = plugin.titles().title(g.id(), id);
+        String shown = t == null ? display : t.display();
+        if (updating) {
+            plugin.messages().send(player, "title-exists", "id", id);
+        } else {
+            plugin.messages().send(player, "title-created", "id", id, "display", shown);
+            announce(g, "title-broadcast-create", player, "display", shown);
+        }
+    }
+
+    /** 能否管理头衔：有权限节点，或职位达到配置要求。 */
+    private boolean canManageTitles(Player player, Guild g) {
+        if (player.hasPermission("liuguild.title.manage")) {
+            return true;
+        }
+        GuildMember m = g.member(player.getUniqueId());
+        return m != null && m.rank().atLeast(plugin.settings().guild.titlesManageRank);
+    }
+
+    private static GuildRank rankOf(String s) {
+        if (s == null) {
+            return null;
+        }
+        return switch (s.toLowerCase(java.util.Locale.ROOT)) {
+            case "member", "chengyuan", "成员" -> GuildRank.MEMBER;
+            case "officer", "fuhuizhang", "副会长", "官员" -> GuildRank.OFFICER;
+            case "leader", "huizhang", "会长" -> GuildRank.LEADER;
+            default -> null;
+        };
+    }
+
+    /** 向工会内广播（仅在线成员，不跨服）。 */
+    private void announce(Guild g, String key, Player actor, Object... kv) {
+        for (GuildMember m : g.memberMap().values()) {
+            Player p = plugin.player(m.uuid());
+            if (p != null && !p.getUniqueId().equals(actor.getUniqueId())) {
+                plugin.messages().send(p, key, kv);
+            }
+        }
+    }
+
     private void residence(Player player, String[] args) {
         com.liu.liuguild.hook.ResidenceHook res = plugin.residence();
         if (res == null || !res.available()) {

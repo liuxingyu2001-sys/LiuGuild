@@ -517,6 +517,10 @@ public final class GuildManager {
             plugin.warehouse().lock().release(g.id(), null);
             plugin.warehouse().purge(g.id());
         }
+        // 清空该工会的头衔定义
+        if (plugin.titles() != null) {
+            plugin.titles().onGuildDisbanded(g.id());
+        }
         Bukkit.getPluginManager().callEvent(new GuildDisbandEvent(g, cause));
         return true;
     }
@@ -803,6 +807,10 @@ public final class GuildManager {
         // 若该成员正开着工会仓库，先落库并关掉，避免退会后继续操作
         if (plugin.warehouse() != null) {
             plugin.warehouse().kick(uuid);
+        }
+        // 退会/被踢：卸下自定义头衔
+        if (plugin.titles() != null) {
+            plugin.titles().onMemberRemoved(uuid);
         }
         // 若正处于工会战，先把该玩家从战局里摘出来，避免继续上 BossBar / 领参赛奖励
         if (plugin.war() != null) {

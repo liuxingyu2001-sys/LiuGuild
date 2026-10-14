@@ -85,6 +85,13 @@ guild:
   residence:
     # 是否启用：允许会长把自有领地在工会内共享
     enabled: true
+  # 工会头衔：工会自定义的显示称号，成员从自己够格的里选一个装备
+  titles:
+    enabled: true
+    # 每个工会最多可创建几个头衔
+    max: 12
+    # 谁能创建/删除头衔（MEMBER / OFFICER / LEADER）
+    manage-rank: OFFICER
   # 工会仓库：跨服共享物品存储，同一时刻只允许一个成员打开（跨服原子锁）
   warehouse:
     enabled: true

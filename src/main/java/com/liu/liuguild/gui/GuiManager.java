@@ -9,6 +9,7 @@ import com.liu.liuguild.config.MenuDef;
 import com.liu.liuguild.model.Guild;
 import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.model.GuildRank;
+import com.liu.liuguild.model.GuildTitle;
 import com.liu.liuguild.model.GuildWar;
 import com.liu.liuguild.module.GuildModule;
 import com.liu.liuguild.util.NumberUtil;
@@ -166,6 +167,7 @@ public final class GuiManager implements GuildModule, Listener {
             Map<String, String> mph = new LinkedHashMap<>(ph);
             mph.put("player", m.name());
             mph.put("rank", m.rank().display());
+            mph.put("title", plugin.titles() == null ? "" : plugin.titles().display(m.uuid()));
             mph.put("contributed", plugin.economy().format(m.contributed()));
             mph.put("kills", String.valueOf(m.kills()));
             mph.put("deaths", String.valueOf(m.deaths()));
@@ -457,6 +459,134 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     // =====================================================================
+    // 工会头衔面板
+    // =====================================================================
+
+    /**
+     * 头衔面板：列出本工会全部头衔，左键装备/卸下，右键删除（需管理权限）。
+     *
+     * <p>不够格的头衔也会显示但置灰 —— 让成员知道目标是哪些。</p>
+     */
+    public void openTitles(Player player, Guild g) {
+        if (g == null || plugin.titles() == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        if (!plugin.settings().guild.titlesEnabled) {
+            plugin.messages().send(player, "title-disabled");
+            return;
+        }
+        GuildMember me = g.member(player.getUniqueId());
+        GuildRank rank = me == null ? GuildRank.MEMBER : me.rank();
+        boolean canManage = player.hasPermission("liuguild.title.manage")
+                || (me != null && me.rank().atLeast(plugin.settings().guild.titlesManageRank));
+        String equippedId = plugin.titles().equippedId(player.getUniqueId());
+
+        Holder holder = new Holder("titles", g.id(), 0);
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("count", String.valueOf(plugin.titles().titlesOf(g.id()).size()));
+        ph.put("max", String.valueOf(plugin.settings().guild.titlesMax));
+        Inventory inv = simpleInventory(player, holder, 6,
+                "<gold>工会头衔 <dark_gray>({count}/{max})", ph);
+
+        List<GuildTitle> all = plugin.titles().titlesOf(g.id());
+        if (all.isEmpty()) {
+            inv.setItem(22, GuiUtil.build(player, "NAME_TAG", "NAME_TAG",
+                    "<gray>本工会还没有任何头衔",
+                    canManage
+                            ? List.of("<yellow>点击创建第一个头衔")
+                            : List.of("<gray>请会长/副会长创建"),
+                    Map.of(), null));
+            if (canManage) {
+                holder.actions.put(22, "title:create");
+            }
+        }
+        int slot = 0;
+        for (GuildTitle t : all) {
+            boolean equipped = t.id().equals(equippedId);
+            boolean usable = t.usableBy(rank);
+            String color = equipped ? "<green>" : (usable ? "<white>" : "<dark_gray>");
+            List<String> lore = new ArrayList<>();
+            lore.add("<gray>标识：<white>" + t.id());
+            lore.add("<gray>最低职位：<white>" + t.minRank().display());
+            lore.add("");
+            if (equipped) {
+                lore.add("<yellow>左键卸下");
+            } else if (usable) {
+                lore.add("<yellow>左键装备");
+            } else {
+                lore.add("<red>你的职位不足以使用");
+            }
+            if (canManage) {
+                lore.add("<red>右键删除");
+            }
+            inv.setItem(slot, GuiUtil.build(player, "NAME_TAG", "NAME_TAG",
+                    color + t.display() + " <dark_gray>[" + t.id() + "]", lore, Map.of(), null));
+            holder.actions.put(slot, "title_toggle:" + t.id());
+            slot++;
+            if (slot >= 45) {
+                break;
+            }
+        }
+
+        // 底排：创建 / 清除 / 返回
+        if (canManage) {
+            inv.setItem(47, GuiUtil.build(player, "EMERALD", "EMERALD", "<green>创建头衔",
+                    List.of("<gray>格式：<white>/guild title create <标识> <显示> [职位]",
+                            "<gray>也可直接点这里输入"), Map.of(), null));
+            holder.actions.put(47, "title:create");
+        }
+        inv.setItem(49, GuiUtil.build(player, "BARRIER", "BARRIER", "<yellow>卸下当前头衔",
+                List.of("<gray>当前：<white>" + (equippedId == null ? "无" : equippedId)), Map.of(), null));
+        holder.actions.put(49, "title:clear");
+        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
+        holder.actions.put(53, "back:main");
+        player.openInventory(inv);
+    }
+
+    /** 头衔面板：左键装备/卸下，右键删除。 */
+    private void titleToggle(Player player, Guild g, String titleId, boolean rightClick) {
+        if (g == null || plugin.titles() == null) {
+            return;
+        }
+        if (rightClick) {
+            GuildMember me = g.member(player.getUniqueId());
+            boolean canManage = player.hasPermission("liuguild.title.manage")
+                    || (me != null && me.rank().atLeast(plugin.settings().guild.titlesManageRank));
+            if (!canManage) {
+                plugin.messages().send(player, "title-no-permission");
+                return;
+            }
+            if (plugin.titles().delete(g.id(), titleId)) {
+                plugin.messages().send(player, "title-deleted", "id", titleId);
+            } else {
+                plugin.messages().send(player, "title-not-found");
+            }
+            openTitles(player, g);
+            return;
+        }
+        GuildMember me = g.member(player.getUniqueId());
+        if (me == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        if (titleId.equals(plugin.titles().equippedId(player.getUniqueId()))) {
+            plugin.titles().unequip(g, player.getUniqueId());
+            plugin.messages().send(player, "title-unequipped");
+        } else {
+            String err = plugin.titles().equip(g, me, titleId);
+            if (err != null) {
+                plugin.messages().send(player, err, "id", titleId);
+                return;
+            }
+            GuildTitle t = plugin.titles().equipped(player.getUniqueId());
+            plugin.messages().send(player, "title-equipped",
+                    "display", t == null ? titleId : t.display());
+        }
+        openTitles(player, g);
+    }
+
+    // =====================================================================
     // 点击处理
     // =====================================================================
 
@@ -609,6 +739,68 @@ public final class GuiManager implements GuildModule, Listener {
                 }
             }
             case "admin:arenas" -> openArenaList(player, 0);
+            case "title:open" -> openTitles(player, require(g, player));
+            case "title:create" -> {
+                Guild tg = require(g, player);
+                if (tg == null) {
+                    break;
+                }
+                var m = tg.member(player.getUniqueId());
+                boolean canManage = player.hasPermission("liuguild.title.manage")
+                        || (m != null && m.rank().atLeast(plugin.settings().guild.titlesManageRank));
+                if (!canManage) {
+                    plugin.messages().send(player, "title-no-permission");
+                    break;
+                }
+                if (plugin.titles() == null) {
+                    plugin.messages().send(player, "title-disabled");
+                    break;
+                }
+                String max = String.valueOf(plugin.settings().guild.titlesMax);
+                requestText(player, "title-prompt-id", id -> {
+                    String err = com.liu.liuguild.title.TitleService.validateId(id);
+                    if (err != null) {
+                        plugin.messages().send(player, err);
+                        openTitles(player, tg);
+                        return;
+                    }
+                    requestText(player, "title-prompt-display", display -> {
+                        String err2 = com.liu.liuguild.title.TitleService.validateDisplay(display);
+                        if (err2 != null) {
+                            plugin.messages().send(player, err2, "max",
+                                    String.valueOf(com.liu.liuguild.title.TitleService.maxDisplayLength()));
+                            openTitles(player, tg);
+                            return;
+                        }
+                        if (plugin.titles().title(tg.id(), id) == null
+                                && plugin.titles().titlesOf(tg.id()).size() >= plugin.settings().guild.titlesMax) {
+                            plugin.messages().send(player, "title-limit", "max", max);
+                            openTitles(player, tg);
+                            return;
+                        }
+                        String err3 = plugin.titles().create(tg.id(), id, display, GuildRank.MEMBER);
+                        if (err3 != null) {
+                            plugin.messages().send(player, err3, "max", max);
+                        } else {
+                            plugin.messages().send(player, "title-created", "id", id, "display", display);
+                        }
+                        openTitles(player, tg);
+                    });
+                });
+            }
+            case "title:clear" -> {
+                Guild tg = require(g, player);
+                if (tg == null || plugin.titles() == null) {
+                    break;
+                }
+                if (plugin.titles().equippedId(player.getUniqueId()) == null) {
+                    plugin.messages().send(player, "title-none");
+                } else {
+                    plugin.titles().unequip(tg, player.getUniqueId());
+                    plugin.messages().send(player, "title-unequipped");
+                }
+                openTitles(player, tg);
+            }
             case "admin:open" -> openAdmin(player);
             case "admin:guilds" -> openGuildList(player, 0);
             case "admin:wars" -> openWarList(player);
@@ -782,6 +974,8 @@ public final class GuiManager implements GuildModule, Listener {
             if (g != null && plugin.guilds().setIcon(player, g, iconId)) {
                 openSettings(player, g);
             }
+        } else if (action.startsWith("title_toggle:")) {
+            titleToggle(player, g, action.substring("title_toggle:".length()), clickRight);
         } else if (action.startsWith("war_queue:")) {
             if (g != null) {
                 plugin.war().queue(player, g, action.substring("war_queue:".length()));
@@ -1841,6 +2035,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "info_back" -> "info:back";
             case "leave" -> "leave";
             case "warehouse" -> "guild:warehouse";
+            case "titles" -> "title:open";
             case "toggle_open" -> "set:open";
             case "notice" -> "set:notice";
             case "desc" -> "set:desc";

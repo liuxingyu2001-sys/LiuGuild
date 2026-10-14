@@ -70,10 +70,15 @@ gui:
         name: "<white>工会列表"
         lore: ["<gray>浏览全服工会"]
       warehouse:
-        slot: 21
+        slot: 28
         material: CHEST
         name: "<white>工会仓库"
         lore: ["<gray>跨服共享物品存储", "<gray>同一时间只能一人打开", "", "<yellow>点击打开"]
+      titles:
+        slot: 29
+        material: NAME_TAG
+        name: "<white>工会头衔"
+        lore: ["<gray>自定义工会称号", "<gray>选一个装备在自己名字旁", "", "<yellow>点击查看"]
 
   # ---------------- 工会详情面板（点击主菜单名片 / 列表右键） ----------------
   info:
@@ -124,9 +129,10 @@ gui:
     entry:
       # 成员头像物品（PLAYER_HEAD 会显示玩家皮肤）
       material: PLAYER_HEAD
-      name: "<white>{player} <dark_gray>[{rank}]"
+      name: "<white>{player} <dark_gray>[{rank}] <gray>{title}"
       lore:
         - "<gray>职位：<white>{rank}"
+        - "<gray>头衔：<white>{title}"
         - "<gray>贡献：<white>{contributed}"
         - "<gray>击杀/死亡：<white>{kills}<gray>/<white>{deaths}"
         - "<gray>加入：<white>{joined}"

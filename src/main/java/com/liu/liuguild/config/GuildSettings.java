@@ -1,5 +1,6 @@
 package com.liu.liuguild.config;
 
+import com.liu.liuguild.model.GuildRank;
 import org.bukkit.configuration.file.FileConfiguration;
 
 /** 工会玩法模块（guild.yml）。 */
@@ -89,6 +90,14 @@ public final class GuildSettings {
     /** 仓库槽位上限。 */
     public int warehouseMaxSlots = 54;
 
+    // ---- 工会头衔 ----
+    /** 是否启用工会自定义头衔。 */
+    public boolean titlesEnabled = true;
+    /** 每个工会最多可创建的头衔数。 */
+    public int titlesMax = 12;
+    /** 创建/删除头衔所需的最低职位。 */
+    public GuildRank titlesManageRank = GuildRank.OFFICER;
+
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
         s.nameMin = Math.max(1, c.getInt("guild.name.min-length", s.nameMin));
@@ -144,6 +153,9 @@ public final class GuildSettings {
         if (s.warehouseBaseSlots > s.warehouseMaxSlots) {
             s.warehouseBaseSlots = s.warehouseMaxSlots;
         }
+        s.titlesEnabled = c.getBoolean("guild.titles.enabled", s.titlesEnabled);
+        s.titlesMax = Math.max(1, Math.min(64, c.getInt("guild.titles.max", s.titlesMax)));
+        s.titlesManageRank = GuildRank.parse(c.getString("guild.titles.manage-rank", s.titlesManageRank.name()));
         return s;
     }
 
