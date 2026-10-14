@@ -196,3 +196,42 @@ ls target/Liu-LiuGuild-0.1.0.jar
 ### 仍建议（非阻塞）
 - 真实服务器端到端验证（跨服 Redis、模板世界、传送、mcMMO 屏蔽、Sparrow 渲染）。
 - 工会战结算目前仍在主线程同步发放（每场一次）；超大规模奖励场景可评估异步化。
+
+---
+
+## 十二、共享配置目录的多服一致性（专项审查）
+
+**问题**：多台子服把 `settings.shared-config-path` 指向同一目录后，同一份配置会被所有子服同时读取。
+若不处理，所有子服会同时执行“到点开赛/定时清理”等全局动作，导致重复发布、重复删除、重复公告。
+
+### 逐项审查与结论
+
+| 全局动作 | 原风险 | 现状 |
+|---|---|---|
+| **赛季到点开赛** | 每台子服各自 `startSeason`：N 份公告 + N 次自动入队 | 到期后在异步线程用 Redis `SET NX EX` 抢锁 `season:<模式>:<分钟>`，仅一台获得；获得者广播 `SEASON_OPEN`，各服各自公告并拉入本服工会。**恰好一次** |
+| **僵尸工会清理** | 每台子服各自扫描并删同一批 | 每周期抢锁 `cleanup`（TTL=清理间隔），仅一台执行 |
+| **匹配配对** | 可能重复匹配 | `war:matchlock` 全局锁 + `claimPair` 的原子 `ZREM`（原有机制，已确认） |
+| **竞技场世界创建** | 多服同时建 | 仅承办服 `adoptWar` → `prepareArena`（原有机制，已确认） |
+| **工会战结算/奖励** | 多服重复发 | 仅承办服 `endWar` → `applyRewards`（原有机制，已确认） |
+| **在线心跳** | 互相覆盖 | 每玩家独立 `presence:<uuid>` 键（原有机制，已确认） |
+| **工会变更/公告/聊天** | 重复投递 | 接收端按 `server` 字段跳过来源服（原有机制，已确认） |
+| **配置热重载** | 一次编辑引发全服全表重读 | 自动热重载改为**仅配置**（`reloadConfig`），不再重读工会数据 |
+
+### 配置互相覆盖与注释丢失
+
+- 原先 GUI/指令直接整文件写回 `arena.yml`/`kit.yml`：多服同时编辑会互相覆盖，且 Bukkit 保存会**清空注释**。
+- 现改为**覆盖层**：游戏内编辑只写 `overrides/<文件>`，加载时合并到带注释的基础文件之上；保存采用临时文件 + 原子替换。
+- 删除通过覆盖层中的 `__liuguild_deleted__` 标记实现，且**删除最后应用**，避免被残留子键“复活”。
+- 新增 `/guildadmin overrides [list|clear <文件|all>]` 管理覆盖层。
+
+### 哪些必须每服独立
+
+- **只有 `server.yml`**（核心 `server-id`，另可覆盖 `language`/`debug`/`auto-reload-config`）必须每服独立，且不参与共享。
+- `database.yml`、`cross-server.yml` 必须**共享且一致**（同库、同 Redis、同 channel）。
+- 其余玩法/展示配置共享即可。
+- `settings.shared-config-path` 仅从**本服** `plugins/LiuGuild/config.yml` 读取，避免自指。
+
+详见 `docs/shared-config.md`。
+
+### 验证
+- `mvn -o clean package -Dlicense.enabled=false` → **BUILD SUCCESS**，**40** 用例全绿（新增覆盖层合并/删除 3 例）。
