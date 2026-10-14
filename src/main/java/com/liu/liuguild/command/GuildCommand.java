@@ -369,6 +369,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             case "bank" -> "bank";
             case "level" -> "level";
             case "wins" -> "wins";
+            case "losses" -> "losses";
+            case "members" -> "members";
             default -> "points";
         };
         List<Guild> list = plugin.guilds().top(column, 10);
@@ -379,6 +381,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 case "bank" -> plugin.economy().format(g.bank());
                 case "level" -> String.valueOf(g.level());
                 case "wins" -> String.valueOf(g.wins());
+                case "losses" -> String.valueOf(g.losses());
+                case "members" -> String.valueOf(g.memberCount());
                 default -> String.valueOf(g.points());
             };
             plugin.messages().sendRaw(player, "top-line", "rank", rank++, "guild", g.name(), "value", value);
@@ -386,7 +390,9 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(Text.mm("<gray>可查看：<click:suggest_command:'/guild top points'><white>points</white></click> "
                 + "<click:suggest_command:'/guild top bank'><white>bank</white></click> "
                 + "<click:suggest_command:'/guild top level'><white>level</white></click> "
-                + "<click:suggest_command:'/guild top wins'><white>wins</white></click>"));
+                + "<click:suggest_command:'/guild top members'><white>members</white></click> "
+                + "<click:suggest_command:'/guild top wins'><white>wins</white></click> "
+                + "<click:suggest_command:'/guild top losses'><white>losses</white></click>"));
     }
 
     private void war(Player player, String[] args) {
@@ -492,7 +498,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 return filter(List.of("set", "del", "list"), args[1]);
             }
             if (sub.equals("top")) {
-                return filter(List.of("points", "bank", "level", "wins"), args[1]);
+                return filter(List.of("points", "bank", "level", "wins", "losses", "members"), args[1]);
             }
         }
         return List.of();

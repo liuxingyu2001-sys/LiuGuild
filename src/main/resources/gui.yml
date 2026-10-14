@@ -184,7 +184,7 @@ gui:
         slot: 38
         material: COMPASS
         name: "<white>当前战况"
-        lore: ["<gray>状态：<white>{state}", "<gray>对手：<white>{enemy}", "<gray>比分：<white>{score} : {enemy_score}"]
+        lore: ["<gray>状态：<white>{state}", "<gray>对手：<white>{enemy}", "<gray>比分：<white>{score} : {enemy_score}", "<gray>我的剩余生命：<white>{lives}", "<gray>场地：<white>{arena}", "<gray>承办服：<white>{host}"]
       leave_queue:
         slot: 40
         material: BARRIER
@@ -233,6 +233,11 @@ gui:
         material: SHIELD
         name: "<white>工会管理"
         lore: ["<gray>浏览全部工会", "<gray>改等级 / 资金 / 银行 / 公告", "<gray>强制解散", "", "<yellow>点击打开"]
+      admin_wars:
+        slot: 26
+        material: NETHERITE_SWORD
+        name: "<white>工会战管理"
+        lore: ["<gray>查看进行中的比赛", "<gray>改比分 / 传送 / 强制结束", "", "<yellow>点击打开"]
       admin_kit:
         slot: 16
         material: DIAMOND_CHESTPLATE

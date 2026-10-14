@@ -224,7 +224,10 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("state", war == null ? (queuedMode == null ? "空闲" : "排队中") : war.state().name());
         ph.put("enemy", war == null ? "-" : (war.guildA().equals(g.id()) ? war.nameB() : war.nameA()));
         ph.put("score", war == null ? "0" : String.valueOf(war.guildA().equals(g.id()) ? war.scoreA() : war.scoreB()));
-        ph.put("enemy_score", war == null ? "0" : String.valueOf(war.guildA().equals(g.id()) ? war.scoreB() : war.scoreA()));
+        ph.put("enemy_score", war == null ? "0" : String.valueOf(war.guildA().equals(g.id()) ? war.scoreA() : war.scoreB()));
+        ph.put("lives", String.valueOf(plugin.war() == null ? 0 : plugin.war().lives(player.getUniqueId())));
+        ph.put("arena", plugin.war() == null ? "-" : plugin.war().currentArena().id);
+        ph.put("host", war == null ? "-" : war.hostServer());
         Holder holder = new Holder("war", g.id(), 0);
         Inventory inv = create(holder, def, ph, player);
         // 动态列出各工会战模式（点击参与匹配）
@@ -453,6 +456,7 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "admin:arenas" -> openArenaList(player, 0);
             case "admin:guilds" -> openGuildList(player, 0);
+            case "admin:wars" -> openWarList(player);
             case "admin:modes" -> showAdminList(player, plugin.settings().war.modes.size(), "工会战模式", id -> {
                 com.liu.liuguild.config.WarMode m = plugin.settings().mode(id);
                 return "&f" + m.key + " &7" + m.display + " 场地=" + m.arena + " 公平装备=" + m.fairEquipment;
@@ -629,7 +633,76 @@ public final class GuiManager implements GuildModule, Listener {
         } else if (action.startsWith("guild_input:")) {
             String[] parts = action.substring("guild_input:".length()).split(":", 2);
             promptGuildInput(player, parts[0], parts.length > 1 ? parts[1] : "level");
+        } else if (action.startsWith("war_edit:")) {
+            openWarEditor(player, action.substring("war_edit:".length()));
+        } else if (action.startsWith("war_stop:")) {
+            plugin.war().forceEnd(action.substring("war_stop:".length()));
+            openWarList(player);
+        } else if (action.startsWith("war_scoreinput:")) {
+            String[] parts = action.substring("war_scoreinput:".length()).split(":", 2);
+            promptWarScore(player, parts[0], parts.length > 1 ? parts[1] : "a");
+        } else if (action.startsWith("war_tp:")) {
+            player.closeInventory();
+            if (!plugin.war().teleportToArena(player)) {
+                plugin.messages().send(player, "war-transfer-failed");
+            }
         }
+    }
+
+    public void openWarList(Player player) {
+        Holder holder = new Holder("war_list", "", 0);
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>工会战管理", Map.of());
+        List<GuildWar> wars = plugin.war().liveWars();
+        int slot = 0;
+        for (GuildWar w : wars) {
+            inv.setItem(slot, GuiUtil.build(player, "NETHERITE_SWORD", "NETHERITE_SWORD",
+                    "<white>" + w.nameA() + " <yellow>" + w.scoreA() + " : " + w.scoreB() + " <white>" + w.nameB(),
+                    List.of("<gray>模式：<white>" + w.mode(),
+                            "<gray>状态：<white>" + w.state(),
+                            "<gray>承办：<white>" + w.hostServer(),
+                            "<gray>竞技场：<white>" + w.arenaWorld(),
+                            "", "<yellow>点击管理"), Map.of(), null));
+            holder.actions.put(slot, "war_edit:" + w.id());
+            slot++;
+        }
+        if (wars.isEmpty()) {
+            inv.setItem(22, GuiUtil.build(player, "BARRIER", "BARRIER", "<gray>当前没有进行中的工会战", List.of(), Map.of(), null));
+        }
+        inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
+        holder.actions.put(49, "admin:wars_back");
+        player.openInventory(inv);
+    }
+
+    public void openWarEditor(Player player, String warId) {
+        GuildWar w = plugin.war().warById(warId);
+        if (w == null) {
+            plugin.messages().send(player, "war-not-in-war");
+            openWarList(player);
+            return;
+        }
+        Holder holder = new Holder("war_edit", "", 0);
+        Inventory inv = simpleInventory(player, holder, 3, "<gold>工会战 <white>" + warId.substring(0, Math.min(8, warId.length())), Map.of());
+        inv.setItem(10, GuiUtil.build(player, "COMPASS", "COMPASS", "<white>传送到竞技场", List.of(), Map.of(), null));
+        holder.actions.put(10, "war_tp:" + warId);
+        inv.setItem(12, GuiUtil.build(player, "PAPER", "PAPER", "<white>改 A 方比分：<yellow>" + w.scoreA(),
+                List.of("<gray>点击输入新值"), Map.of(), null));
+        holder.actions.put(12, "war_scoreinput:" + warId + ":a");
+        inv.setItem(14, GuiUtil.build(player, "PAPER", "PAPER", "<white>改 B 方比分：<yellow>" + w.scoreB(),
+                List.of("<gray>点击输入新值"), Map.of(), null));
+        holder.actions.put(14, "war_scoreinput:" + warId + ":b");
+        inv.setItem(16, GuiUtil.build(player, "TNT", "TNT", "<red>强制结束比赛",
+                List.of("<gray>将立即结算奖励"), Map.of(), null));
+        holder.actions.put(16, "war_stop:" + warId);
+        player.openInventory(inv);
+    }
+
+    private void promptWarScore(Player player, String warId, String side) {
+        player.closeInventory();
+        chatInput.request(player, plugin.messages().component("arena-input", "key", "比分 " + side.toUpperCase(java.util.Locale.ROOT)), text -> {
+            int value = NumberUtil.toInt(text.trim(), 0);
+            plugin.war().setScore(warId, side, value);
+            openWarEditor(player, warId);
+        });
     }
 
     // ---- 竞技场编辑动作 ----
@@ -1160,6 +1233,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin_modes" -> "admin:modes";
             case "admin_arena" -> "admin:arenas";
             case "admin_guilds" -> "admin:guilds";
+            case "admin_wars" -> "admin:wars";
             case "admin_kit" -> "admin:kit";
             case "admin_reload" -> "admin:reload";
             case "close" -> "close";
