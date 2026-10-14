@@ -528,9 +528,14 @@ public final class GuiManager implements GuildModule, Listener {
             case "members" -> openMembers(player, require(g, player), 0);
             case "war" -> openWar(player, require(g, player));
             case "settings" -> openSettings(player, require(g, player));
-            case "list" -> openList(player, 0);            case "checkin" -> {
+            case "list" -> openList(player, 0);
+            case "checkin" -> {
                 player.closeInventory();
                 plugin.guilds().checkin(player);
+                // 签到状态是同步更新的，立即重开让「今日：已签到」马上刷新
+                if (plugin.guilds().guildOf(player.getUniqueId()) != null) {
+                    openMain(player);
+                }
             }
             case "bank" -> bankAction(player, g, clickRight);
             case "home" -> {
@@ -615,10 +620,7 @@ public final class GuiManager implements GuildModule, Listener {
                     player.sendMessage(Text.mm("<gray>- <white>" + s));
                 }
             }
-            case "admin:modes" -> showAdminList(player, plugin.settings().war.modes.size(), "工会战模式", id -> {
-                com.liu.liuguild.config.WarMode m = plugin.settings().mode(id);
-                return "&f" + m.key + " &7" + m.display + " 场地=" + m.arena + " 公平装备=" + m.fairEquipment;
-            }, plugin.settings().war.modes.keySet());
+            case "admin:modes" -> openModeList(player);
             case "admin:arena" -> showAdminList(player, plugin.settings().arenas.arenas.size(), "竞技场", id -> {
                 com.liu.liuguild.config.ArenaDef a = plugin.settings().arena(id);
                 return "&f" + a.id + " 承办=" + (a.server.isBlank() ? "-" : a.server)
@@ -865,6 +867,18 @@ public final class GuiManager implements GuildModule, Listener {
             openKitEditor(player, action.substring("kit_edit:".length()));
         } else if (action.startsWith("kit_save:")) {
             saveKitFromPlayer(player, action.substring("kit_save:".length()));
+        } else if (action.startsWith("mode_edit:")) {
+            openModeEditor(player, action.substring("mode_edit:".length()));
+        } else if (action.startsWith("mode_toggle:")) {
+            String[] parts = action.substring("mode_toggle:".length()).split(":", 2);
+            if (parts.length == 2) {
+                toggleMode(player, parts[0], parts[1]);
+            }
+        } else if (action.startsWith("mode_input:")) {
+            String[] parts = action.substring("mode_input:".length()).split(":", 2);
+            if (parts.length == 2) {
+                promptModeInput(player, parts[0], parts[1]);
+            }
         } else if (action.startsWith("kit_delete:")) {
             String key = sanitizeKey(action.substring("kit_delete:".length()));
             plugin.configs().remove("kit.yml", "kits." + key);
@@ -885,6 +899,103 @@ public final class GuiManager implements GuildModule, Listener {
         }
         String k = raw.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9_\\-]", "");
         return k.length() > 32 ? k.substring(0, 32) : k;
+    }
+
+    /**
+     * 工会战模式列表（可点击进入编辑）。
+     */
+    public void openModeList(Player player) {
+        Holder holder = new Holder("mode_list", "", 0);
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>工会战模式", Map.of());
+        int slot = 0;
+        for (com.liu.liuguild.config.WarMode m : plugin.settings().war.modes.values()) {
+            if (slot >= 45) {
+                break;
+            }
+            inv.setItem(slot, GuiUtil.build(player, "NETHERITE_SWORD", "NETHERITE_SWORD",
+                    (m.enabled ? "<white>" : "<dark_gray>") + m.display + " <dark_gray>(" + m.key + ")",
+                    List.of(
+                            "<gray>状态：" + (m.enabled ? "<green>启用" : "<red>停用"),
+                            "<gray>场地：<white>" + m.arena,
+                            "<gray>人数：<white>" + m.teamSize + " <gray>最低 <white>" + m.minMembers,
+                            "<gray>准备/时长：<white>" + m.prepareSeconds + "s<gray>/<white>" + m.durationSeconds + "s",
+                            "<gray>公平：<white>" + (m.fairEquipment ? "装备" : "-") + " " + (m.fairHealth ? "血量" : "-"),
+                            "", "<yellow>点击编辑"), Map.of(), null));
+            holder.actions.put(slot, "mode_edit:" + m.key);
+            slot++;
+        }
+        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
+        holder.actions.put(53, "admin:wars_back");
+        player.openInventory(inv);
+    }
+
+    /**
+     * 单个工会战模式的编辑器：布尔项点击切换，数值/文本项点击后用铁砧输入。
+     * 写回 {@code war-modes.yml} 对应模式节点。
+     */
+    public void openModeEditor(Player player, String key) {
+        com.liu.liuguild.config.WarMode m = plugin.settings().mode(key);
+        if (m == null) {
+            plugin.messages().send(player, "unknown-command");
+            return;
+        }
+        Holder holder = new Holder("mode_edit", "", 0);
+        Inventory inv = simpleInventory(player, holder, 5,
+                "<gold>编辑模式 <white>" + m.display, Map.of());
+
+        // ---- 布尔开关（第 1 排） ----
+        modeToggle(inv, holder, player, key, 0, "enabled", m.enabled, "启用该模式");
+        modeToggle(inv, holder, player, key, 1, "fair-equipment", m.fairEquipment, "发放统一公平装备");
+        modeToggle(inv, holder, player, key, 2, "fair-health", m.fairHealth, "屏蔽蟠桃血量，保证公平血量");
+        modeToggle(inv, holder, player, key, 3, "allow-spectators", m.allowSpectators, "允许成员旁观");
+        modeToggle(inv, holder, player, key, 4, "keep-inventory", m.keepInventory, "死亡保留物品");
+        modeToggle(inv, holder, player, key, 5, "broadcast-queue", m.broadcastQueue, "参与匹配时全服广播");
+
+        // ---- 准备阶段相关（第 2 排） ----
+        modeToggle(inv, holder, player, key, 9, "freeze-on-prepare", m.freezeOnPrepare, "准备阶段锁定移动/视角/交互");
+        modeToggle(inv, holder, player, key, 10, "allow-jump-on-prepare", m.allowJumpOnPrepare, "准备阶段允许跳跃");
+        modeToggle(inv, holder, player, key, 11, "prepare-platform", m.preparePlatform, "脚下垫屏障，物理禁止起跳");
+        modeToggle(inv, holder, player, key, 12, "lives.balance-teams", m.balanceTeamLives, "双方总生命池按人数归一");
+
+        // ---- 数值项（点击输入） ----
+        modeInput(inv, holder, player, key, 18, "team-size", m.teamSize, "每队人数上限");
+        modeInput(inv, holder, player, key, 19, "min-members", m.minMembers, "参战最低在线人数");
+        modeInput(inv, holder, player, key, 20, "min-level", m.minLevel, "参战最低工会等级");
+        modeInput(inv, holder, player, key, 21, "prepare-seconds", m.prepareSeconds, "入场后的准备秒数");
+        modeInput(inv, holder, player, key, 22, "duration-seconds", m.durationSeconds, "战斗时长（秒）");
+        modeInput(inv, holder, player, key, 23, "settle-seconds", m.settleSeconds, "结算阶段时长（秒）");
+        modeInput(inv, holder, player, key, 24, "lives.per-player", m.livesPerPlayer, "每人初始生命数");
+        modeInput(inv, holder, player, key, 25, "respawn-delay-seconds", m.respawnDelaySeconds, "复活等待（秒）");
+        modeInput(inv, holder, player, key, 26, "score.kill", m.scoreKill, "击杀得分");
+
+        // ---- 文本项 ----
+        modeInput(inv, holder, player, key, 27, "arena", m.arena, "引用竞技场 id");
+        modeInput(inv, holder, player, key, 28, "display", m.display, "显示名（GUI / 广播文案）");
+        modeInput(inv, holder, player, key, 29, "description", m.description.isBlank() ? "无" : m.description, "模式描述");
+
+        inv.setItem(40, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回模式列表", List.of(), Map.of(), null));
+        holder.actions.put(40, "admin:modes");
+        player.openInventory(inv);
+    }
+
+    /** 布尔开关按钮（左键翻转）。 */
+    private void modeToggle(Inventory inv, Holder holder, Player player, String modeKey,
+                            int slot, String path, boolean value, String desc) {
+        String material = value ? "LIME_DYE" : "GRAY_DYE";
+        inv.setItem(slot, GuiUtil.build(player, material, material,
+                "<white>" + path + "：" + (value ? "<green>开" : "<red>关"),
+                List.of("<gray>" + desc, "", "<yellow>点击切换"), Map.of(), null));
+        holder.actions.put(slot, "mode_toggle:" + modeKey + ":" + path);
+    }
+
+    /** 数值/文本项按钮（左键输入新值）。 */
+    private void modeInput(Inventory inv, Holder holder, Player player, String modeKey,
+                           int slot, String path, Object value, String desc) {
+        String shown = String.valueOf(value);
+        inv.setItem(slot, GuiUtil.build(player, "PAPER", "PAPER",
+                "<white>" + path + "：<yellow>" + (shown.isBlank() ? "无" : shown),
+                List.of("<gray>" + desc, "", "<yellow>点击输入新值"), Map.of(), null));
+        holder.actions.put(slot, "mode_input:" + modeKey + ":" + path);
     }
 
     public void openKitList(Player player) {
@@ -1120,6 +1231,61 @@ public final class GuiManager implements GuildModule, Listener {
         }
         plugin.reloadSettings();
         openArenaEditor(player, arenaId);
+    }
+
+    // ---- 工会战模式编辑 ----
+
+    /** 翻转模式的一个布尔项，写回 war-modes.yml。 */
+    private void toggleMode(Player player, String modeKey, String path) {
+        com.liu.liuguild.config.WarMode m = plugin.settings().mode(modeKey);
+        if (m == null) {
+            return;
+        }
+        boolean current = switch (path) {
+            case "enabled" -> m.enabled;
+            case "fair-equipment" -> m.fairEquipment;
+            case "fair-health" -> m.fairHealth;
+            case "allow-spectators" -> m.allowSpectators;
+            case "keep-inventory" -> m.keepInventory;
+            case "broadcast-queue" -> m.broadcastQueue;
+            case "freeze-on-prepare" -> m.freezeOnPrepare;
+            case "allow-jump-on-prepare" -> m.allowJumpOnPrepare;
+            case "prepare-platform" -> m.preparePlatform;
+            case "lives.balance-teams" -> m.balanceTeamLives;
+            default -> false;
+        };
+        plugin.configs().set("war-modes.yml", "modes." + modeKey + "." + path, !current);
+        plugin.reloadSettings();
+        openModeEditor(player, modeKey);
+    }
+
+    /** 输入模式的一个数值/文本项（只写该模式节点，不影响其它模式）。 */
+    private void promptModeInput(Player player, String modeKey, String path) {
+        com.liu.liuguild.config.WarMode m = plugin.settings().mode(modeKey);
+        if (m == null) {
+            return;
+        }
+        player.closeInventory();
+        requestText(player, "mode-input", text -> {
+            String value = text.trim();
+            if (value.isEmpty()) {
+                openModeEditor(player, modeKey);
+                return;
+            }
+            Object stored = value;
+            // 数值型字段必须存为数字，写成字符串会让解析回退到默认值
+            switch (path) {
+                case "team-size", "min-members", "min-level", "prepare-seconds",
+                     "duration-seconds", "settle-seconds", "lives.per-player",
+                     "respawn-delay-seconds", "score.kill" -> stored = NumberUtil.toInt(value, 1);
+                default -> {
+                }
+            }
+            plugin.configs().set("war-modes.yml", "modes." + modeKey + "." + path, stored);
+            plugin.reloadSettings();
+            plugin.messages().sendRaw(player, "mode-input-set", "mode", modeKey, "key", path, "value", value);
+            openModeEditor(player, modeKey);
+        }, "key", modeKey + "." + path);
     }
 
     private static String next(String[] values, String current) {
