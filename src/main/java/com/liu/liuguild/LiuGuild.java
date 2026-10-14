@@ -482,7 +482,10 @@ public final class LiuGuild extends JavaPlugin {
                 + hook("Vault", economy != null && economy.available())
                 + hook("PAPI", papi != null)
                 + hook("PlayerTitle", playerTitle != null && playerTitle.available())
-                + hook("NotBounties", notBounties != null && notBounties.available()));
+                + hook("NotBounties", notBounties != null && notBounties.available())
+                + hook("HuskHomes", guildHome != null && guildHome.available())
+                + hook("mcMMO", mcmmo != null && mcmmo.available())
+                + hook("SparrowUI", sparrowUi != null && sparrowUi.enabled()));
         // 模块
         out.add("&7模块: &f" + modules.ids());
         return out;

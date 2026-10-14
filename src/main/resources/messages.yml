@@ -208,5 +208,6 @@ zh_CN:
   kit-usage: "<red>用法：<white>/guildadmin kit <list|save|delete|info> [key]</white>"
   kit-saved: "<green>已把当前身上装备保存为套装 <white>{key}</white>。"
   kit-deleted: "<green>已删除套装 <white>{key}</white>。"
+  kit-input: "<gray>请在聊天栏输入套装名（输入 cancel 取消）："
   mode-usage: "<red>用法：<white>/guildadmin mode <list|info|start> [模式]</white>"
   season-started: "<green>已开启赛季工会战模式 <white>{mode}</white>。"

@@ -652,17 +652,25 @@ public final class GuiManager implements GuildModule, Listener {
         } else if (action.startsWith("kit_save:")) {
             saveKitFromPlayer(player, action.substring("kit_save:".length()));
         } else if (action.startsWith("kit_delete:")) {
-            String key = action.substring("kit_delete:".length());
+            String key = sanitizeKey(action.substring("kit_delete:".length()));
             plugin.configs().remove("kit.yml", "kits." + key);
             plugin.reloadAll();
             plugin.messages().sendRaw(player, "kit-deleted", "key", key);
             openKitList(player);
         } else if (action.equals("kit_new")) {
             player.closeInventory();
-            chatInput.request(player, plugin.messages().component("arena-input", "key", "套装名"), text -> {
+            chatInput.request(player, plugin.messages().component("kit-input"), text -> {
                 saveKitFromPlayer(player, text.trim().toLowerCase(java.util.Locale.ROOT));
             });
         }
+    }
+
+    private static String sanitizeKey(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String k = raw.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9_\\-]", "");
+        return k.length() > 32 ? k.substring(0, 32) : k;
     }
 
     public void openKitList(Player player) {
@@ -707,7 +715,9 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private void saveKitFromPlayer(Player player, String key) {
-        if (key == null || key.isBlank()) {
+        key = sanitizeKey(key);
+        if (key.isBlank()) {
+            plugin.messages().send(player, "kit-input");
             return;
         }
         String snapshot = plugin.kits().capture(player);
