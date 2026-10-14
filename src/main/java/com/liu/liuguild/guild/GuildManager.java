@@ -350,6 +350,50 @@ public final class GuildManager {
         return out;
     }
 
+    /**
+     * 校验内存数据一致性：member_count、会长成员关系、双向成员索引。
+     *
+     * @param fix true = 修正发现的问题
+     * @return 问题描述列表（空 = 一致）
+     */
+    public List<String> verifyData(boolean fix) {
+        List<String> issues = new ArrayList<>();
+        for (Guild g : guilds.values()) {
+            int actual = g.memberMap().size();
+            if (g.memberCount() != actual) {
+                issues.add("工会 " + g.name() + " member_count=" + g.memberCount() + " 实际=" + actual);
+                if (fix) {
+                    g.memberCount(actual);
+                    saveGuild(g);
+                }
+            }
+            if (g.leaderUuid() != null && !g.memberMap().containsKey(g.leaderUuid())) {
+                issues.add("工会 " + g.name() + " 会长不在成员列表: " + g.leaderUuid());
+            }
+            for (UUID u : g.memberMap().keySet()) {
+                if (!g.id().equals(memberIndex.get(u))) {
+                    issues.add("成员未入索引: " + u + " @ " + g.name());
+                    if (fix) {
+                        memberIndex.put(u, g.id());
+                    }
+                }
+            }
+        }
+        for (Map.Entry<UUID, String> e : memberIndex.entrySet()) {
+            Guild g = guilds.get(e.getValue());
+            if (g == null || !g.memberMap().containsKey(e.getKey())) {
+                issues.add("孤立成员索引: " + e.getKey() + " -> " + e.getValue());
+                if (fix) {
+                    memberIndex.remove(e.getKey());
+                }
+            }
+        }
+        if (fix) {
+            rebuildIndexes();
+        }
+        return issues;
+    }
+
     /** 本服或其它子服是否有成员在线（跨服检查仅在 Redis 可用时进行）。 */
     public boolean anyMemberOnline(Guild g) {
         return countNetworkOnline(g) > 0;

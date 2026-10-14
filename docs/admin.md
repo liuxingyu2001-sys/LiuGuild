@@ -70,6 +70,7 @@ LiuGuild 提供完整的命令行与图形化（GUI）管理能力，管理员�
 | `/guildadmin setpoints <工会> <点数>` | 设置工会资金 |
 | `/guildadmin setbank <工会> <金额>` | 设置银行余额 |
 | `/guildadmin cleanup [dry\|confirm]` | 清理僵尸工会 |
+| `/guildadmin verify [fix]` | 校验（并修复）内存数据一致性：member_count、会长关系、成员索引 |
 
 ### 装备 / 模式
 | 指令 | 说明 |

@@ -48,6 +48,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             Map.entry("setbank", "liuguild.admin.setbank"),
             Map.entry("forceend", "liuguild.admin.forceend"),
             Map.entry("cleanup", "liuguild.admin.cleanup"),
+            Map.entry("verify", "liuguild.admin.verify"),
             Map.entry("guilds", "liuguild.admin.guilds"),
             Map.entry("player", "liuguild.admin.player"),
             Map.entry("broadcast", "liuguild.admin.broadcast"),
@@ -97,6 +98,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "forceend" -> forceEnd(sender, args);
             case "info" -> info(sender, args);
             case "cleanup" -> cleanup(sender, args);
+            case "verify" -> verify(sender, args);
             case "guilds" -> guilds(sender, args);
             case "player" -> player(sender, args);
             case "broadcast" -> broadcast(sender, args);
@@ -135,6 +137,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "player <玩家>", "查看玩家所属工会");
         adminLine(sender, "broadcast <文本>", "全服广播消息");
         adminLine(sender, "cleanup [dry|confirm]", "清理不活跃（僵尸）工会");
+        adminLine(sender, "verify [fix]", "校验并修复内存数据一致性");
     }
 
     private void adminLine(CommandSender sender, String cmd, String desc) {
@@ -724,6 +727,30 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                         .format(new java.util.Date(g.createdAt()))));
     }
 
+    private void verify(CommandSender sender, String[] args) {
+        boolean fix = args.length >= 2 && args[1].equalsIgnoreCase("fix");
+        java.util.List<String> issues = plugin.guilds().verifyData(fix);
+        sender.sendMessage(cn("&6===== 数据一致性校验 ====="));
+        sender.sendMessage(cn("&7工会数：&f" + plugin.guilds().guildCount()
+                + " &7模式：" + (fix ? "&c已修复" : "&e仅检查")));
+        if (issues.isEmpty()) {
+            sender.sendMessage(cn("&a未发现一致性问题。"));
+            return;
+        }
+        sender.sendMessage(cn("&e发现 &f" + issues.size() + " &e个问题："));
+        int shown = 0;
+        for (String s : issues) {
+            if (shown++ >= 20) {
+                sender.sendMessage(cn("&8…还有 " + (issues.size() - 20) + " 条"));
+                break;
+            }
+            sender.sendMessage(cn("&7- &f" + s));
+        }
+        if (!fix) {
+            sender.sendMessage(cn("&7执行 &f/guildadmin verify fix &7以修正。"));
+        }
+    }
+
     private void cleanup(CommandSender sender, String[] args) {
         String mode = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "scan";
         var conf = plugin.settings().guild;
@@ -790,6 +817,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 case "mode" -> startsWith(List.of("list", "info", "start"), args[1]);
                 case "war" -> startsWith(List.of("list", "queue", "start", "stop", "tp", "score"), args[1]);
                 case "reload", "status", "guilds", "cleanup" -> List.of();
+                case "verify" -> startsWith(List.of("fix"), args[1]);
                 case "player", "broadcast" -> onlinePlayerNames(args[1]);
                 default -> guildNames(args[1]);
             };

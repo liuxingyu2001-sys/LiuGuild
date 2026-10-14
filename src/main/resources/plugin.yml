@@ -72,6 +72,7 @@ permissions:
       liuguild.admin.setbank: true
       liuguild.admin.forceend: true
       liuguild.admin.cleanup: true
+      liuguild.admin.verify: true
       liuguild.admin.guilds: true
       liuguild.admin.player: true
       liuguild.admin.broadcast: true
