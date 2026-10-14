@@ -737,7 +737,7 @@ public final class GuiManager implements GuildModule, Listener {
         plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
         plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
         plugin.reloadAll();
-        plugin.messages().send(player, "home-saved", "slot", arenaId);
+        plugin.messages().send(player, "arena-endspawn-set", "arena", arenaId, "world", loc.getWorld().getName());
         openArenaEditor(player, arenaId);
     }
 

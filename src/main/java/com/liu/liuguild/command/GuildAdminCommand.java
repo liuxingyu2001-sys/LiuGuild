@@ -20,6 +20,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /** 管理指令 {@code /guildadmin}：重载、状态、场地、装备、模式、赛季、工会与工会战管理。 */
@@ -102,7 +103,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "kit save <key>", "保存当前身上装备为套装");
         adminLine(sender, "kit list|info <key>|delete <key>", "装备套装管理");
         adminLine(sender, "mode list|info <模式>|start <模式>", "工会战模式 / 开启赛季");
-        adminLine(sender, "war list|start|stop|tp|score", "工会战管理（查看/强开/停止/传送/改分）");
+        adminLine(sender, "war list|queue|start|stop|tp|score", "工会战管理（查看/队列/强开/停止/传送/改分）");
         adminLine(sender, "disband|setlevel|setpoints|setbank|info <工会>", "工会数据管理");
         adminLine(sender, "guilds [页码]", "分页列出全部工会");
         adminLine(sender, "player <玩家>", "查看玩家所属工会");
@@ -431,6 +432,20 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 }
                 sender.sendMessage(cn("&7匹配队列: &f" + plugin.war().queueSize() + " 个工会"));
             }
+            case "queue" -> {
+                List<Map<String, String>> queued = plugin.bus().isReady() ? plugin.bus().queueSnapshot() : List.of();
+                if (queued.isEmpty()) {
+                    sender.sendMessage(cn("&7匹配队列为空。"));
+                    return;
+                }
+                sender.sendMessage(cn("&6匹配队列（&f" + queued.size() + "&6 个工会）："));
+                for (Map<String, String> meta : queued) {
+                    sender.sendMessage(cn("&7- &f" + meta.getOrDefault("name", meta.get("guildId"))
+                            + " &7模式=&f" + meta.getOrDefault("mode", "-")
+                            + " &7承办服=&f" + meta.getOrDefault("server", "-")
+                            + " &7发起人=&f" + meta.getOrDefault("leader", "-")));
+                }
+            }
             case "start" -> {
                 if (!require(sender, args, 5)) {
                     return;
@@ -741,7 +756,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                         "create", "remove", "setradius", "settempworld", "setgamerule", "setafter", "setendspawn", "tp"), args[1]);
                 case "kit" -> startsWith(List.of("list", "save", "delete", "info"), args[1]);
                 case "mode" -> startsWith(List.of("list", "info", "start"), args[1]);
-                case "war" -> startsWith(List.of("list", "start", "stop", "tp", "score"), args[1]);
+                case "war" -> startsWith(List.of("list", "queue", "start", "stop", "tp", "score"), args[1]);
                 case "reload", "status", "guilds", "cleanup" -> List.of();
                 default -> guildNames(args[1]);
             };

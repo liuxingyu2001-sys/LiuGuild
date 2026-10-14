@@ -103,6 +103,13 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         }
 
         // 工会战
+        if (p.equals("war_lives")) {
+            return player == null || plugin.war() == null ? "0"
+                    : String.valueOf(plugin.war().lives(player.getUniqueId()));
+        }
+        if (p.equals("war_arena")) {
+            return plugin.war() == null ? "" : plugin.war().currentArena().id;
+        }
         if (p.startsWith("war_")) {
             return handleWar(guild, p);
         }

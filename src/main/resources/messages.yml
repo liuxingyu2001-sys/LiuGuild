@@ -158,6 +158,7 @@ zh_CN:
   confirm-leave: "<red>确定要退出工会 <white>{player}</white> 吗？此操作可再次加入。"
   confirm-disband: "<red>确定要强制解散工会 <white>{player}</white> 吗？（不可恢复）"
   arena-input: "<gray>请输入竞技场 <white>{key}</white> 的值（输入 cancel 取消）："
+  arena-endspawn-set: "<green>已将竞技场 <white>{arena}</white> 的集合点设为当前位置（世界 <white>{world}</white>）。"
   guild-input: "<gray>请输入工会 <white>{key}</white> 的新值（输入 cancel 取消）："
   promote-already-officer: "<yellow>{player} 已是副会长；如需转让会长请使用 <white>Shift+左键</white>。"
 
