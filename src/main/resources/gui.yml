@@ -243,11 +243,6 @@ gui:
         material: DIAMOND_CHESTPLATE
         name: "<white>装备套装"
         lore: ["<gray>浏览 / 保存 / 删除套装", "<gray>用当前身上装备创建快照", "", "<yellow>点击打开"]
-      admin_kit:
-        slot: 16
-        material: DIAMOND_CHESTPLATE
-        name: "<white>装备套装"
-        lore: ["<gray>查看成套装备", "<gray>保存：<white>/guildadmin kit save <key>"]
       admin_reload:
         slot: 30
         material: REDSTONE

@@ -167,7 +167,7 @@ public final class GuildChatHook implements Listener {
                         Object definition = channelType.getConstructor(String.class, String.class, scopeType,
                                 String.class, String.class, String.class, double.class).newInstance(channel,
                                 "工会·" + guild.name(), scope, permission(channel), permission(channel),
-                                "&a[${channel_name}] &f${player}&7: ${message}", 100.0);
+                                plugin.settings().main.guildChannelFormat, 100.0);
                         if (Boolean.TRUE.equals(call("register", new Class<?>[]{channelType}, definition))) {
                             owned.add(channel);
                             Bukkit.getPluginManager().addPermission(new Permission(permission(channel), PermissionDefault.FALSE));

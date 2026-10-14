@@ -31,6 +31,9 @@ public final class MainSettings {
     /** 工会战期间静默屏蔽 mcMMO 技能经验。 */
     public boolean mcmmoSuppressXp = false;
 
+    /** LiuChat 工会频道消息格式（占位符由 LiuChat 提供）。 */
+    public String guildChannelFormat = "&a[${channel_name}] &f${player}&7: ${message}";
+
     public static MainSettings parse(FileConfiguration c) {
         MainSettings s = new MainSettings();
         s.language = c.getString("settings.language", s.language);
@@ -51,6 +54,7 @@ public final class MainSettings {
         s.mcmmoEnabled = c.getBoolean("hooks.mcmmo.enabled", s.mcmmoEnabled);
         s.mcmmoSuppressAbilities = c.getBoolean("hooks.mcmmo.suppress-abilities-in-war", s.mcmmoSuppressAbilities);
         s.mcmmoSuppressXp = c.getBoolean("hooks.mcmmo.suppress-xp-in-war", s.mcmmoSuppressXp);
+        s.guildChannelFormat = c.getString("channels.guild-format", s.guildChannelFormat);
         return s;
     }
 

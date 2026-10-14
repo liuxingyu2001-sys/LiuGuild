@@ -39,3 +39,8 @@ hooks:
     suppress-abilities-in-war: true
     # 工会战期间静默屏蔽 mcMMO 技能经验（默认关闭）。
     suppress-xp-in-war: false
+
+# 聊天频道
+channels:
+  # LiuChat 工会频道消息格式（占位符由 LiuChat 提供，支持颜色代码）
+  guild-format: "&a[${channel_name}] &f${player}&7: ${message}"

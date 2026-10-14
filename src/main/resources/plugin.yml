@@ -65,7 +65,14 @@ permissions:
       liuguild.admin.arena: true
       liuguild.admin.kit: true
       liuguild.admin.mode: true
+      liuguild.admin.war: true
       liuguild.admin.disband: true
       liuguild.admin.setlevel: true
       liuguild.admin.setpoints: true
+      liuguild.admin.setbank: true
       liuguild.admin.forceend: true
+      liuguild.admin.cleanup: true
+      liuguild.admin.guilds: true
+      liuguild.admin.player: true
+      liuguild.admin.broadcast: true
+      liuguild.admin.gui: true

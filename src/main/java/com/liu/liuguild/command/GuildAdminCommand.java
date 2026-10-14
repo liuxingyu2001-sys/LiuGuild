@@ -33,6 +33,26 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
 
     private final LiuGuild plugin;
 
+    /** 子命令 -> 需要的权限节点（未列出时仅需 liuguild.admin）。 */
+    private static final Map<String, String> SUB_PERMISSIONS = Map.ofEntries(
+            Map.entry("reload", "liuguild.admin.reload"),
+            Map.entry("status", "liuguild.admin.status"),
+            Map.entry("import", "liuguild.admin.import"),
+            Map.entry("arena", "liuguild.admin.arena"),
+            Map.entry("kit", "liuguild.admin.kit"),
+            Map.entry("mode", "liuguild.admin.mode"),
+            Map.entry("war", "liuguild.admin.war"),
+            Map.entry("disband", "liuguild.admin.disband"),
+            Map.entry("setlevel", "liuguild.admin.setlevel"),
+            Map.entry("setpoints", "liuguild.admin.setpoints"),
+            Map.entry("setbank", "liuguild.admin.setbank"),
+            Map.entry("forceend", "liuguild.admin.forceend"),
+            Map.entry("cleanup", "liuguild.admin.cleanup"),
+            Map.entry("guilds", "liuguild.admin.guilds"),
+            Map.entry("player", "liuguild.admin.player"),
+            Map.entry("broadcast", "liuguild.admin.broadcast"),
+            Map.entry("gui", "liuguild.admin.gui"));
+
     public GuildAdminCommand(LiuGuild plugin) {
         this.plugin = plugin;
     }
@@ -48,6 +68,11 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         String sub = args[0].toLowerCase(Locale.ROOT);
+        String required = SUB_PERMISSIONS.getOrDefault(sub, "liuguild.admin");
+        if (!required.equals("liuguild.admin") && !sender.hasPermission(required)) {
+            plugin.messages().send(sender, "no-permission");
+            return true;
+        }
         switch (sub) {
             case "help" -> help(sender);
             case "reload" -> {
@@ -758,6 +783,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 case "mode" -> startsWith(List.of("list", "info", "start"), args[1]);
                 case "war" -> startsWith(List.of("list", "queue", "start", "stop", "tp", "score"), args[1]);
                 case "reload", "status", "guilds", "cleanup" -> List.of();
+                case "player", "broadcast" -> onlinePlayerNames(args[1]);
                 default -> guildNames(args[1]);
             };
         }
@@ -806,6 +832,14 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         List<String> out = new ArrayList<>();
         for (Guild g : plugin.guilds().all()) {
             out.add(g.name());
+        }
+        return startsWith(out, prefix);
+    }
+
+    private List<String> onlinePlayerNames(String prefix) {
+        List<String> out = new ArrayList<>();
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            out.add(p.getName());
         }
         return startsWith(out, prefix);
     }

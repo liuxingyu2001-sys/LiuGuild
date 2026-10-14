@@ -324,13 +324,34 @@ public final class GuildManager {
         long now = System.currentTimeMillis();
         List<Guild> out = new ArrayList<>();
         for (Guild g : guilds.values()) {
-            int online = onlineMembers(g).size();
+            // 必须同时考虑其它子服：只要跨服有任一成员在线，就不能算不活跃。
+            int online = anyMemberOnline(g) ? 1 : 0;
             if (GuildSettings.isInactive(now, g.lastActiveAt(), c.cleanupInactiveDays,
                     g.memberCount(), c.cleanupMaxMembers, online)) {
                 out.add(g);
             }
         }
         return out;
+    }
+
+    /** 本服或其它子服是否有成员在线（跨服检查仅在 Redis 可用时进行）。 */
+    public boolean anyMemberOnline(Guild g) {
+        if (g == null) {
+            return false;
+        }
+        for (UUID uuid : g.memberMap().keySet()) {
+            if (plugin.player(uuid) != null) {
+                return true;
+            }
+        }
+        if (plugin.bus() != null && plugin.bus().isReady()) {
+            for (UUID uuid : g.memberMap().keySet()) {
+                if (plugin.bus().serverOf(uuid) != null) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -351,17 +372,27 @@ public final class GuildManager {
     }
 
     /** 自动清理入口（只能在主线程调用）；未启用或无命中时返回空列表。 */
-    public List<Guild> autoCleanup() {
+    public void autoCleanup() {
         GuildSettings c = conf();
         if (!c.cleanupEnabled) {
-            return List.of();
+            return;
         }
-        List<Guild> targets = purgeInactive(c.cleanupDryRun);
-        if (!targets.isEmpty()) {
-            plugin.getLogger().info("不活跃工会清理（" + (c.cleanupDryRun ? "dry-run" : "已执行")
-                    + "，阈值 " + c.cleanupInactiveDays + " 天）：" + targets.size() + " 个");
-        }
-        return targets;
+        // 扫描涉及跨服探活（阻塞 Redis），放异步；删除回主线程。
+        plugin.async(() -> {
+            List<Guild> targets = findInactiveGuilds();
+            if (targets.isEmpty()) {
+                return;
+            }
+            plugin.sync(() -> {
+                if (!c.cleanupDryRun) {
+                    for (Guild g : targets) {
+                        disband(g, c.cleanupBroadcast, GuildDisbandEvent.Cause.INACTIVE);
+                    }
+                }
+                plugin.getLogger().info("不活跃工会清理（" + (c.cleanupDryRun ? "dry-run" : "已执行")
+                        + "，阈值 " + c.cleanupInactiveDays + " 天）：" + targets.size() + " 个");
+            });
+        });
     }
 
     public void disband(Guild g, boolean broadcast) {
