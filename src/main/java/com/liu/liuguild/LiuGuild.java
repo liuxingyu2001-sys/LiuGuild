@@ -155,6 +155,7 @@ public final class LiuGuild extends JavaPlugin {
         modules.register(gui);
         modules.register(new GuildListener(this));
         modules.register(new WarListener(this));
+        modules.register(new com.liu.liuguild.listener.WarFreezeListener(this));
         modules.register(new com.liu.liuguild.listener.GuildSyncModule(this));
         bus.addListener(modules::dispatchCrossServer);
         modules.enableAll();

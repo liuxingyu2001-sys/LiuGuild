@@ -5,12 +5,13 @@
 
 ## PacketEvents（包级拦截，工会战准备阶段锁定）
 
-用于在**网络包层**锁定准备阶段的参赛者，比 Bukkit 事件更彻底、开销更低：
+用于在**网络包层**锁定准备阶段的参赛者，开销低：
 
 - 移动/转视角包（`PLAYER_POSITION` / `PLAYER_POSITION_AND_ROTATION` / `PLAYER_ROTATION` / `PLAYER_FLYING`）
-  被直接**改写为锁定坐标与朝向**后放行 —— 客户端不会抖动，服务端也无需回调拉回。
-- 挖掘 / 放置 / 使用物品 / 攻击 / 交互 / 丢物 / 快捷栏 / 载具等交互包**直接取消**。
-- 未安装 PacketEvents 时自动回退到 Bukkit 事件拦截（功能等价，但可能有轻微位置抖动）。
+  以及挖掘 / 放置 / 使用物品 / 攻击 / 交互 / 丢物 / 快捷栏 / 载具等包**直接取消**。
+  > 只取消、**绝不改写字节**：曾因改写包 buffer 导致 `accept_teleportation` 解析失败而踢人。
+- 未安装 PacketEvents 时自动回退 Bukkit 事件拦截，功能等价。
+- 跳跃单独处理（见 `war.md`）：`allow-jump-on-prepare` + Y 速度清零 + `prepare-platform` 屏障地盘。
 - 开关：各模式的 `freeze-on-prepare`（默认 `true`）；`prepare-seconds` 为锁定持续时长。
 - 软依赖：`plugin.yml` 的 `softdepend: packetevents`，未安装不影响启动。
 

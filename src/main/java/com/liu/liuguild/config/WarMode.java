@@ -55,6 +55,13 @@ public final class WarMode {
      * <p>保证开战瞬间双方都在出生点上，避免等待期间乱跑导致开战位置不确定。</p>
      */
     public boolean freezeOnPrepare = true;
+    /** 准备阶段是否允许跳跃（默认关闭；关闭时连按空格也不会跳）。 */
+    public boolean allowJumpOnPrepare = false;
+    /**
+     * 准备阶段出生点下方是否自动垫一层屏障，从物理上完全禁止跳跃（默认开）。
+     * <p>仅在有 PacketEvents 时无需开启；开启可兼顾未安装 PacketEvents 的服务器。</p>
+     */
+    public boolean preparePlatform = true;
     /** 引用 arena.yml 中的竞技场 id。 */
     public String arena = "main";
     /** 覆盖竞技场/全局的承办服；留空 = 使用竞技场或全局设置。 */
@@ -111,6 +118,8 @@ public final class WarMode {
         m.scoreObjective = sec.getInt("score.objective", m.scoreObjective);
         m.allowSpectators = sec.getBoolean("allow-spectators", m.allowSpectators);
         m.freezeOnPrepare = sec.getBoolean("freeze-on-prepare", m.freezeOnPrepare);
+        m.allowJumpOnPrepare = sec.getBoolean("allow-jump-on-prepare", m.allowJumpOnPrepare);
+        m.preparePlatform = sec.getBoolean("prepare-platform", m.preparePlatform);
         m.arena = sec.getString("arena", m.arena);
         m.dedicatedServer = sec.getString("dedicated-server", m.dedicatedServer);
         m.winPlayerMoney = Math.max(0, sec.getDouble("rewards.win-player-money", m.winPlayerMoney));
@@ -159,6 +168,8 @@ public final class WarMode {
         c.scoreObjective = scoreObjective;
         c.allowSpectators = allowSpectators;
         c.freezeOnPrepare = freezeOnPrepare;
+        c.allowJumpOnPrepare = allowJumpOnPrepare;
+        c.preparePlatform = preparePlatform;
         c.arena = arena;
         c.dedicatedServer = dedicatedServer;
         c.winPlayerMoney = winPlayerMoney;

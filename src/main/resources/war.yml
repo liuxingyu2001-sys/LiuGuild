@@ -54,8 +54,10 @@ war:
     duration-seconds: 600
     settle-seconds: 10
     allow-spectators: true
-    # 准备阶段锁定参赛者（冻结移动/视角/交互），倒计时结束才放开
+    # 准备阶段锁定参赛者（冻结移动/视角/跳跃/交互），倒计时结束才放开
     freeze-on-prepare: true
+    allow-jump-on-prepare: false
+    prepare-platform: true
     score:
       kill: 1
       death: -1

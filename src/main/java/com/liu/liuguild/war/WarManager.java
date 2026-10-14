@@ -69,6 +69,8 @@ public final class WarManager implements GuildModule {
     private final Set<UUID> eliminated = ConcurrentHashMap.newKeySet();
     /** 准备阶段被锁定（冻结）的参赛者；开战时解除。 */
     private final Set<UUID> frozen = ConcurrentHashMap.newKeySet();
+    /** 准备阶段垫的屏障方块：原方块类型，解锁后恢复。 */
+    private final Map<Location, org.bukkit.Material> preparedPlatform = new ConcurrentHashMap<>();
 
     /** 玩家是否处于「准备阶段锁定」状态。 */
     public boolean isFrozen(UUID uuid) {
@@ -96,6 +98,16 @@ public final class WarManager implements GuildModule {
         }
         ArenaDef.Spawn spawn = def.teamSpawn(side);
         return spawn == null ? null : spawn.toLocation(world);
+    }
+
+    /** 该玩家是否可以跳跃（由模式配置决定）。 */
+    public boolean allowJumpOnPrepare(UUID uuid) {
+        GuildWar war = current;
+        if (war == null) {
+            return true;
+        }
+        WarMode mode = modeOf(war);
+        return mode == null || mode.allowJumpOnPrepare;
     }
 
     /** 所有服务器共享的「进行中工会战」镜像，用于战况展示。 */
@@ -1086,11 +1098,58 @@ public final class WarManager implements GuildModule {
         player.setFlying(false);
         player.setInvulnerable(true);
         player.setCollidable(false);
+        player.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+        // 出生点下方垫一层屏障，从物理上禁止起跳（可关）
+        placePreparePlatform(player, mode, def, side);
         if (!player.getGameMode().isInvulnerable()) {
             player.setGameMode(org.bukkit.GameMode.ADVENTURE);
         }
-        // 清空速度，避免开战瞬间弹飞
-        player.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+    }
+
+    /**
+     * 在出生点脚下垫一层 BARRIER，让客户端连「跳」这个动作都无法发起
+     * （PacketEvents 取消 {@code PLAYER_INPUT} 拦不住已生效的跳跃）。
+     */
+    private void placePreparePlatform(Player player, WarMode mode, ArenaDef def, String side) {
+        if (mode == null || !mode.preparePlatform || mode.allowJumpOnPrepare) {
+            return;
+        }
+        ArenaDef.Spawn spawn = def == null ? null : def.teamSpawn(side);
+        World world = arenaWorld();
+        if (spawn == null || world == null) {
+            return;
+        }
+        int x = (int) Math.floor(spawn.x());
+        int y = (int) Math.floor(spawn.y()) - 1;
+        int z = (int) Math.floor(spawn.z());
+        // 铺 3x3，避免站在边缘时从旁边跳起
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                org.bukkit.block.Block block = world.getBlockAt(x + dx, y, z + dz);
+                if (block.getType().isAir() || !block.getType().isSolid()) {
+                    preparedPlatform.put(block.getLocation(), block.getType());
+                    block.setType(org.bukkit.Material.BARRIER, false);
+                }
+            }
+        }
+    }
+
+    /** 移除准备阶段垫的所有屏障，恢复原方块。 */
+    private void removePreparePlatform() {
+        if (preparedPlatform.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<Location, org.bukkit.Material> e : preparedPlatform.entrySet()) {
+            try {
+                org.bukkit.block.Block block = e.getKey().getBlock();
+                if (block.getType() == org.bukkit.Material.BARRIER) {
+                    block.setType(e.getValue(), false);
+                }
+            } catch (Throwable ignored) {
+                // 世界可能已卸载，忽略
+            }
+        }
+        preparedPlatform.clear();
     }
 
     /** 解除锁定：恢复行走速度与生存模式。 */
@@ -1112,6 +1171,7 @@ public final class WarManager implements GuildModule {
 
     /** 解除当前战局所有参赛者的锁定（开战 / 结束时调用）。 */
     private void unfreezeAll(GuildWar war) {
+        removePreparePlatform();
         if (frozen.isEmpty()) {
             return;
         }
@@ -1146,8 +1206,8 @@ public final class WarManager implements GuildModule {
             ArenaDef def = plugin.settings().arena(mode.arena);
             ArenaDef.Spawn spawn = def == null || side == null ? null : def.teamSpawn(side);
             World world = arenaWorld();
-            if (spawn != null && world != null) {
-                Location target = spawn.toLocation(world);
+            Location target = spawn != null && world != null ? spawn.toLocation(world) : null;
+            if (target != null) {
                 Location cur = p.getLocation();
                 if (cur.getWorld() != world || cur.distanceSquared(target) > 1.0) {
                     p.teleport(target);
@@ -1158,6 +1218,17 @@ public final class WarManager implements GuildModule {
             }
             if (!p.isInvulnerable()) {
                 p.setInvulnerable(true);
+            }
+            // 跳跃兜底：PacketEvents 取消 PLAYER_INPUT 拦不住已生效的跳跃，
+            // 这里一旦发现 Y 方向速度/高度偏离就立即清零（并拉回出生点）。
+            if (!mode.allowJumpOnPrepare) {
+                org.bukkit.util.Vector v = p.getVelocity();
+                if (Math.abs(v.getY()) > 1.0E-4) {
+                    p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+                    if (target != null) {
+                        p.teleport(target);
+                    }
+                }
             }
         }
     }
@@ -1462,6 +1533,7 @@ public final class WarManager implements GuildModule {
         eliminated.clear();
         handledLethal.clear();
         frozen.clear();
+        removePreparePlatform();
         settling = false;
         settleQueue.clear();
         clearWarBar();

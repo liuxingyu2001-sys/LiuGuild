@@ -81,31 +81,8 @@ public final class WarListener implements GuildModule, Listener {
     }
 
     // =====================================================================
-    // 准备阶段锁定（Bukkit 回退；装了 PacketEvents 时由包拦截更彻底）
+    // 准备阶段锁定：交互类拦截（移动/跳跃由 WarFreezeListener 负责）
     // =====================================================================
-
-    /** 阻止移动：无条件锁死坐标与朝向（PacketEvents 只做额外拦截，位置权威始终在这里）。 */
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-    public void onMove(org.bukkit.event.player.PlayerMoveEvent event) {
-        if (event.isAsynchronous()) {
-            return; // 只处理主线程事件，避免跨线程改位置
-        }
-        if (!plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
-            return;
-        }
-        org.bukkit.Location from = event.getFrom();
-        org.bukkit.Location to = event.getTo();
-        if (to == null) {
-            return;
-        }
-        // 锁死坐标与视角（含 Y 轴，确保不会因下落/卡地面而漂移）
-        to.setX(from.getX());
-        to.setY(from.getY());
-        to.setZ(from.getZ());
-        to.setYaw(from.getYaw());
-        to.setPitch(from.getPitch());
-        event.setTo(to);
-    }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onInteract(org.bukkit.event.player.PlayerInteractEvent event) {

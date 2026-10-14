@@ -31,14 +31,18 @@ modes:
       balance-teams: true
       respawn-delay-seconds: 3
     # 准备阶段：玩家传送入场后的等待时间（秒）。
-    # 这段时间内参赛者会被「锁定」（禁止移动/转视角/交互），
+    # 这段时间内参赛者会被「锁定」（禁止移动/转视角/跳跃/交互），
     # 保证开战瞬间双方都站在出生点上。想让匹配后尽快开打就调小它。
     prepare-seconds: 15
     duration-seconds: 600
     settle-seconds: 10
     allow-spectators: true
-    # 准备阶段锁定参赛者（冻结移动/视角/交互），倒计时结束才放开，保证开战瞬间站位固定
+    # 准备阶段锁定参赛者（冻结移动/视角/跳跃/交互），倒计时结束才放开，保证开战瞬间站位固定
     freeze-on-prepare: true
+    # 准备阶段是否允许跳跃（默认 false，连按空格也不会跳）
+    allow-jump-on-prepare: false
+    # 准备阶段在出生点脚下自动垫一层屏障，从物理上彻底禁止起跳（默认开）
+    prepare-platform: true
     # 玩家点击参与匹配时全服广播提示
     broadcast-queue: true
     score:
@@ -81,8 +85,10 @@ modes:
     duration-seconds: 900
     settle-seconds: 15
     allow-spectators: true
-    # 准备阶段锁定参赛者（冻结移动/视角/交互），倒计时结束才放开
+    # 准备阶段锁定参赛者（冻结移动/视角/跳跃/交互），倒计时结束才放开
     freeze-on-prepare: true
+    allow-jump-on-prepare: false
+    prepare-platform: true
     broadcast-queue: true
     score:
       kill: 2
