@@ -120,6 +120,7 @@ liuguild_warehouse (
 - **扣费与续期**：`UPDATE guilds SET points=points-cost, warehouse_expires_at=(CASE WHEN warehouse_expires_at>now THEN warehouse_expires_at ELSE now END)+duration WHERE guild_id=? AND points>=cost`，一条语句内完成，多台子服同时续费不会丢时长或重复扣费。
 - **升级**：`UPDATE guilds SET points=points-cost, warehouse_level=warehouse_level+1 WHERE guild_id=? AND points>=cost AND warehouse_level=?`，以期望等级作为乐观锁，避免付一次钱升两级。
 - **工会点数（资金）本身只经数据库原子 UPDATE 写入**，不再随整行保存写回，防止仓库扣费被并发的工会保存覆盖。
+- **等级**：按点数重算出的等级以 `UPDATE guilds SET level=? WHERE guild_id=? AND level<?` 落库（只增不减），两台子服并发加点时较旧的一次不会把已升上去的等级写回退。
 
 ## 相关
 

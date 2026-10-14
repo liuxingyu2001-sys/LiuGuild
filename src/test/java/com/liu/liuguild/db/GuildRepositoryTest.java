@@ -369,4 +369,19 @@ class GuildRepositoryTest {
         assertEquals(now + 30 * DAY, loaded.warehouseExpiresAt());
         assertEquals(3500, loaded.points());
     }
+
+    /** 等级原子提升只增不减，防止并发下旧值把等级写回退。 */
+    @Test
+    void raiseLevelIsMonotonic() throws Exception {
+        String id = newGuild("Level", "LV");
+        assertEquals(1, repo.loadGuild(id).level());
+        assertTrue(repo.raiseLevel(id, 3));
+        assertEquals(3, repo.loadGuild(id).level());
+        // 更低或相同等级都不应改写
+        assertFalse(repo.raiseLevel(id, 2));
+        assertFalse(repo.raiseLevel(id, 3));
+        assertEquals(3, repo.loadGuild(id).level());
+        assertTrue(repo.raiseLevel(id, 4));
+        assertEquals(4, repo.loadGuild(id).level());
+    }
 }

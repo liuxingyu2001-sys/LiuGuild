@@ -277,6 +277,26 @@ public final class GuildRepository {
     }
 
     /**
+     * 原子提升工会等级（只增不减）。
+     *
+     * <p>点数用原子 UPDATE 写入后，等级由各子服根据点数重算；若两台子服同时加点，
+     * 较旧的一次重算可能后落库，用整行保存会把已升上去的等级写回退。此方法只在
+     * 新等级严格大于当前等级时才更新，保证等级单调不减。</p>
+     *
+     * @return 真正提升了等级返回 true；当前等级已不低于 {@code level} 返回 false
+     */
+    public boolean raiseLevel(String guildId, int level) throws SQLException {
+        String sql = "UPDATE `" + db.t("guilds") + "` SET `level`=? WHERE `guild_id`=? AND `level`<?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, level);
+            ps.setString(2, guildId);
+            ps.setInt(3, level);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /**
      * 原子购买工会仓库使用时间：扣点数并把到期时间延长 {@code durationMillis}。
      *
      * <p>用一条 UPDATE 同时完成扣费与续期，且续期以「当前到期时间与 now 的较大值」为基准，

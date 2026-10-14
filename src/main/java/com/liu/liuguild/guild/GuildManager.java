@@ -1324,19 +1324,36 @@ public final class GuildManager {
         } catch (Exception e) {
             return;
         }
+        // 等级只增不减：在异步线程算好目标并以原子「只升」UPDATE 落库，
+        // 避免两台子服并发加点时，较旧的等级被整行保存写回退。
+        int raised = -1;
+        if (recompute) {
+            Guild cached = guild(guildId);
+            int oldLevel = cached == null ? 1 : cached.level();
+            int target = levelForPoints(points);
+            if (target > oldLevel) {
+                try {
+                    if (plugin.repo().raiseLevel(guildId, target)) {
+                        raised = target;
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("更新工会等级失败: " + e.getMessage());
+                }
+            }
+        }
+        final int newLevel = raised;
         plugin.sync(() -> {
             Guild cached = guild(guildId);
             if (cached == null) {
                 return;
             }
             cached.points(points);
-            if (recompute) {
-                int before = cached.level();
-                recomputeLevel(cached);
-                if (cached.level() != before) {
-                    // 等级变了才需要持久化（saveGuild 不写 points）
-                    saveGuild(cached);
-                }
+            if (newLevel > cached.level()) {
+                int old = cached.level();
+                cached.level(newLevel);
+                Bukkit.getPluginManager().callEvent(new GuildLevelUpEvent(cached, old, newLevel));
+                notifyGuild(guildId, plugin.messages().component("guild-level-up",
+                        "guild", cached.name(), "level", newLevel), null);
             }
         });
     }
@@ -1471,19 +1488,25 @@ public final class GuildManager {
     }
 
     public void recomputeLevel(Guild g) {
-        GuildSettings c = conf();
         int old = g.level();
-        long cumulative = 0;
-        int lvl = 1;
-        while (lvl < c.maxLevel && g.points() >= cumulative + c.requiredPoints(lvl)) {
-            cumulative += c.requiredPoints(lvl);
-            lvl++;
-        }
+        int lvl = levelForPoints(g.points());
         g.level(lvl);
         if (lvl > old) {
             Bukkit.getPluginManager().callEvent(new GuildLevelUpEvent(g, old, lvl));
             notifyGuild(g.id(), plugin.messages().component("guild-level-up", "guild", g.name(), "level", lvl), null);
         }
+    }
+
+    /** 纯函数：给定点数时对应的工会等级（不触发事件、不读模型）。 */
+    private int levelForPoints(long points) {
+        GuildSettings c = conf();
+        long cumulative = 0;
+        int lvl = 1;
+        while (lvl < c.maxLevel && points >= cumulative + c.requiredPoints(lvl)) {
+            cumulative += c.requiredPoints(lvl);
+            lvl++;
+        }
+        return lvl;
     }
 
     // =====================================================================

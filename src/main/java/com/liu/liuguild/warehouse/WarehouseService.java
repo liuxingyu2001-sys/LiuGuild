@@ -16,6 +16,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -410,8 +411,19 @@ public final class WarehouseService implements GuildModule, Listener {
         }
     }
 
+    /** 管理菜单禁止拖拽（菜单是临时界面，拖进去的物品不会保存）。仓库背包则允许自由拖拽。 */
+    @EventHandler
+    public void onMenuDrag(InventoryDragEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof MenuHolder) {
+            event.setCancelled(true);
+        }
+    }
+
     /** 用工会点数（工会资金）购买仓库使用时间。 */
     public void rent(Player player, Guild g, int days) {
+        if (player == null || g == null) {
+            return;
+        }
         var c = plugin.settings().guild;
         if (!c.warehouseEnabled) {
             plugin.messages().send(player, "wh-disabled");
@@ -453,26 +465,56 @@ public final class WarehouseService implements GuildModule, Listener {
                 plugin.getLogger().warning("购买工会仓库时长失败: " + e.getMessage());
                 ok = false;
             }
+            // 原子写入后在同一异步任务里回读，拿到精确的新点数/到期时间，
+            // 避免用 reloadGuild 造成主线程读到旧缓存（界面不会刷新）。
             final boolean success = ok;
+            Guild fresh = success ? loadFresh(g.id()) : null;
             plugin.sync(() -> {
                 if (!success) {
                     plugin.messages().send(player, "wh-rent-failed");
                     return;
                 }
-                plugin.guilds().reloadGuild(g.id());
+                applyWarehouseState(g.id(), fresh);
                 plugin.broadcastGuildChange(g.id());
                 plugin.messages().send(player, "wh-rent-success",
                         "days", String.valueOf(days), "cost", String.valueOf(cost));
                 if (player.isOnline()) {
-                    Guild fresh = plugin.guilds().guild(g.id());
-                    openMenu(player, fresh == null ? g : fresh);
+                    Guild shown = plugin.guilds().guild(g.id());
+                    openMenu(player, shown == null ? g : shown);
                 }
             });
         });
     }
 
+    /** 异步读取工会行；失败返回 null。 */
+    private Guild loadFresh(String guildId) {
+        try {
+            return plugin.repo().loadGuild(guildId);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 把刚写入的仓库/点数/等级同步回本服缓存（精确值，不做乐观估算）。 */
+    private void applyWarehouseState(String guildId, Guild fresh) {
+        if (fresh == null) {
+            return;
+        }
+        Guild cached = plugin.guilds().guild(guildId);
+        if (cached == null) {
+            return;
+        }
+        cached.points(fresh.points());
+        cached.level(fresh.level());
+        cached.warehouseLevel(fresh.warehouseLevel());
+        cached.warehouseExpiresAt(fresh.warehouseExpiresAt());
+    }
+
     /** 用工会点数（工会资金）升级仓库容量。 */
     public void upgrade(Player player, Guild g) {
+        if (player == null || g == null) {
+            return;
+        }
         var c = plugin.settings().guild;
         if (!c.warehouseEnabled) {
             plugin.messages().send(player, "wh-disabled");
@@ -502,20 +544,21 @@ public final class WarehouseService implements GuildModule, Listener {
                 ok = false;
             }
             final boolean success = ok;
+            Guild fresh = success ? loadFresh(g.id()) : null;
             plugin.sync(() -> {
                 if (!success) {
                     plugin.messages().send(player, "wh-upgrade-failed");
                     return;
                 }
-                plugin.guilds().reloadGuild(g.id());
+                applyWarehouseState(g.id(), fresh);
                 plugin.broadcastGuildChange(g.id());
-                Guild fresh = plugin.guilds().guild(g.id());
+                Guild shown = plugin.guilds().guild(g.id());
                 plugin.messages().send(player, "wh-upgrade-success",
                         "level", String.valueOf(expected + 1),
                         "cost", String.valueOf(cost),
-                        "slots", String.valueOf(slotsFor(fresh)));
+                        "slots", String.valueOf(slotsFor(shown == null ? g : shown)));
                 if (player.isOnline()) {
-                    openMenu(player, fresh == null ? g : fresh);
+                    openMenu(player, shown == null ? g : shown);
                 }
             });
         });
