@@ -23,6 +23,32 @@ public final class GuildRepository {
         this.db = db;
     }
 
+    /** 判断异常链中是否为唯一键冲突（MySQL 1062 / SQLState 23xxx / SQLite UNIQUE）。 */
+    public static boolean isDuplicateKey(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof java.sql.SQLIntegrityConstraintViolationException) {
+                return true;
+            }
+            if (c instanceof SQLException se) {
+                if (se.getErrorCode() == 1062) {
+                    return true;
+                }
+                String state = se.getSQLState();
+                if (state != null && state.startsWith("23")) {
+                    return true;
+                }
+            }
+            String msg = c.getMessage();
+            if (msg != null) {
+                String m = msg.toUpperCase(java.util.Locale.ROOT);
+                if (m.contains("UNIQUE") || m.contains("DUPLICATE ENTRY")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // =====================================================================
     // 工会
     // =====================================================================

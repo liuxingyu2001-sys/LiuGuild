@@ -14,6 +14,7 @@ import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Round-1 regression tests: transactional create/join and atomic bank updates. */
@@ -59,6 +60,30 @@ class GuildRepositoryTest {
 
         assertEquals("Alpha", repo.loadGuild(id).name());
         assertEquals(1, repo.loadMembers(id).size());
+    }
+
+    @Test
+    void duplicateNameOrTagIsRejectedByUniqueIndex() throws Exception {
+        String idA = UUID.randomUUID().toString();
+        Guild a = guild(idA, "Unique", "UQ");
+        repo.insertGuildWithLeader(a, new GuildMember(a.leaderUuid(), "Leader", idA,
+                GuildRank.LEADER, System.currentTimeMillis(), 0, 0, 0));
+
+        // 同名（大小写不敏感）必须被数据库唯一索引拒绝
+        String idB = UUID.randomUUID().toString();
+        Guild b = guild(idB, "unique", "ZZ");
+        GuildMember lb = new GuildMember(b.leaderUuid(), "Leader", idB,
+                GuildRank.LEADER, System.currentTimeMillis(), 0, 0, 0);
+        Exception nameEx = assertThrows(Exception.class, () -> repo.insertGuildWithLeader(b, lb));
+        assertTrue(GuildRepository.isDuplicateKey(nameEx));
+
+        // 同缩写（大小写不敏感）同样被拒绝
+        String idC = UUID.randomUUID().toString();
+        Guild c = guild(idC, "Other", "uq");
+        GuildMember lc = new GuildMember(c.leaderUuid(), "Leader", idC,
+                GuildRank.LEADER, System.currentTimeMillis(), 0, 0, 0);
+        Exception tagEx = assertThrows(Exception.class, () -> repo.insertGuildWithLeader(c, lc));
+        assertTrue(GuildRepository.isDuplicateKey(tagEx));
     }
 
     @Test

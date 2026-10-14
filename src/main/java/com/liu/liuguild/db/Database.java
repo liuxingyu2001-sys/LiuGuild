@@ -199,8 +199,8 @@ public final class Database {
                     + "PRIMARY KEY (`guild_id`,`slot`)"
                     + ")" + engine);
 
-            index(st, t("guilds") + "_name", t("guilds"), "`name`");
-            index(st, t("guilds") + "_tag", t("guilds"), "`tag`");
+            uniqueIndex(st, t("guilds") + "_name", t("guilds"), "`name`");
+            uniqueIndex(st, t("guilds") + "_tag", t("guilds"), "`tag`");
             index(st, t("guild_members") + "_guild", t("guild_members"), "`guild_id`");
             index(st, t("guild_wars") + "_state", t("guild_wars"), "`state`");
             index(st, t("guild_wars") + "_a", t("guild_wars"), "`guild_a`");
@@ -215,6 +215,21 @@ public final class Database {
             st.executeUpdate(ddl);
         } catch (SQLException ignored) {
             // MySQL 不支持 IF NOT EXISTS：已存在时报错直接忽略
+        }
+    }
+
+    /**
+     * 唯一索引：从数据库层保证工会名称/缩写的大小写不敏感唯一性
+     * （SQLite 列为 {@code COLLATE NOCASE}，MySQL 默认排序规则不敏感），
+     * 兜底应用层的并发竞争。
+     */
+    private void uniqueIndex(Statement st, String indexName, String table, String columns) {
+        String ddl = (cfg.isSqlite() ? "CREATE UNIQUE INDEX IF NOT EXISTS " : "CREATE UNIQUE INDEX ") + "`"
+                + indexName + "` ON `" + table + "` (" + columns + ")";
+        try {
+            st.executeUpdate(ddl);
+        } catch (SQLException e) {
+            log.log(Level.WARNING, "创建唯一索引 " + indexName + " 失败（可能已有重复数据）: " + e.getMessage());
         }
     }
 

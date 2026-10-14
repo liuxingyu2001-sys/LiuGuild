@@ -67,6 +67,8 @@ public final class LiuGuild extends JavaPlugin {
 
     private EconomyHook economy;
     private GuildChatHook guildChat;
+    /** 启动配置检查的告警（供状态命令展示）。 */
+    private final java.util.List<String> configWarnings = new java.util.ArrayList<>();
     private ChatHook chat;
     private PassHook pass;
     private CraftEngineHook craftEngine;
@@ -163,6 +165,7 @@ public final class LiuGuild extends JavaPlugin {
         registerCommands();
         guilds.reloadAll();
         startTasks();
+        syncDelayed(this::validateConfig, 60L);
 
         getLogger().info("LiuGuild 已启用：server-id=" + serverId()
                 + "，存储=" + (database.isSqlite() ? "SQLite" : "MySQL")
@@ -440,6 +443,70 @@ public final class LiuGuild extends JavaPlugin {
     }
 
     // =====================================================================
+    // 启动配置检查
+    // =====================================================================
+
+    /** 启动后延迟执行：检查常见配置错误并打印可操作的告警。 */
+    private void validateConfig() {
+        configWarnings.clear();
+        Settings s = settings();
+
+        if (!database.healthy()) {
+            configWarnings.add("数据库连接不健康，请检查 database.yml。");
+        }
+        if (s.guild.createCost > 0 && !economy.available()) {
+            configWarnings.add("guild.create-cost > 0 但未检测到 Vault 经济插件，创建费用将被忽略。");
+        }
+        if (s.war.enabled) {
+            if (s.war.modes.isEmpty()) {
+                configWarnings.add("工会战已启用但未定义任何模式（war-modes.yml）。");
+            } else if (!s.war.modes.containsKey(s.war.defaultMode)) {
+                configWarnings.add("war.default-mode=" + s.war.defaultMode + " 未在 war-modes.yml 中定义。");
+            }
+            for (com.liu.liuguild.config.WarMode m : s.war.modes.values()) {
+                com.liu.liuguild.config.ArenaDef a = s.arenas.arenas.get(
+                        m.arena == null ? "" : m.arena.toLowerCase(java.util.Locale.ROOT));
+                if (a == null) {
+                    configWarnings.add("模式 " + m.key + " 引用了不存在的场地 " + m.arena + "，将回退到默认场地。");
+                    continue;
+                }
+                if (a.hasTemplate() && !(dungeon != null && dungeon.available())) {
+                    configWarnings.add("场地 " + a.id + " 配置了模板 " + a.template
+                            + " 但未安装 liudungeon，将回退到固定世界。");
+                } else if (a.hasTemplate() && dungeon != null && !dungeon.hasTemplate(a.template)) {
+                    configWarnings.add("场地 " + a.id + " 的模板 " + a.template + " 在 liudungeon 中不存在。");
+                }
+                if (!a.hasTemplate() && !a.tempWorld.builtin && a.world.isBlank() && Bukkit.getWorlds().isEmpty()) {
+                    configWarnings.add("场地 " + a.id + " 未设置世界且服务器无可加载世界。");
+                }
+            }
+        }
+        if (s.guild.homeEnabled && !(guildHome != null && guildHome.available())) {
+            configWarnings.add("guild.home.enabled=true 但未检测到 HuskHomes，驻地功能不可用。");
+        }
+        if (s.main.mcmmoEnabled && !(mcmmo != null && mcmmo.available())) {
+            configWarnings.add("hooks.mcmmo.enabled=true 但未检测到 mcMMO。");
+        }
+        if ("sparrow".equalsIgnoreCase(s.gui.engine) && !(sparrowUi != null && sparrowUi.enabled())) {
+            configWarnings.add("gui.engine=sparrow 但 Sparrow UI 不可用，已回退到内置 GUI。");
+        }
+        if (s.main.crossServerEnabled && bus != null && !bus.isReady()) {
+            configWarnings.add("已启用跨服但 Redis 未连接，工会战将限制在单服。");
+        }
+        if (!configWarnings.isEmpty()) {
+            getLogger().warning("配置检查发现 " + configWarnings.size() + " 项需注意的问题：");
+            for (String w : configWarnings) {
+                getLogger().warning(" - " + w);
+            }
+        }
+    }
+
+    /** 启动配置检查的告警（可能为空）。 */
+    public List<String> configWarnings() {
+        return List.copyOf(configWarnings);
+    }
+
+    // =====================================================================
     // 详细状态（/guildadmin status）
     // =====================================================================
 
@@ -488,6 +555,12 @@ public final class LiuGuild extends JavaPlugin {
                 + hook("SparrowUI", sparrowUi != null && sparrowUi.enabled()));
         // 模块
         out.add("&7模块: &f" + modules.ids());
+        if (!configWarnings.isEmpty()) {
+            out.add("&e配置告警: &f" + configWarnings.size() + " 项（详见启动日志）");
+            for (String w : configWarnings) {
+                out.add("&8 - &f" + w);
+            }
+        }
         return out;
     }
 

@@ -307,8 +307,13 @@ public final class GuildManager {
                     Bukkit.getPluginManager().callEvent(new GuildCreateEvent(g, player));
                 });
             } catch (Exception e) {
-                plugin.getLogger().warning("创建工会写库失败: " + e.getMessage());
-                rollbackCreate(player, g, id, c, "create-failed");
+                if (com.liu.liuguild.db.GuildRepository.isDuplicateKey(e)) {
+                    plugin.getLogger().info("创建工会名称/缩写冲突（并发）: " + cleanName);
+                    rollbackCreate(player, g, id, c, "create-name-taken");
+                } else {
+                    plugin.getLogger().warning("创建工会写库失败: " + e.getMessage());
+                    rollbackCreate(player, g, id, c, "create-failed");
+                }
             }
         });
         return true;
