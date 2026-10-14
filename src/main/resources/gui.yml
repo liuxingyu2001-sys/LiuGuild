@@ -73,7 +73,7 @@ gui:
         slot: 28
         material: CHEST
         name: "<white>工会仓库"
-        lore: ["<gray>跨服共享物品存储", "<gray>同一时间只能一人打开", "", "<yellow>点击打开"]
+        lore: ["<gray>跨服共享物品存储", "<gray>同一时间只能一人打开", "<gray>时长与容量用工会资金购买", "", "<yellow>点击打开"]
       titles:
         slot: 29
         material: NAME_TAG

@@ -96,10 +96,17 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                     plugin.messages().send(player, "no-permission");
                     break;
                 }
-                if (plugin.warehouse() != null) {
-                    plugin.warehouse().open(player, g);
-                } else {
+                if (plugin.warehouse() == null) {
                     plugin.messages().send(player, "wh-disabled");
+                    break;
+                }
+                String whSub = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "";
+                switch (whSub) {
+                    case "rent", "buy", "xufei", "续费", "购买" -> plugin.warehouse().rent(player, g,
+                            args.length > 2 ? com.liu.liuguild.util.NumberUtil.toInt(args[2], 0) : 0);
+                    case "upgrade", "up", "shengji", "升级" -> plugin.warehouse().upgrade(player, g);
+                    case "info", "menu", "manage", "管理" -> plugin.warehouse().openMenu(player, g);
+                    default -> plugin.warehouse().open(player, g);
                 }
             }
             case "title", "titles", "chenghao" -> title(player, args);
@@ -143,6 +150,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "领地", "/guild residence share <领地>", "把自己的领地在工会内共享");
         helpLine(player, "领地", "/guild residence unshare <领地>", "取消领地共享");
         helpLine(player, "仓库", "/guild warehouse", "打开工会共享仓库（同一时间仅一人）");
+        helpLine(player, "仓库", "/guild warehouse rent <天数>", "用工会资金购买仓库使用时间");
+        helpLine(player, "仓库", "/guild warehouse upgrade", "用工会资金升级仓库容量");
         helpLine(player, "头衔", "/guild title", "打开头衔面板 / 装备自定义头衔");
         helpLine(player, "商店", "/guild shop", "工会商店：上架出售 / 收购成员物品");
         helpLine(player, "信息", "/guild info", "查看工会信息");
@@ -948,6 +957,9 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             }
             if (sub.equals("bank")) {
                 return filter(List.of("deposit", "withdraw"), args[1]);
+            }
+            if (sub.equals("warehouse") || sub.equals("wh") || sub.equals("cangku")) {
+                return filter(List.of("info", "rent", "upgrade"), args[1]);
             }
             if (sub.equals("home") || sub.equals("hq")) {
                 return filter(List.of("set", "del", "list"), args[1]);

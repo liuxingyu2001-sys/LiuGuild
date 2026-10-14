@@ -33,6 +33,10 @@ public final class Guild {
     private volatile int memberCount;
     /** 最后一次活跃时间（成员登录或工会数据变更），用于清理僵尸工会。 */
     private volatile long lastActiveAt = System.currentTimeMillis();
+    /** 工会仓库已购买的升级等级（0 = 基础容量，不随工会等级增长）。 */
+    private volatile int warehouseLevel;
+    /** 工会仓库使用到期时间（epoch 毫秒，0 = 从未购买）。 */
+    private volatile long warehouseExpiresAt;
 
     private final Map<UUID, GuildMember> members = new ConcurrentHashMap<>();
 
@@ -211,6 +215,27 @@ public final class Guild {
 
     public void bank(long bank) {
         this.bank = bank;
+    }
+
+    public int warehouseLevel() {
+        return warehouseLevel;
+    }
+
+    public void warehouseLevel(int warehouseLevel) {
+        this.warehouseLevel = Math.max(0, warehouseLevel);
+    }
+
+    public long warehouseExpiresAt() {
+        return warehouseExpiresAt;
+    }
+
+    public void warehouseExpiresAt(long warehouseExpiresAt) {
+        this.warehouseExpiresAt = warehouseExpiresAt;
+    }
+
+    /** 仓库使用是否在有效期内（到期时间 0 = 从未购买，视为未开通）。 */
+    public boolean warehouseActive(long now) {
+        return warehouseExpiresAt > now;
     }
 
     public String homeServer() {

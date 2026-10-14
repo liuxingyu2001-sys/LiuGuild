@@ -110,14 +110,35 @@ guild:
     # 建议价回退倍率：LiuShop 只给了收购价时，乘以它作为建议售价
     sell-markup: 2.0
   # 工会仓库：跨服共享物品存储，同一时刻只允许一个成员打开（跨服原子锁）
+  # 使用时间与容量升级均消耗【工会资金（点数）】，与工会银行（Vault 金币）无关。
   warehouse:
     enabled: true
+    # 是否必须先购买使用时间才能打开；false = 永久可用（旧行为，不消耗点数）
+    require-rent: true
     # 基础槽位数（9/18/27/36/45/54；非 9 的倍数会自动向上取整）
     base-slots: 27
-    # 每提升 1 级增加的槽位数
+    # 每购买 1 次「升级」增加的槽位数
     slots-per-level: 9
     # 槽位上限
     max-slots: 54
+    # 谁能购买时长 / 升级（MEMBER / OFFICER / LEADER）
+    manage-rank: OFFICER
+    # 购买使用时间
+    rent:
+      # 每 24 小时使用时间消耗的工会资金（点数）
+      price-per-day: 200
+      # 一次可购买的天数（管理菜单按钮 / 命令 /guild warehouse rent <天数>）
+      options: [1, 7, 30]
+      # 累计最多可持有的天数（0 = 不限）
+      max-days: 90
+    # 升级容量
+    upgrade:
+      # 最多可升级次数（0 = 不可升级）
+      max-level: 3
+      # 0 → 1 升级消耗的工会资金
+      base-cost: 1000
+      # 每级升级成本的倍率
+      cost-growth: 2.0
   # 僵尸工会清理（不活跃工会）
   cleanup:
     # 自动定期清理开关（默认关闭，建议先用 dry-run 确认）

@@ -2,6 +2,7 @@ package com.liu.liuguild.config;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -172,5 +173,68 @@ class GuildSettingsTest {
         // 基础槽位配得比上限还大时，不能突破上限
         assertEquals(9, GuildSettings.warehouseSlots(54, 9, 9, 1));
         assertEquals(18, GuildSettings.warehouseSlots(54, 9, 18, 1));
+    }
+
+    // =====================================================================
+    // 仓库购买时长 / 升级花费
+    // =====================================================================
+
+    @Test
+    void warehouseRentCostIsPriceTimesDays() {
+        assertEquals(200, GuildSettings.warehouseRentCost(200, 1));
+        assertEquals(1400, GuildSettings.warehouseRentCost(200, 7));
+        assertEquals(6000, GuildSettings.warehouseRentCost(200, 30));
+    }
+
+    @Test
+    void warehouseRentCostHandlesEdgeCases() {
+        // 0 / 负数配置视为免费，而不是负开销
+        assertEquals(0, GuildSettings.warehouseRentCost(0, 30));
+        assertEquals(0, GuildSettings.warehouseRentCost(-100, 30));
+        assertEquals(0, GuildSettings.warehouseRentCost(200, 0));
+        assertEquals(0, GuildSettings.warehouseRentCost(200, -1));
+    }
+
+    @Test
+    void warehouseRentCostSaturatesInsteadOfOverflowing() {
+        // 溢出必须饱和到 Long.MAX_VALUE，绝不能回绕成负数（负成本=发钱）
+        assertEquals(Long.MAX_VALUE, GuildSettings.warehouseRentCost(Long.MAX_VALUE, 2));
+        assertEquals(Long.MAX_VALUE, GuildSettings.warehouseRentCost(Long.MAX_VALUE / 2 + 1, 2));
+    }
+
+    @Test
+    void warehouseUpgradeCostGrowsWithLevel() {
+        // base 1000，growth 2.0
+        assertEquals(1000, GuildSettings.warehouseUpgradeCost(1000, 2.0, 0));
+        assertEquals(2000, GuildSettings.warehouseUpgradeCost(1000, 2.0, 1));
+        assertEquals(4000, GuildSettings.warehouseUpgradeCost(1000, 2.0, 2));
+        // growth 小于 1 会被夹到 1，不允许越升越便宜
+        assertEquals(1000, GuildSettings.warehouseUpgradeCost(1000, 0.1, 5));
+        // base 0 = 免费
+        assertEquals(0, GuildSettings.warehouseUpgradeCost(0, 2.0, 3));
+    }
+
+    @Test
+    void warehouseUpgradeCostSaturates() {
+        assertEquals(Long.MAX_VALUE, GuildSettings.warehouseUpgradeCost(Long.MAX_VALUE, 2.0, 10));
+    }
+
+    @Test
+    void parseDayOptionsDeduplicatesAndSorts() {
+        int[] out = GuildSettings.parseDayOptions(java.util.List.of(30, 1, 7, 1, 30), null);
+        assertArrayEquals(new int[]{1, 7, 30}, out);
+    }
+
+    @Test
+    void parseDayOptionsFiltersInvalidAndFallsBack() {
+        assertArrayEquals(new int[]{1, 7}, GuildSettings.parseDayOptions(java.util.List.of(0, -5, 7, 1), null));
+        // 全是非法值 → 用 fallback
+        assertArrayEquals(new int[]{3}, GuildSettings.parseDayOptions(java.util.List.of(0, -1), new int[]{3}));
+        // 空列表 → 用 fallback
+        assertArrayEquals(new int[]{3}, GuildSettings.parseDayOptions(java.util.List.of(), new int[]{3}));
+        // null → 用 fallback
+        assertArrayEquals(new int[]{3}, GuildSettings.parseDayOptions(null, new int[]{3}));
+        // 完全没有 fallback → 至少 1 天
+        assertArrayEquals(new int[]{1}, GuildSettings.parseDayOptions(null, null));
     }
 }

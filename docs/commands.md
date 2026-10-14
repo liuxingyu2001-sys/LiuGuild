@@ -39,7 +39,10 @@
 | `/guild residence list` | 列出自己的领地（别名 `res` / `lingdi`） |
 | `/guild residence share <领地>` | 把自有领地在工会内共享 |
 | `/guild residence unshare <领地>` | 取消共享 |
-| `/guild warehouse` | 打开工会共享仓库（别名 `wh` / `cangku`；同一时间仅一人可开） |
+| `/guild warehouse` | 打开工会共享仓库（别名 `wh` / `cangku`；同一时间仅一人可开；未开通/过期时打开管理菜单） |
+| `/guild warehouse info` | 打开仓库管理菜单（购买时长 / 升级容量） |
+| `/guild warehouse rent <天数>` | 用工会资金购买仓库使用时间 |
+| `/guild warehouse upgrade` | 用工会资金升级仓库容量 |
 | `/guild title` | 打开头衔面板（别名 `titles` / `chenghao`） |
 | `/guild title list` | 列出本会头衔 |
 | `/guild title set <标识>` | 装备头衔（仅限自己够格的） |

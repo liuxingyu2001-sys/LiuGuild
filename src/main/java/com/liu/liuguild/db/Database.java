@@ -161,6 +161,8 @@ public final class Database {
                     + "`wins` INT NOT NULL DEFAULT 0,"
                     + "`losses` INT NOT NULL DEFAULT 0,"
                     + "`bank` BIGINT NOT NULL DEFAULT 0,"
+                    + "`warehouse_level` INT NOT NULL DEFAULT 0,"
+                    + "`warehouse_expires_at` BIGINT NOT NULL DEFAULT 0,"
                     + "`last_active_at` BIGINT NOT NULL DEFAULT 0,"
                     + "`home_server` VARCHAR(64),"
                     + "`member_count` INT NOT NULL DEFAULT 0,"
@@ -362,6 +364,8 @@ public final class Database {
         columns.add(new String[]{"guilds", "member_count", "`member_count` INT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "updated_at", "`updated_at` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "bank", "`bank` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guilds", "warehouse_level", "`warehouse_level` INT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guilds", "warehouse_expires_at", "`warehouse_expires_at` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "last_active_at", "`last_active_at` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guild_members", "contributed", "`contributed` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guild_members", "kills", "`kills` INT NOT NULL DEFAULT 0"});

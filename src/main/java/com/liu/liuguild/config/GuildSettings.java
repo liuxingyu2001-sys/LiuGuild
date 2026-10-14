@@ -83,12 +83,28 @@ public final class GuildSettings {
     // ---- 工会仓库 ----
     /** 是否启用工会仓库（跨服共享，同一时刻仅一人可打开）。 */
     public boolean warehouseEnabled = true;
+    /** 是否必须购买使用时间才能打开仓库；false = 永久可用（旧行为，不消耗点数）。 */
+    public boolean warehouseRequireRent = true;
     /** 仓库基础槽位数（至少 9，向上取整到 9 的倍数由代码保证）。 */
     public int warehouseBaseSlots = 27;
-    /** 每提升 1 级增加的槽位数。 */
+    /** 每购买 1 次「仓库升级」增加的槽位数。 */
     public int warehouseSlotsPerLevel = 9;
     /** 仓库槽位上限。 */
     public int warehouseMaxSlots = 54;
+    /** 每 24 小时使用时间消耗的工会点数（工会资金）。 */
+    public long warehouseRentPricePerDay = 200;
+    /** 一次可购买的天数选项（GUI / 命令）。 */
+    public int[] warehouseRentOptions = {1, 7, 30};
+    /** 累计最多可持有的天数（0 = 不限）。 */
+    public int warehouseRentMaxDays = 90;
+    /** 仓库最大可升级次数（0 = 不可升级）。 */
+    public int warehouseMaxLevel = 3;
+    /** 0 → 1 升级消耗的工会点数。 */
+    public long warehouseUpgradeBaseCost = 1000;
+    /** 每级升级成本的倍率。 */
+    public double warehouseUpgradeCostGrowth = 2.0;
+    /** 谁能购买使用时间 / 升级仓库。 */
+    public GuildRank warehouseManageRank = GuildRank.OFFICER;
 
     // ---- 工会头衔 ----
     /** 是否启用工会自定义头衔。 */
@@ -165,12 +181,20 @@ public final class GuildSettings {
         s.renameAllowTag = c.getBoolean("guild.rename.allow-tag", s.renameAllowTag);
         s.residenceEnabled = c.getBoolean("guild.residence.enabled", s.residenceEnabled);
         s.warehouseEnabled = c.getBoolean("guild.warehouse.enabled", s.warehouseEnabled);
+        s.warehouseRequireRent = c.getBoolean("guild.warehouse.require-rent", s.warehouseRequireRent);
         s.warehouseBaseSlots = clamp9(c.getInt("guild.warehouse.base-slots", s.warehouseBaseSlots));
         s.warehouseSlotsPerLevel = Math.max(0, c.getInt("guild.warehouse.slots-per-level", s.warehouseSlotsPerLevel));
         s.warehouseMaxSlots = clamp9(c.getInt("guild.warehouse.max-slots", s.warehouseMaxSlots));
         if (s.warehouseBaseSlots > s.warehouseMaxSlots) {
             s.warehouseBaseSlots = s.warehouseMaxSlots;
         }
+        s.warehouseRentPricePerDay = Math.max(0, c.getLong("guild.warehouse.rent.price-per-day", s.warehouseRentPricePerDay));
+        s.warehouseRentMaxDays = Math.max(0, c.getInt("guild.warehouse.rent.max-days", s.warehouseRentMaxDays));
+        s.warehouseRentOptions = parseDayOptions(c.getIntegerList("guild.warehouse.rent.options"), s.warehouseRentOptions);
+        s.warehouseMaxLevel = Math.max(0, Math.min(32, c.getInt("guild.warehouse.upgrade.max-level", s.warehouseMaxLevel)));
+        s.warehouseUpgradeBaseCost = Math.max(0, c.getLong("guild.warehouse.upgrade.base-cost", s.warehouseUpgradeBaseCost));
+        s.warehouseUpgradeCostGrowth = Math.max(1.0, c.getDouble("guild.warehouse.upgrade.cost-growth", s.warehouseUpgradeCostGrowth));
+        s.warehouseManageRank = GuildRank.parse(c.getString("guild.warehouse.manage-rank", s.warehouseManageRank.name()));
         s.shopEnabled = c.getBoolean("guild.shop.enabled", s.shopEnabled);
         s.shopMaxListings = Math.max(1, Math.min(54, c.getInt("guild.shop.max-listings", s.shopMaxListings)));
         s.shopMaxStackPerListing = Math.max(1, c.getInt("guild.shop.max-stack-per-listing", s.shopMaxStackPerListing));
@@ -293,5 +317,50 @@ public final class GuildSettings {
     public static int clamp9(int slots) {
         int v = Math.max(9, Math.min(54, slots));
         return ((v + 8) / 9) * 9;
+    }
+
+    /** 纯函数：购买使用时间的价格；溢出饱和到 {@code Long.MAX_VALUE} 而不是回绕成负数。 */
+    public static long warehouseRentCost(long pricePerDay, int days) {
+        if (pricePerDay <= 0 || days <= 0) {
+            return 0;
+        }
+        try {
+            return Math.multiplyExact(pricePerDay, (long) days);
+        } catch (ArithmeticException e) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    /** 纯函数：从 {@code currentLevel} 升到下一级的价格，按倍率指数增长。 */
+    public static long warehouseUpgradeCost(long baseCost, double growth, int currentLevel) {
+        if (baseCost <= 0) {
+            return 0;
+        }
+        double cost = baseCost * Math.pow(Math.max(1.0, growth), Math.max(0, currentLevel));
+        if (cost >= Long.MAX_VALUE || Double.isNaN(cost) || Double.isInfinite(cost)) {
+            return Long.MAX_VALUE;
+        }
+        return Math.max(0, Math.round(cost));
+    }
+
+    /** 纯函数：把配置里的天数选项规整为正整数数组（去重、升序、限制在 1~3650）。 */
+    public static int[] parseDayOptions(java.util.List<Integer> raw, int[] fallback) {
+        java.util.TreeSet<Integer> set = new java.util.TreeSet<>();
+        if (raw != null) {
+            for (Integer v : raw) {
+                if (v != null && v > 0) {
+                    set.add(Math.min(v, 3650));
+                }
+            }
+        }
+        if (set.isEmpty()) {
+            return fallback == null || fallback.length == 0 ? new int[]{1} : fallback.clone();
+        }
+        int[] out = new int[set.size()];
+        int i = 0;
+        for (int v : set) {
+            out[i++] = v;
+        }
+        return out;
     }
 }

@@ -161,7 +161,8 @@ public final class GuildRepository {
 
     private String guildUpdateSql() {
         return "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
-                + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,`points`=?,`level`=?,`wins`=?,`losses`=?,"
+                + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,"
+                + "`level`=?,`wins`=?,`losses`=?,"
                 + "`home_server`=?,`member_count`=?,`last_active_at`=? WHERE `guild_id`=?";
     }
 
@@ -176,14 +177,13 @@ public final class GuildRepository {
         ps.setString(8, g.iconData());
         ps.setInt(9, g.open() ? 1 : 0);
         ps.setLong(10, g.updatedAt());
-        ps.setLong(11, g.points());
-        ps.setInt(12, g.level());
-        ps.setInt(13, g.wins());
-        ps.setInt(14, g.losses());
-        ps.setString(15, g.homeServer());
-        ps.setInt(16, g.memberCount());
-        ps.setLong(17, g.lastActiveAt());
-        ps.setString(18, g.id());
+        ps.setInt(11, g.level());
+        ps.setInt(12, g.wins());
+        ps.setInt(13, g.losses());
+        ps.setString(14, g.homeServer());
+        ps.setInt(15, g.memberCount());
+        ps.setLong(16, g.lastActiveAt());
+        ps.setString(17, g.id());
     }
 
     /**
@@ -233,6 +233,92 @@ public final class GuildRepository {
             ps.setString(2, guildId);
             ps.setLong(3, delta < 0 ? -delta : 0);
             ps.setLong(4, delta > 0 ? Long.MAX_VALUE - delta : Long.MAX_VALUE);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /**
+     * 原子增减工会点数（工会资金）；当结果会溢出 {@code [0, Long.MAX_VALUE]} 时返回 false。
+     */
+    public boolean addPoints(String guildId, long delta) throws SQLException {
+        if (delta == Long.MIN_VALUE) return false;
+        String sql = "UPDATE `" + db.t("guilds") + "` SET `points`=`points`+? WHERE `guild_id`=? AND `points`>=? AND `points`<=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, delta);
+            ps.setString(2, guildId);
+            ps.setLong(3, delta < 0 ? -delta : 0);
+            ps.setLong(4, delta > 0 ? Long.MAX_VALUE - delta : Long.MAX_VALUE);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /** 原子设置工会点数（管理员）。 */
+    public boolean setPoints(String guildId, long points) throws SQLException {
+        String sql = "UPDATE `" + db.t("guilds") + "` SET `points`=? WHERE `guild_id`=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, Math.max(0, points));
+            ps.setString(2, guildId);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /** 轻量读取工会点数（用于原子写入后刷新缓存，避免整行重载）。 */
+    public long loadPoints(String guildId) throws SQLException {
+        String sql = "SELECT `points` FROM `" + db.t("guilds") + "` WHERE `guild_id`=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, guildId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        }
+    }
+
+    /**
+     * 原子购买工会仓库使用时间：扣点数并把到期时间延长 {@code durationMillis}。
+     *
+     * <p>用一条 UPDATE 同时完成扣费与续期，且续期以「当前到期时间与 now 的较大值」为基准，
+     * 因此多台子服并发购买既不会丢时长，也不会重复扣费。</p>
+     *
+     * @return 点数足够并完成扣费/续期返回 true；余额不足返回 false
+     */
+    public boolean rentWarehouse(String guildId, long cost, long now, long durationMillis) throws SQLException {
+        if (cost < 0 || durationMillis <= 0) return false;
+        String sql = "UPDATE `" + db.t("guilds") + "` SET `points`=`points`-?,"
+                + "`warehouse_expires_at`=(CASE WHEN `warehouse_expires_at`>? THEN `warehouse_expires_at` ELSE ? END)+?"
+                + " WHERE `guild_id`=? AND `points`>=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, cost);
+            ps.setLong(2, now);
+            ps.setLong(3, now);
+            ps.setLong(4, durationMillis);
+            ps.setString(5, guildId);
+            ps.setLong(6, cost);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /**
+     * 原子升级工会仓库容量：扣点数并把仓库等级 +1。
+     *
+     * <p>{@code warehouse_level=?} 作为乐观锁：两台子服同时升级时只有一台成功，
+     * 另一台会因为等级已被改动而影响 0 行，从而避免「付一次钱升两级」。</p>
+     *
+     * @return 点数足够且等级仍是期望值时返回 true
+     */
+    public boolean upgradeWarehouse(String guildId, long cost, int expectedLevel) throws SQLException {
+        if (cost < 0 || expectedLevel < 0) return false;
+        String sql = "UPDATE `" + db.t("guilds") + "` SET `points`=`points`-?,`warehouse_level`=`warehouse_level`+1"
+                + " WHERE `guild_id`=? AND `points`>=? AND `warehouse_level`=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setLong(1, cost);
+            ps.setString(2, guildId);
+            ps.setLong(3, cost);
+            ps.setInt(4, expectedLevel);
             return ps.executeUpdate() > 0;
         }
     }
@@ -724,6 +810,12 @@ public final class GuildRepository {
                 rs.getInt("member_count"),
                 rs.getString("icon"));
         g.iconData(rs.getString("icon_data"));
+        try {
+            g.warehouseLevel(rs.getInt("warehouse_level"));
+            g.warehouseExpiresAt(rs.getLong("warehouse_expires_at"));
+        } catch (SQLException ignored) {
+            // 旧库尚未补列时忽略（migrate 会补齐）
+        }
         long active = rs.getLong("last_active_at");
         g.lastActiveAt(active > 0 ? active : g.createdAt());
         return g;

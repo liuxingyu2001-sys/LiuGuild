@@ -2,14 +2,32 @@
 
 工会成员共用的物品存储。**物品存在共享数据库里，所有子服都能访问**；同一时刻**只允许一个成员打开**，避免并发写入互相覆盖导致丢物/复制。
 
+> 仓库的**使用时间**与**容量升级**均消耗**工会资金（点数，`points`）**，与工会银行（Vault 金币）无关。
+
 ## 指令 / 入口
 
 | 方式 | 说明 |
 |---|---|
-| `/guild warehouse` | 打开工会仓库（别名 `/guild wh`、`/guild cangku`） |
-| 主菜单「工会仓库」 | `/guild gui` → 点击「工会仓库」 |
+| `/guild warehouse` | 打开工会仓库；未开通/已过期时改为打开管理菜单（别名 `/guild wh`、`/guild cangku`） |
+| `/guild warehouse info` | 打开仓库管理菜单（查看状态、购买时长、升级） |
+| `/guild warehouse rent <天数>` | 用工会资金购买仓库使用时间 |
+| `/guild warehouse upgrade` | 用工会资金升级仓库容量 |
+| 主菜单「工会仓库」 | `/guild gui` → 点击「工会仓库」（同样会在未开通时改为管理菜单） |
 
-权限：`liuguild.warehouse`（默认所有人）。
+权限：`liuguild.warehouse`（默认所有人）。购买时长 / 升级需要职位达到 `guild.warehouse.manage-rank`（默认 `OFFICER`），或拥有 `liuguild.admin`。
+
+## 使用时间（租赁）
+
+- 开启 `require-rent: true`（默认）时，**必须先在有效期内才能打开仓库**；过期后界面仍保留物品，但无法打开，需先续费。
+- 续费按「工会资金 × 天数」计费，续期从「当前到期时间与当前时间的较大值」往后顺延，因此**在有效期内续费不会浪费剩余时间**。
+- `max-days` 限制累计可持有的天数（0 = 不限）。
+- 关闭 `require-rent` 则恢复旧行为：**永久可用，不消耗工会资金**。
+
+## 容量升级
+
+- 仓库槽位不再随工会等级增长，而是由**已购买的仓库等级**决定：`min(max-slots, base-slots + 仓库等级 × slots-per-level)`。
+- 升级花费按 `base-cost × cost-growth^当前等级` 递增，最多升级 `max-level` 次（0 = 不可升级）。
+- 升级只增不减；已购买等级与使用时间都随工会行持久化，跨服一致。
 
 ## 为什么需要跨服锁
 
@@ -56,20 +74,30 @@
 
 ## 槽位数量
 
-按工会等级增长：
+`base-slots` 为基础槽位，`slots-per-level` 为每次升级增加的槽位，`max-slots` 为上限：
 
 ```yaml
 guild:
   warehouse:
     enabled: true
-    base-slots: 27      # 基础槽位（非 9 的倍数会自动向上取整）
-    slots-per-level: 9  # 每级增加
-    max-slots: 54       # 上限
+    require-rent: true   # 必须先购买使用时间
+    base-slots: 27       # 基础槽位（非 9 的倍数会自动向上取整）
+    slots-per-level: 9   # 每次升级增加
+    max-slots: 54        # 上限
+    manage-rank: OFFICER # 购买时长 / 升级所需职位
+    rent:
+      price-per-day: 200 # 每 24 小时消耗的工会资金
+      options: [1, 7, 30] # 管理菜单里的购买选项
+      max-days: 90       # 累计最多持有天数（0 = 不限）
+    upgrade:
+      max-level: 3       # 最多升级次数（0 = 不可升级）
+      base-cost: 1000    # 0 → 1 升级消耗
+      cost-growth: 2.0   # 每级成本倍率
 ```
 
-计算：`min(max-slots, base-slots + (等级-1) × slots-per-level)`，**结果始终是 9 的倍数且落在 9~54**（Bukkit 只接受合法容器尺寸，配错会导致创建界面抛异常）。
+计算：`min(max-slots, base-slots + 仓库等级 × slots-per-level)`，**结果始终是 9 的倍数且落在 9~54**（Bukkit 只接受合法容器尺寸，配错会导致创建界面抛异常）。
 
-> 工会降级后若槽位缩小，多余槽位的物品**仍保留在数据库里**，不会因为界面变小而被删除；升级回去即可再次看到。
+> 降级/配置调小后若槽位缩小，多余槽位的物品**仍保留在数据库里**，不会因为界面变小而被删除；升级回去即可再次看到。
 
 ## 数据表
 
@@ -81,7 +109,17 @@ liuguild_warehouse (
   updated_at BIGINT,
   PRIMARY KEY (guild_id, slot)
 )
+
+-- 仓库状态随工会行一起存储（guilds 表）：
+--   warehouse_level       INT     已购买升级等级
+--   warehouse_expires_at  BIGINT  使用到期时间（epoch 毫秒，0 = 未开通）
 ```
+
+## 并发安全
+
+- **扣费与续期**：`UPDATE guilds SET points=points-cost, warehouse_expires_at=(CASE WHEN warehouse_expires_at>now THEN warehouse_expires_at ELSE now END)+duration WHERE guild_id=? AND points>=cost`，一条语句内完成，多台子服同时续费不会丢时长或重复扣费。
+- **升级**：`UPDATE guilds SET points=points-cost, warehouse_level=warehouse_level+1 WHERE guild_id=? AND points>=cost AND warehouse_level=?`，以期望等级作为乐观锁，避免付一次钱升两级。
+- **工会点数（资金）本身只经数据库原子 UPDATE 写入**，不再随整行保存写回，防止仓库扣费被并发的工会保存覆盖。
 
 ## 相关
 

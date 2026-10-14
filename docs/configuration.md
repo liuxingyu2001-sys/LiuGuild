@@ -126,9 +126,19 @@ guild:
 
   warehouse:
     enabled: true
+    require-rent: true   # 必须先购买使用时间才能打开
     base-slots: 27
     slots-per-level: 9
     max-slots: 54
+    manage-rank: OFFICER
+    rent:
+      price-per-day: 200 # 每 24 小时消耗的工会资金（点数）
+      options: [1, 7, 30]
+      max-days: 90
+    upgrade:
+      max-level: 3
+      base-cost: 1000
+      cost-growth: 2.0
 
   shop:
     enabled: true
@@ -142,5 +152,5 @@ guild:
 ```
 
 - [titles.md](titles.md) —— 工会头衔
-- [warehouse.md](warehouse.md) —— 工会仓库（跨服独占锁）
+- [warehouse.md](warehouse.md) —— 工会仓库（跨服独占锁；用工会资金购买时长 / 升级容量）
 - [shop.md](shop.md) —— 工会商店（双向价格 + LiuShop 参考价）

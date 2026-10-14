@@ -188,6 +188,8 @@ class GuildRepositoryTest {
         g.level(7);
         leader.addKill();
         leader.addDeath();
+        // 点数不再随整行保存写入（只走原子 UPDATE），这里单独原子设置以验证其独立持久化
+        repo.setPoints(id, 9999);
         repo.flushAll(java.util.List.of(g), java.util.List.of(leader));
 
         assertEquals(9999, repo.loadGuild(id).points());
@@ -246,5 +248,125 @@ class GuildRepositoryTest {
         // Disband cleans up homes too
         repo.deleteGuild(id);
         assertTrue(repo.loadHomes(id).isEmpty());
+    }
+
+    // =====================================================================
+    // 工会点数（工会资金）与仓库购买 / 升级
+    // =====================================================================
+
+    private static final long DAY = 86_400_000L;
+
+    private String newGuild(String name, String tag) throws Exception {
+        String id = UUID.randomUUID().toString();
+        Guild g = guild(id, name, tag);
+        repo.insertGuildWithLeader(g, new GuildMember(g.leaderUuid(), "Leader", id,
+                GuildRank.LEADER, System.currentTimeMillis(), 0, 0, 0));
+        return id;
+    }
+
+    @Test
+    void addPointsIsAtomicAndBounded() throws Exception {
+        String id = newGuild("Points", "PT");
+        assertTrue(repo.addPoints(id, 500));
+        assertTrue(repo.addPoints(id, 250));
+        assertEquals(750, repo.loadGuild(id).points());
+
+        // 不能让点数变成负数
+        assertFalse(repo.addPoints(id, -1000));
+        assertEquals(750, repo.loadGuild(id).points());
+
+        assertTrue(repo.addPoints(id, -750));
+        assertEquals(0, repo.loadGuild(id).points());
+
+        assertTrue(repo.addPoints(id, Long.MAX_VALUE - 1));
+        assertFalse(repo.addPoints(id, Long.MAX_VALUE));
+        assertEquals(Long.MAX_VALUE - 1, repo.loadGuild(id).points());
+    }
+
+    @Test
+    void rentWarehouseDebitsPointsAndExtendsExpiry() throws Exception {
+        String id = newGuild("Rent", "RT");
+        repo.addPoints(id, 1000);
+        long now = 1_000_000L;
+
+        assertTrue(repo.rentWarehouse(id, 200, now, 7 * DAY));
+        Guild after = repo.loadGuild(id);
+        assertEquals(800, after.points());
+        assertEquals(now + 7 * DAY, after.warehouseExpiresAt());
+
+        // 在有效期内续期：从「当前到期时间」而非 now 往后顺延
+        long later = now + 1_000L;
+        assertTrue(repo.rentWarehouse(id, 100, later, DAY));
+        Guild renewed = repo.loadGuild(id);
+        assertEquals(700, renewed.points());
+        assertEquals(now + 8 * DAY, renewed.warehouseExpiresAt());
+    }
+
+    @Test
+    void rentWarehouseStartsFromNowWhenExpired() throws Exception {
+        String id = newGuild("Expired", "EX");
+        repo.addPoints(id, 1000);
+        long now = 100_000L;
+        // 先过期
+        assertTrue(repo.rentWarehouse(id, 100, now, DAY));
+        long muchLater = now + 10 * DAY;
+        assertTrue(repo.rentWarehouse(id, 100, muchLater, DAY));
+        // 已过期：从 now 起算，而不是叠加到早已过期的旧时间
+        assertEquals(muchLater + DAY, repo.loadGuild(id).warehouseExpiresAt());
+    }
+
+    @Test
+    void rentWarehouseFailsWhenPointsInsufficient() throws Exception {
+        String id = newGuild("PoorRent", "PR");
+        repo.addPoints(id, 50);
+        assertFalse(repo.rentWarehouse(id, 200, 1_000L, DAY));
+        Guild g = repo.loadGuild(id);
+        assertEquals(50, g.points());
+        assertEquals(0, g.warehouseExpiresAt());
+    }
+
+    @Test
+    void upgradeWarehouseDebitsPointsAndIncrementsLevel() throws Exception {
+        String id = newGuild("Upgrade", "UP");
+        repo.addPoints(id, 1000);
+        assertTrue(repo.upgradeWarehouse(id, 1000, 0));
+        Guild g = repo.loadGuild(id);
+        assertEquals(0, g.points());
+        assertEquals(1, g.warehouseLevel());
+
+        repo.addPoints(id, 2000);
+        assertTrue(repo.upgradeWarehouse(id, 2000, 1));
+        assertEquals(2, repo.loadGuild(id).warehouseLevel());
+    }
+
+    @Test
+    void upgradeWarehouseRejectsStaleOrInsufficientRequests() throws Exception {
+        String id = newGuild("UpgradeGuard", "UG");
+        repo.addPoints(id, 1000);
+        // 点数不足
+        assertFalse(repo.upgradeWarehouse(id, 2000, 0));
+        assertEquals(0, repo.loadGuild(id).warehouseLevel());
+        // 等级不符合期望（乐观锁）：别人已升过级
+        assertFalse(repo.upgradeWarehouse(id, 1000, 5));
+        assertEquals(1000, repo.loadGuild(id).points());
+        // 正确请求成功
+        assertTrue(repo.upgradeWarehouse(id, 1000, 0));
+        assertEquals(1, repo.loadGuild(id).warehouseLevel());
+        // 同一等级不能重复升级
+        assertFalse(repo.upgradeWarehouse(id, 1000, 0));
+    }
+
+    @Test
+    void warehouseStateSurvivesReload() throws Exception {
+        String id = newGuild("Persist", "PS");
+        repo.addPoints(id, 5000);
+        long now = System.currentTimeMillis();
+        assertTrue(repo.upgradeWarehouse(id, 1000, 0));
+        assertTrue(repo.rentWarehouse(id, 500, now, 30 * DAY));
+
+        Guild loaded = repo.loadGuild(id);
+        assertEquals(1, loaded.warehouseLevel());
+        assertEquals(now + 30 * DAY, loaded.warehouseExpiresAt());
+        assertEquals(3500, loaded.points());
     }
 }

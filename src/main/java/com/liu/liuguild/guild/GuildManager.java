@@ -1294,21 +1294,51 @@ public final class GuildManager {
                 deposit ? GuildBankEvent.Action.DEPOSIT : GuildBankEvent.Action.WITHDRAW, amount, g.bank()));
     }
 
+    /**
+     * 增减工会点数（工会资金）。
+     *
+     * <p>点数与银行一样只通过数据库原子 UPDATE 写入（{@code saveGuild} 不再写 points），
+     * 否则仓库购买/升级等原子扣费会被并发的整行保存覆盖回去（假扣费）。
+     * 写入成功后回读数据库刷新缓存，并按新点数重算等级。</p>
+     */
     public void addPoints(Guild g, long delta) {
         if (g == null || delta == 0) {
             return;
         }
-        long current = g.points();
-        long next;
-        if (delta > 0) {
-            next = current > Long.MAX_VALUE - delta ? Long.MAX_VALUE : current + delta;
-        } else {
-            // delta 可能为 Long.MIN_VALUE，避免取负溢出
-            next = delta == Long.MIN_VALUE || -delta > current ? 0 : current + delta;
+        String id = g.id();
+        plugin.async(() -> {
+            try {
+                plugin.repo().addPoints(id, delta);
+            } catch (Exception e) {
+                plugin.getLogger().warning("更新工会点数失败: " + e.getMessage());
+            }
+            pullPoints(id, true);
+        });
+    }
+
+    /** 从数据库回读点数并刷新缓存；{@code recompute} = 按新点数重算等级。 */
+    private void pullPoints(String guildId, boolean recompute) {
+        long points;
+        try {
+            points = plugin.repo().loadPoints(guildId);
+        } catch (Exception e) {
+            return;
         }
-        g.points(next);
-        recomputeLevel(g);
-        saveGuild(g);
+        plugin.sync(() -> {
+            Guild cached = guild(guildId);
+            if (cached == null) {
+                return;
+            }
+            cached.points(points);
+            if (recompute) {
+                int before = cached.level();
+                recomputeLevel(cached);
+                if (cached.level() != before) {
+                    // 等级变了才需要持久化（saveGuild 不写 points）
+                    saveGuild(cached);
+                }
+            }
+        });
     }
 
     /**
@@ -1427,8 +1457,17 @@ public final class GuildManager {
         if (g == null) {
             return;
         }
-        g.points(Math.max(0, points));
-        saveGuild(g);
+        String id = g.id();
+        long value = Math.max(0, points);
+        plugin.async(() -> {
+            try {
+                plugin.repo().setPoints(id, value);
+            } catch (Exception e) {
+                plugin.getLogger().warning("设置工会点数失败: " + e.getMessage());
+                return;
+            }
+            pullPoints(id, false);
+        });
     }
 
     public void recomputeLevel(Guild g) {
