@@ -23,6 +23,7 @@ import java.util.List;
  *   %liuguild_bank% %liuguild_rank% %liuguild_leader% %liuguild_notice%
  *   %liuguild_icon% %liuguild_open% %liuguild_created% %liuguild_online%
  *   %liuguild_kills% %liuguild_deaths% %liuguild_contributed%
+ *   %liuguild_title% %liuguild_title_id%
  * </pre>
  *
  * <h3>指定工会</h3>
@@ -149,9 +150,13 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
                     ? "已签到" : "未签到");
             case "contributed" -> member == null ? "0" : plugin.economy().format(member.contributed());
             case "title" -> plugin.titles() == null ? "" : plugin.titles().display(player.getUniqueId());
-            case "title_id" -> plugin.titles() == null ? ""
-                    : String.valueOf(plugin.titles().equippedId(player.getUniqueId()) == null ? ""
-                            : plugin.titles().equippedId(player.getUniqueId()));
+            case "title_id" -> {
+                if (plugin.titles() == null) {
+                    yield "";
+                }
+                String id = plugin.titles().equippedId(player.getUniqueId());
+                yield id == null ? "" : id;
+            }
             default -> "";
         };
     }

@@ -83,6 +83,12 @@ public final class ShopService implements GuildModule {
         if (!"GUILD_SHOP".equals(type)) {
             return;
         }
+        // 回音：本服自己发的广播也会回来。本地内存已是最新，
+        // 重载可能与异步写入竞争，把刚上架的商品冲掉。
+        String from = data.get("server");
+        if (from != null && from.equals(plugin.serverId())) {
+            return;
+        }
         String guildId = data.get("guild");
         if (guildId != null) {
             reloadGuild(guildId);
@@ -415,6 +421,9 @@ public final class ShopService implements GuildModule {
                     plugin.messages().send(player, "shop-bought-tax",
                             "tax", plugin.economy().format(paid - net));
                 }
+                // 库存已变，通知其他子服刷新显示（否则它们会拿着陈旧库存
+                // 把买得起的东西误报为“缺货”）
+                broadcast(l.guildId());
                 if (onDone != null) onDone.run();
             });
         });
@@ -698,7 +707,8 @@ public final class ShopService implements GuildModule {
     }
 
     private void broadcast(String guildId) {
-        plugin.async(() -> plugin.bus().publish("GUILD_SHOP", Map.of("guild", guildId)));
+        plugin.async(() -> plugin.bus().publish("GUILD_SHOP",
+                Map.of("guild", guildId, "server", plugin.serverId())));
     }
 
     /** 供 GUI 展示：按工会分组统计。 */

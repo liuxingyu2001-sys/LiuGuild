@@ -253,7 +253,12 @@ public final class WarehouseService implements GuildModule, Listener {
             } catch (Exception e) {
                 plugin.getLogger().warning("保存工会仓库失败: " + e.getMessage());
             } finally {
-                plugin.sync(() -> lock.release(o.guildId, o.player));
+                // 关服过程中调度器可能已拒绝新任务，兜底直接释放，避免日志抛异常
+                try {
+                    plugin.sync(() -> lock.release(o.guildId, o.player));
+                } catch (Throwable t) {
+                    lock.release(o.guildId, o.player);
+                }
             }
         });
     }

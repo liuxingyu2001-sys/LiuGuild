@@ -76,6 +76,12 @@ public final class TitleService implements GuildModule {
         if (!"GUILD_TITLES".equals(type)) {
             return;
         }
+        // 回音：本服自己发的广播也会回来。此时本地内存已是最新，
+        // 若去重载反而可能读在异步写入之前，把刚创建的头衔冲掉。
+        String from = data.get("server");
+        if (from != null && from.equals(plugin.serverId())) {
+            return;
+        }
         String guildId = data.get("guild");
         if (guildId != null) {
             reloadGuild(guildId);
@@ -91,33 +97,26 @@ public final class TitleService implements GuildModule {
     // 加载
     // =====================================================================
 
-    /** 全量异步加载（启动 / reload）。 */
+    /** 全量异步加载（启动 / reload）。
+     *
+     * <p>直接从数据库全量读，<b>不依赖已加载的工会列表</b> —— 模块 enable 早于
+     * {@code GuildManager.reloadAll()}，按工会逐个查会在启动时读到空列表。</p>
+     */
     public void loadAllAsync() {
         if (plugin.settings() != null && !plugin.settings().guild.titlesEnabled) {
             return;
         }
-        List<String> ids = new ArrayList<>();
-        for (Guild g : plugin.guilds().all()) {
-            ids.add(g.id());
-        }
         plugin.async(() -> {
-            Map<String, Map<String, GuildTitle>> newTitles = new LinkedHashMap<>();
-            Map<UUID, String> newEquipped = new LinkedHashMap<>();
-            for (String guildId : ids) {
-                try {
-                    Map<String, GuildTitle> t = repo.loadTitles(guildId);
-                    if (!t.isEmpty()) {
-                        newTitles.put(guildId, t);
-                    }
-                    newEquipped.putAll(repo.loadEquipped(guildId));
-                } catch (Exception e) {
-                    plugin.getLogger().warning("加载工会头衔失败(" + guildId + "): " + e.getMessage());
-                }
+            try {
+                Map<String, Map<String, GuildTitle>> all = repo.loadAllTitles();
+                Map<UUID, String> eq = repo.loadAllEquipped();
+                titles.clear();
+                titles.putAll(all);
+                equipped.clear();
+                equipped.putAll(eq);
+            } catch (Exception e) {
+                plugin.getLogger().warning("加载工会头衔失败: " + e.getMessage());
             }
-            titles.clear();
-            titles.putAll(newTitles);
-            equipped.clear();
-            equipped.putAll(newEquipped);
         });
     }
 
@@ -399,6 +398,7 @@ public final class TitleService implements GuildModule {
     }
 
     private void broadcastCrossServer(String guildId) {
-        plugin.async(() -> plugin.bus().publish("GUILD_TITLES", Map.of("guild", guildId)));
+        plugin.async(() -> plugin.bus().publish("GUILD_TITLES",
+                Map.of("guild", guildId, "server", plugin.serverId())));
     }
 }
