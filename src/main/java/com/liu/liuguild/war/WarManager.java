@@ -1047,8 +1047,12 @@ public final class WarManager implements GuildModule {
         }
         war.rosterA().clear();
         war.rosterB().clear();
-        if (plugin.dungeon() != null && arena != null) {
+        ArenaDef activeDef = currentArena;
+        boolean keepWorld = activeDef != null && activeDef.tempWorld.keepOnEnd;
+        if (plugin.dungeon() != null && arena != null && !keepWorld) {
             plugin.dungeon().destroy(arena);
+        } else if (keepWorld && arena != null) {
+            plugin.getLogger().info("工会战 " + war.id() + " 已结束，按配置保留动态世界（" + arena.worldName() + "）。");
         }
         arena = null;
         fallbackWorld = null;
@@ -1211,21 +1215,6 @@ public final class WarManager implements GuildModule {
     }
 
     /** 把玩家传送回参赛前的位置（竞技场世界销毁前必须执行）。 */
-    private void returnHome(UUID uuid, Player player) {
-        if (player == null) {
-            return;
-        }
-        Location home = returnLoc.get(uuid);
-        if (home == null || home.getWorld() == null) {
-            return;
-        }
-        if (!player.getWorld().equals(home.getWorld())) {
-            player.teleport(home);
-        } else if (player.getLocation().distanceSquared(home) > 4.0) {
-            player.teleport(home);
-        }
-    }
-
     /** 战后处理：优先统一集合点，其次按配置自动返回原位。 */
     private void finishTeleport(UUID uuid, Player player) {
         if (player == null) {
