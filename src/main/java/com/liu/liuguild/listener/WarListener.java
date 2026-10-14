@@ -84,26 +84,24 @@ public final class WarListener implements GuildModule, Listener {
     // 准备阶段锁定（Bukkit 回退；装了 PacketEvents 时由包拦截更彻底）
     // =====================================================================
 
-    /** 无 PacketEvents 时阻止移动（有包拦截则跳过，避免双重处理）。 */
+    /** 阻止移动：无条件锁死坐标与朝向（PacketEvents 只做额外拦截，位置权威始终在这里）。 */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onMove(org.bukkit.event.player.PlayerMoveEvent event) {
-        if (usesPackets()) {
-            return;
+        if (event.isAsynchronous()) {
+            return; // 只处理主线程事件，避免跨线程改位置
         }
         if (!plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
             return;
         }
-        // 锁死位置与视角；允许 Y 轴下半格微调以兼容客户端自动修正，不产生抖动
         org.bukkit.Location from = event.getFrom();
         org.bukkit.Location to = event.getTo();
         if (to == null) {
             return;
         }
-        if (from.getX() != to.getX() || from.getY() != to.getY() || from.getZ() != to.getZ()) {
-            to.setX(from.getX());
-            to.setY(from.getY());
-            to.setZ(from.getZ());
-        }
+        // 锁死坐标与视角（含 Y 轴，确保不会因下落/卡地面而漂移）
+        to.setX(from.getX());
+        to.setY(from.getY());
+        to.setZ(from.getZ());
         to.setYaw(from.getYaw());
         to.setPitch(from.getPitch());
         event.setTo(to);
@@ -111,44 +109,42 @@ public final class WarListener implements GuildModule, Listener {
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onInteract(org.bukkit.event.player.PlayerInteractEvent event) {
-        if (!usesPackets() && plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+        if (plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onDrop(org.bukkit.event.player.PlayerDropItemEvent event) {
-        if (!usesPackets() && plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+        if (plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onBreak(org.bukkit.event.block.BlockBreakEvent event) {
-        if (!usesPackets() && plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+        if (plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPlace(org.bukkit.event.block.BlockPlaceEvent event) {
-        if (!usesPackets() && plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+        if (plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
         }
     }
 
+    /** 冻结期间禁止攻击（避免倒计时偷伤害）。 */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onDamage(EntityDamageByEntityEvent event) {
-        if (usesPackets() || !(event.getDamager() instanceof Player attacker)) {
-            return;
-        }
-        if (plugin.war().isFrozen(attacker.getUniqueId())) {
+        if (event.getDamager() instanceof Player attacker
+                && plugin.war().isFrozen(attacker.getUniqueId())) {
             event.setCancelled(true);
         }
-    }
-
-    /** 是否由 PacketEvents 包拦截接管（此时不再走 Bukkit 事件）。 */
-    private boolean usesPackets() {
-        return plugin.packetEvents() != null && plugin.packetEvents().available();
+        if (event.getEntity() instanceof Player victim
+                && plugin.war().isFrozen(victim.getUniqueId())) {
+            event.setCancelled(true);
+        }
     }
 }

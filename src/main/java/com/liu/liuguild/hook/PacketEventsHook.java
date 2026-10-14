@@ -7,25 +7,54 @@ import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.User;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
 
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
-import java.util.function.Predicate;
 
 /**
- * PacketEvents 软依赖：在**网络包层**拦截玩家动作。
+ * PacketEvents 软依赖：在**网络包层**拦截参赛者在准备阶段（开战倒计时）的动作。
  *
- * <p>相比 Bukkit 事件，包级拦截更彻底、更省开销（无需事件总线、不会产生副作用）：
+ * <p>相比 Bukkit 事件更彻底、开销更低（无需事件总线、无副作用）。
+ * <b>为绝对安全起见，这里只做「取消包」，绝不改写任何包头/字节</b>——
+ * 改写包字节极易破坏协议同步（曾导致 {@code accept_teleportation} 解析失败而踢人）。</p>
+ *
  * <ul>
- *   <li>移动 / 转视角包（{@code PLAYER_POSITION*} / {@code PLAYER_ROTATION} / {@code PLAYER_FLYING}）
- *       —— 把坐标与朝向改写成锁定值后放行，客户端不会抖动也无需拉回；</li>
- *   <li>挖掘 / 放置 / 交互 / 使用物品 / 攻击 / 丢物 / 快捷栏 —— 直接取消。</li>
+ *   <li>挖掘 / 放置 / 使用物品 / 攻击 / 交互 / 丢物 / 快捷栏 / 载具 / 输入 —— 直接取消；</li>
+ *   <li>移动包（{@code PLAYER_POSITION*} / {@code PLAYER_ROTATION} / {@code PLAYER_FLYING}）——
+ *       同样取消；客户端会因服务端不确认而自动回弹到上次服务端确认的位置，
+ *       再由 {@code WarManager} 的 Bukkit {@code PlayerMoveEvent} 兜底锁死坐标与朝向。</li>
  * </ul>
- * 未安装 PacketEvents 时 {@link #available()} 返回 false，调用方回退到 Bukkit 事件拦截。</p>
+ *
+ * <p>未安装 PacketEvents 时 {@link #available()} 返回 false，调用方完全依赖 Bukkit 事件拦截。</p>
  */
 public final class PacketEventsHook {
 
-    /** 该玩家此刻是否应被锁包（由 WarManager 提供判定）。 */
+    /** 准备阶段需要拦截的客户端包（只取消，不改写）。 */
+    private static final Set<PacketType.Play.Client> BLOCKED = EnumSet.of(
+            // 移动 / 视角：取消后客户端会回弹，坐标由 Bukkit 侧锁死
+            PacketType.Play.Client.PLAYER_POSITION,
+            PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION,
+            PacketType.Play.Client.PLAYER_ROTATION,
+            PacketType.Play.Client.PLAYER_FLYING,
+            // 交互类
+            PacketType.Play.Client.PLAYER_DIGGING,
+            PacketType.Play.Client.PLAYER_BLOCK_PLACEMENT,
+            PacketType.Play.Client.USE_ITEM,
+            PacketType.Play.Client.INTERACT_ENTITY,
+            PacketType.Play.Client.ANIMATION,
+            PacketType.Play.Client.ENTITY_ACTION,
+            PacketType.Play.Client.HELD_ITEM_CHANGE,
+            PacketType.Play.Client.CLICK_WINDOW,
+            PacketType.Play.Client.CREATIVE_INVENTORY_ACTION,
+            PacketType.Play.Client.PLAYER_INPUT,
+            PacketType.Play.Client.STEER_VEHICLE,
+            PacketType.Play.Client.VEHICLE_MOVE,
+            PacketType.Play.Client.PICK_ITEM,
+            PacketType.Play.Client.EDIT_BOOK,
+            PacketType.Play.Client.UPDATE_SIGN,
+            PacketType.Play.Client.SPECTATE);
+
     private final LiuGuild plugin;
     private boolean available;
     private PacketListenerAbstract listener;
@@ -48,7 +77,7 @@ public final class PacketEventsHook {
             };
             PacketEvents.getAPI().getEventManager().registerListener(listener);
             available = true;
-            plugin.getLogger().info("PacketEvents 包拦截已启用（工会战准备阶段锁定）。");
+            plugin.getLogger().info("PacketEvents 已启用（工会战准备阶段仅取消包，不改写字节）。");
         } catch (Throwable t) {
             available = false;
             plugin.getLogger().warning("PacketEvents 不可用，回退 Bukkit 事件拦截: " + t);
@@ -61,6 +90,9 @@ public final class PacketEventsHook {
 
     private void handle(PacketReceiveEvent event) {
         try {
+            if (!(event.getPacketType() instanceof PacketType.Play.Client type) || !BLOCKED.contains(type)) {
+                return;
+            }
             User user = event.getUser();
             if (user == null) {
                 return;
@@ -69,47 +101,11 @@ public final class PacketEventsHook {
             if (uuid == null || !plugin.war().isFrozen(uuid)) {
                 return;
             }
-            PacketType.Play.Client type = (PacketType.Play.Client) event.getPacketType();
-            switch (type) {
-                // 锁定位置与朝向：改写坐标后放行，避免客户端抖动与拉回闪烁
-                case PLAYER_POSITION, PLAYER_POSITION_AND_ROTATION, PLAYER_ROTATION, PLAYER_FLYING -> {
-                    if (rewriteMovement(event, uuid)) {
-                        return; // 已改写为锁定值
-                    }
-                    event.setCancelled(true);
-                }
-                // 交互类一律拦截：挖掘/放置/使用/攻击/丢物/切换手持/载具
-                case PLAYER_DIGGING, PLAYER_BLOCK_PLACEMENT, USE_ITEM, INTERACT_ENTITY,
-                     ANIMATION, ENTITY_ACTION, HELD_ITEM_CHANGE, CLICK_WINDOW, CREATIVE_INVENTORY_ACTION,
-                     PLAYER_INPUT, STEER_VEHICLE, VEHICLE_MOVE, PICK_ITEM, EDIT_BOOK, UPDATE_SIGN,
-                     SPECTATE, CLIENT_STATUS -> event.setCancelled(true);
-                default -> {
-                }
-            }
+            // 只取消，绝不触碰 buffer / 不调用 write()，避免破坏协议同步
+            event.setCancelled(true);
         } catch (Throwable ignored) {
             // 包处理异常绝不能影响服务器
         }
-    }
-
-    /**
-     * 把移动包的位置 / 朝向改写为锁定值，返回 true 表示已成功改写。
-     */
-    private boolean rewriteMovement(PacketReceiveEvent event, UUID uuid) {
-        org.bukkit.Location lock = plugin.war().freezeLocation(uuid);
-        org.bukkit.entity.Player player = plugin.player(uuid);
-        if (lock == null || player == null) {
-            return false;
-        }
-        WrapperPlayClientPlayerFlying wrapper = new WrapperPlayClientPlayerFlying(event);
-        com.github.retrooper.packetevents.protocol.world.Location fixed =
-                new com.github.retrooper.packetevents.protocol.world.Location(
-                        lock.getX(), lock.getY(), lock.getZ(), lock.getYaw(), lock.getPitch());
-        // 位置与朝向都对齐锁定值
-        wrapper.setLocation(fixed);
-        wrapper.setPositionChanged(false);
-        wrapper.setRotationChanged(false);
-        wrapper.write();
-        return true;
     }
 
     /** 注销监听器（插件卸载时调用）。 */
