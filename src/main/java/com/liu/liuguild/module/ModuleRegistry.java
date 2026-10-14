@@ -40,7 +40,8 @@ public final class ModuleRegistry {
         for (int i = modules.size() - 1; i >= 0; i--) {
             try {
                 modules.get(i).disable();
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                plugin.getLogger().warning("模块 " + modules.get(i).id() + " 关闭失败: " + t);
             }
         }
     }

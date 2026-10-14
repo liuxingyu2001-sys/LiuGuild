@@ -125,6 +125,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "arena setspawn <id> <a|b|spec>", "设置竞技场出生点");
         adminLine(sender, "arena setworld|setserver|settemplate", "设置世界/承办服/模板");
         adminLine(sender, "arena list|info <id>|create <id>", "竞技场管理");
+        adminLine(sender, "arena setendspawn|setradius|settempworld|setgamerule|setafter|tp|remove <id>", "竞技场进阶设置");
         adminLine(sender, "kit save <key>", "保存当前身上装备为套装");
         adminLine(sender, "kit list|info <key>|delete <key>", "装备套装管理");
         adminLine(sender, "mode list|info <模式>|start <模式>", "工会战模式 / 开启赛季");

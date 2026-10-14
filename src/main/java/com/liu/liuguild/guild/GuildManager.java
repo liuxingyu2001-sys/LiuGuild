@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,6 +43,9 @@ public final class GuildManager {
     private volatile Map<UUID, String> memberIndex = new ConcurrentHashMap<>();
     private final Map<String, String> nameIndex = new ConcurrentHashMap<>();
     private final Map<String, String> tagIndex = new ConcurrentHashMap<>();
+    /** 正在创建中的名称/缩写预留（归一化），避免并发创建同名。 */
+    private final Set<String> pendingNames = ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingTags = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Invite> invites = new ConcurrentHashMap<>();
     private final Map<UUID, Long> inviteCooldown = new ConcurrentHashMap<>();
 
@@ -249,16 +253,21 @@ public final class GuildManager {
             plugin.messages().send(player, "already-in-guild", "guild", cur == null ? "" : cur.name());
             return false;
         }
-        if (nameIndex.containsKey(cleanName.toLowerCase(Locale.ROOT))) {
+        String normName = cleanName.toLowerCase(Locale.ROOT);
+        String normTag = cleanTag.toLowerCase(Locale.ROOT);
+        if (nameIndex.containsKey(normName) || !pendingNames.add(normName)) {
             plugin.messages().send(player, "create-name-taken", "name", cleanName);
             return false;
         }
-        if (tagIndex.containsKey(cleanTag.toLowerCase(Locale.ROOT))) {
+        if (tagIndex.containsKey(normTag) || !pendingTags.add(normTag)) {
+            pendingNames.remove(normName);
             plugin.messages().send(player, "create-tag-taken", "tag", cleanTag);
             return false;
         }
         if (c.createCost > 0 && !player.hasPermission("liuguild.create.free")
                 && !plugin.economy().has(player, c.createCost)) {
+            pendingNames.remove(normName);
+            pendingTags.remove(normTag);
             plugin.messages().send(player, "create-cost-missing", "cost", plugin.economy().format(c.createCost));
             return false;
         }
@@ -274,6 +283,8 @@ public final class GuildManager {
         boolean charged = c.createCost <= 0 || player.hasPermission("liuguild.create.free")
                 || plugin.economy().withdraw(player, c.createCost);
         if (!charged) {
+            pendingNames.remove(normName);
+            pendingTags.remove(normTag);
             plugin.messages().send(player, "create-cost-missing", "cost", plugin.economy().format(c.createCost));
             return false;
         }
@@ -290,6 +301,8 @@ public final class GuildManager {
                 plugin.repo().insertGuildWithLeader(g, leader);
                 plugin.broadcastGuildChange(id);
                 plugin.sync(() -> {
+                    pendingNames.remove(normName);
+                    pendingTags.remove(normTag);
                     plugin.messages().send(player, "create-success", "guild", cleanName);
                     Bukkit.getPluginManager().callEvent(new GuildCreateEvent(g, player));
                 });
@@ -303,6 +316,8 @@ public final class GuildManager {
 
     private void rollbackCreate(Player player, Guild guild, String id, GuildSettings settings, String message) {
         plugin.sync(() -> {
+            pendingNames.remove(guild.name().toLowerCase(Locale.ROOT));
+            pendingTags.remove(guild.tag().toLowerCase(Locale.ROOT));
             guilds.remove(id, guild);
             memberIndex.remove(player.getUniqueId(), id);
             rebuildIndexes();
