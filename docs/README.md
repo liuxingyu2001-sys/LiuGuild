@@ -9,6 +9,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | 文档 | 说明 |
 |---|---|
 | [commands.md](commands.md) | 玩家 / 管理指令、权限、Tab 补全 |
+| [admin.md](admin.md) | 管理工具（完整指令 + 图形化编辑器） |
 | [configuration.md](configuration.md) | 全部配置文件说明（模块化拆分） |
 | [war.md](war.md) | 工会战：模式、匹配、赛季时间表、生命周期 |
 | [arena.md](arena.md) | 竞技场：承办服、世界、坐标、动态模板 |
