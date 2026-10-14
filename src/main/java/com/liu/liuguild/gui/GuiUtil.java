@@ -101,11 +101,14 @@ public final class GuiUtil {
         if (plugin != null && plugin.papi() != null && viewer != null) {
             out = plugin.papi().apply(viewer, out);
         }
-        return Text.fmtSelective(out, RICH_KEYS, flatten(ph));
+        // 物品名称/描述默认会被客户端渲染为斜体，这里显式关闭默认斜体
+        // （配置里写 <italic> 仍可局部开启）。
+        return Text.fmtSelective(out, RICH_KEYS, flatten(ph))
+                .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false);
     }
 
     /** 允许携带颜色格式的占位符；其余（玩家名/工会名等）按纯文本插入，避免注入。 */
-    private static final java.util.Set<String> RICH_KEYS = java.util.Set.of("notice", "description");
+    private static final java.util.Set<String> RICH_KEYS = java.util.Set.of("notice", "description", "icon_name");
 
     private static Object[] flatten(Map<String, String> ph) {
         Object[] arr = new Object[ph.size() * 2];

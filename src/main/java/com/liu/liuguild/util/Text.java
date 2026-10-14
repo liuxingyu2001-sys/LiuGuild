@@ -79,7 +79,7 @@ public final class Text {
                 String value = kv[i + 1] == null ? "" : String.valueOf(kv[i + 1]);
                 source = source.replace("{" + key + "}", "<" + key + ">");
                 resolvers.add(richKeys != null && richKeys.contains(key)
-                        ? Placeholder.parsed(key, legacyToMini(value))
+                        ? Placeholder.parsed(key, sanitizeToMini(value))
                         : Placeholder.unparsed(key, value));
             }
         }

@@ -169,7 +169,7 @@ gui:
     entry:
       slot: -1
       material: NETHERITE_SWORD
-      name: "<white>{mode} <dark_gray>[{mode_key}]"
+      name: "<white>{mode}"
       lore:
         - "<gray>状态：<yellow>{mode_state}"
         - "<gray>场地：<white>{mode_arena}"
@@ -194,7 +194,7 @@ gui:
         slot: 42
         material: PAPER
         name: "<white>历史战绩"
-        lore: ["<gray>最近 {history_count} 场"]
+        lore: ["<gray>累计 {history_count} 场"]
       back:
         slot: 44
         material: ARROW

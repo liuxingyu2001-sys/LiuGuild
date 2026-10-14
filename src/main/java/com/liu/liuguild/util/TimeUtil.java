@@ -100,6 +100,7 @@ public final class TimeUtil {
     private static final Map<String, Integer> DAYS = new LinkedHashMap<>();
 
     static {
+        // 英文缩写
         DAYS.put("mon", 1);
         DAYS.put("tue", 2);
         DAYS.put("wed", 3);
@@ -107,6 +108,89 @@ public final class TimeUtil {
         DAYS.put("fri", 5);
         DAYS.put("sat", 6);
         DAYS.put("sun", 7);
+        // 英文全称
+        DAYS.put("monday", 1);
+        DAYS.put("tuesday", 2);
+        DAYS.put("wednesday", 3);
+        DAYS.put("thursday", 4);
+        DAYS.put("friday", 5);
+        DAYS.put("saturday", 6);
+        DAYS.put("sunday", 7);
+        // 数字：1=周一 ... 7=周日
+        for (int i = 1; i <= 7; i++) {
+            DAYS.put(String.valueOf(i), i);
+        }
+        // 中文
+        String[] cn = {"", "周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+        String[] cnShort = {"", "一", "二", "三", "四", "五", "六", "日"};
+        String[] cnLong = {"", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"};
+        for (int i = 1; i <= 7; i++) {
+            DAYS.put(cn[i], i);
+            DAYS.put(cnLong[i], i);
+            DAYS.put(cnShort[i], i);
+            DAYS.put("周" + cnShort[i], i);
+        }
+    }
+
+    /** 解析单个星期 token（支持 mon / monday / 1-7 / 周一 / 星期一 / 一）。 */
+    private static Integer dayValue(String token) {
+        if (token == null) {
+            return null;
+        }
+        String t = token.trim().toLowerCase(Locale.ROOT);
+        if (t.isEmpty()) {
+            return null;
+        }
+        Integer d = DAYS.get(t);
+        if (d != null) {
+            return d;
+        }
+        // 数字开头的容错（如 "1日" 不处理，仅纯数字已在 map 中）
+        return DAYS.get(t.replace("星期", "周"));
+    }
+
+    /** 把时间表条目渲染为中文显示，如 {@code sat 20:00 -> 周六 20:00}、{@code 1-5 20:00 -> 周一至周五 20:00}。 */
+    public static String prettySchedule(String entry) {
+        if (entry == null || entry.isBlank()) {
+            return "";
+        }
+        String[] parts = entry.trim().split("\\s+");
+        String dayExpr = parts.length >= 2 ? parts[0] : "*";
+        String timeExpr = parts.length >= 2 ? parts[1] : parts[0];
+        return prettyDay(dayExpr) + " " + timeExpr;
+    }
+
+    private static final String[] CN_DAY = {"", "周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+
+    private static String prettyDay(String expr) {
+        String e = expr == null ? "" : expr.trim().toLowerCase(Locale.ROOT);
+        if (e.isEmpty() || e.equals("*") || e.equals("daily") || e.equals("每天")) {
+            return "每天";
+        }
+        StringBuilder sb = new StringBuilder();
+        String[] tokens = e.split(",");
+        for (int i = 0; i < tokens.length; i++) {
+            if (i > 0) {
+                sb.append("、");
+            }
+            String t = tokens[i].trim();
+            if (t.contains("-")) {
+                String[] r = t.split("-");
+                Integer a = dayValue(r[0].trim());
+                Integer b = dayValue(r.length > 1 ? r[1].trim() : r[0].trim());
+                if (a != null && b != null) {
+                    int lo = Math.min(a, b);
+                    int hi = Math.max(a, b);
+                    sb.append(CN_DAY[lo]).append("至").append(CN_DAY[hi]);
+                } else {
+                    sb.append(t);
+                }
+            } else {
+                Integer d = dayValue(t);
+                sb.append(d != null ? CN_DAY[d] : t);
+            }
+        }
+        return sb.toString();
     }
 
     /** 判断当前时间是否命中时间表条目（{@code "20:00"} / {@code "sat 20:00"} / {@code "mon-fri 20:00"}）。 */
@@ -145,8 +229,8 @@ public final class TimeUtil {
             }
             if (t.contains("-")) {
                 String[] range = t.split("-");
-                Integer a = DAYS.get(range[0].trim());
-                Integer b = DAYS.get(range.length > 1 ? range[1].trim() : range[0].trim());
+                Integer a = dayValue(range[0].trim());
+                Integer b = dayValue(range.length > 1 ? range[1].trim() : range[0].trim());
                 if (a == null || b == null) {
                     continue;
                 }
@@ -156,7 +240,7 @@ public final class TimeUtil {
                     return true;
                 }
             } else {
-                Integer d = DAYS.get(t);
+                Integer d = dayValue(t);
                 if (d != null && d == dayOfWeek) {
                     return true;
                 }

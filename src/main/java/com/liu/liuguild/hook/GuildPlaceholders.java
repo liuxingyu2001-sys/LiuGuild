@@ -217,7 +217,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         GuildWar war = plugin.war().warOf(guild.id());
         boolean home = war != null && war.guildA().equals(guild.id());
         return switch (p) {
-            case "state" -> war == null ? "" : war.state().name();
+            case "state" -> war == null ? "" : war.state().display();
             case "enemy" -> war == null ? "" : (home ? war.nameB() : war.nameA());
             case "score" -> war == null ? "0" : String.valueOf(home ? war.scoreA() : war.scoreB());
             case "enemy_score" -> war == null ? "0" : String.valueOf(home ? war.scoreB() : war.scoreA());

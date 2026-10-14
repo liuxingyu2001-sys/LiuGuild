@@ -221,13 +221,15 @@ public final class GuiManager implements GuildModule, Listener {
         Map<String, String> ph = placeholders(g);
         GuildWar war = plugin.war() == null ? null : plugin.war().warOf(g.id());
         String queuedMode = plugin.war() == null ? null : plugin.war().queuedMode(g.id());
-        ph.put("state", war == null ? (queuedMode == null ? "空闲" : "排队中") : war.state().name());
+        ph.put("state", war == null ? (queuedMode == null ? "空闲" : "排队中") : war.state().display());
         ph.put("enemy", war == null ? "-" : (war.guildA().equals(g.id()) ? war.nameB() : war.nameA()));
-        ph.put("score", war == null ? "0" : String.valueOf(war.guildA().equals(g.id()) ? war.scoreA() : war.scoreB()));
-        ph.put("enemy_score", war == null ? "0" : String.valueOf(war.guildA().equals(g.id()) ? war.scoreA() : war.scoreB()));
+        boolean home = war != null && war.guildA().equals(g.id());
+        ph.put("score", war == null ? "0" : String.valueOf(home ? war.scoreA() : war.scoreB()));
+        ph.put("enemy_score", war == null ? "0" : String.valueOf(home ? war.scoreB() : war.scoreA()));
         ph.put("lives", String.valueOf(plugin.war() == null ? 0 : plugin.war().lives(player.getUniqueId())));
         ph.put("arena", plugin.war() == null ? "-" : plugin.war().currentArena().id);
         ph.put("host", war == null ? "-" : war.hostServer());
+        ph.put("history_count", String.valueOf(g.wins() + g.losses()));
         Holder holder = new Holder("war", g.id(), 0);
         Inventory inv = create(holder, def, ph, player);
         // 动态列出各工会战模式（点击参与匹配）
@@ -246,7 +248,8 @@ public final class GuiManager implements GuildModule, Listener {
             mph.put("mode_fair", m.fairEquipment ? "公平装备" : "自由装备");
             mph.put("mode_health", m.fairHealth ? "公平血量" : "原生血量");
             mph.put("mode_arena", m.arena);
-            mph.put("mode_schedule", m.schedule.isEmpty() ? "随时" : String.join(", ", m.schedule));
+            mph.put("mode_schedule", m.schedule.isEmpty() ? "随时" : String.join(", ",
+                    m.schedule.stream().map(com.liu.liuguild.util.TimeUtil::prettySchedule).toList()));
             mph.put("mode_duration", String.valueOf(m.durationSeconds));
             ButtonDef tpl = def.entry;
             if (tpl == null) {
@@ -517,7 +520,7 @@ public final class GuiManager implements GuildModule, Listener {
                         boolean home = w.guildA().equals(g.id());
                         plugin.messages().sendRaw(player, "war-score", "guild_a", w.nameA(), "guild_b", w.nameB(),
                                 "score_a", w.scoreA(), "score_b", w.scoreB());
-                        player.sendMessage(Text.mm("<gray>状态: " + w.state() + " 对手: "
+                        player.sendMessage(Text.mm("<gray>状态: " + w.state().display() + " 对手: "
                                 + (home ? w.nameB() : w.nameA())));
                     }
                 }
@@ -754,8 +757,8 @@ public final class GuiManager implements GuildModule, Listener {
         for (GuildWar w : wars) {
             inv.setItem(slot, GuiUtil.build(player, "NETHERITE_SWORD", "NETHERITE_SWORD",
                     "<white>" + w.nameA() + " <yellow>" + w.scoreA() + " : " + w.scoreB() + " <white>" + w.nameB(),
-                    List.of("<gray>模式：<white>" + w.mode(),
-                            "<gray>状态：<white>" + w.state(),
+                    List.of("<gray>模式：<white>" + plugin.settings().mode(w.mode()).display,
+                            "<gray>状态：<white>" + w.state().display(),
                             "<gray>承办：<white>" + w.hostServer(),
                             "<gray>竞技场：<white>" + w.arenaWorld(),
                             "", "<yellow>点击管理"), Map.of(), null));
@@ -778,7 +781,7 @@ public final class GuiManager implements GuildModule, Listener {
             return;
         }
         Holder holder = new Holder("war_edit", "", 0);
-        Inventory inv = simpleInventory(player, holder, 3, "<gold>工会战 <white>" + warId.substring(0, Math.min(8, warId.length())), Map.of());
+        Inventory inv = simpleInventory(player, holder, 3, "<gold>工会战 <white>" + w.nameA() + " <gray>vs <white>" + w.nameB(), Map.of());
         inv.setItem(10, GuiUtil.build(player, "COMPASS", "COMPASS", "<white>传送到竞技场", List.of(), Map.of(), null));
         holder.actions.put(10, "war_tp:" + warId);
         inv.setItem(12, GuiUtil.build(player, "PAPER", "PAPER", "<white>改 A 方比分：<yellow>" + w.scoreA(),
@@ -979,7 +982,7 @@ public final class GuiManager implements GuildModule, Listener {
                             "<yellow>点击编辑"), Map.of(), null));
             holder.actions.put(i, "arena_edit:" + id);
         }
-        addPageControls(player, holder, inv, "arenas", page, (ids.size() - 1) / perPage, "admin:guilds");
+        addPageControls(player, holder, inv, "arenas", page, (ids.size() - 1) / perPage, "工会列表", "admin:guilds");
         player.openInventory(inv);
     }
 
@@ -1053,7 +1056,7 @@ public final class GuiManager implements GuildModule, Listener {
                             "", "<yellow>点击管理"), Map.of(), null));
             holder.actions.put(i, "guild_edit:" + g.id());
         }
-        addPageControls(player, holder, inv, "guilds", page, (guilds.size() - 1) / perPage, "admin:arenas");
+        addPageControls(player, holder, inv, "guilds", page, (guilds.size() - 1) / perPage, "竞技场列表", "admin:arenas");
         player.openInventory(inv);
     }
 
@@ -1095,7 +1098,7 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private void addPageControls(Player player, Holder holder, Inventory inv, String menuKey,
-                                 int page, int maxPage, String otherButton) {
+                                 int page, int maxPage, String switchLabel, String switchAction) {
         if (page > 0) {
             inv.setItem(45, GuiUtil.build(player, "ARROW", "ARROW", "<white>上一页", List.of(), Map.of(), null));
             holder.actions.put(45, "page_" + menuKey + ":" + (page - 1));
@@ -1104,9 +1107,9 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>下一页", List.of(), Map.of(), null));
             holder.actions.put(53, "page_" + menuKey + ":" + (page + 1));
         }
-        inv.setItem(49, GuiUtil.build(player, "CHEST", "CHEST", "<white>切换：" + otherButton.replace("admin:", ""),
+        inv.setItem(49, GuiUtil.build(player, "CHEST", "CHEST", "<white>切换：" + switchLabel,
                 List.of("<gray>点击切换"), Map.of(), null));
-        holder.actions.put(49, otherButton);
+        holder.actions.put(49, switchAction);
     }
 
     private static String fmtSpawn(ArenaDef.Spawn s) {
