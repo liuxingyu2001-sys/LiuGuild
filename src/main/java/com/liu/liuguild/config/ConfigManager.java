@@ -89,8 +89,7 @@ public final class ConfigManager {
         copyDefaults();
         Map<String, FileConfiguration> loaded = new LinkedHashMap<>();
         for (String name : MODULES) {
-            File f = new File(configRoot, name);
-            loaded.put(name, YamlConfiguration.loadConfiguration(f));
+            loaded.put(name, loadModule(name));
         }
         // 应用游戏内编辑覆盖层：基础文件（带注释、可手改）不被破坏，
         // 且共享目录下多服编辑不会互相整文件覆盖。
@@ -266,6 +265,52 @@ public final class ConfigManager {
         }
         if (yml.isSet("auto-reload-config")) {
             main.autoReload = yml.getBoolean("auto-reload-config", main.autoReload);
+        }
+    }
+
+    /**
+     * 读取单个模块配置。若用户文件损坏（YAML 语法错误），
+     * 备份为 {@code <name>.broken} 并用内置默认重建，保证启动不中断。
+     */
+    private FileConfiguration loadModule(String name) {
+        File f = new File(configRoot, name);
+        if (!f.isFile()) {
+            YamlConfiguration fallback = new YamlConfiguration();
+            readResourceInto(fallback, name);
+            return fallback;
+        }
+        YamlConfiguration cfg = new YamlConfiguration();
+        try {
+            cfg.load(f);
+            return cfg;
+        } catch (Exception e) {
+            plugin.getLogger().warning("配置 " + name + " 解析失败，将用内置默认重建: " + e.getMessage());
+        }
+        File broken = new File(configRoot, name + ".broken");
+        try {
+            Files.move(f.toPath(), broken.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            plugin.getLogger().warning("备份损坏配置 " + name + " 失败: " + e.getMessage());
+        }
+        YamlConfiguration fresh = new YamlConfiguration();
+        readResourceInto(fresh, name);
+        try {
+            atomicSave(fresh, f);
+            plugin.getLogger().warning("已用内置默认重建 " + name + "（原文件备份为 " + broken.getName() + "）。");
+        } catch (IOException e) {
+            plugin.getLogger().severe("重建默认配置 " + name + " 失败: " + e.getMessage());
+        }
+        return fresh;
+    }
+
+    private void readResourceInto(YamlConfiguration cfg, String name) {
+        try (InputStream in = plugin.getResource(name)) {
+            if (in == null) {
+                return;
+            }
+            cfg.loadFromString(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            plugin.getLogger().warning("读取内置默认 " + name + " 失败: " + e.getMessage());
         }
     }
 

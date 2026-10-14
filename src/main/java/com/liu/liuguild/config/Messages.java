@@ -58,7 +58,12 @@ public final class Messages {
             plugin.getLogger().warning("读取内置 messages.yml 失败: " + e.getMessage());
         }
         if (file.exists()) {
-            collect(YamlConfiguration.loadConfiguration(file), map);
+            try {
+                collect(YamlConfiguration.loadConfiguration(file), map);
+            } catch (RuntimeException e) {
+                // 用户 messages.yml 损坏时不要中断启动，保留内置默认。
+                plugin.getLogger().warning("messages.yml 解析失败，已回退内置默认: " + e.getMessage());
+            }
         }
         this.table = map;
     }

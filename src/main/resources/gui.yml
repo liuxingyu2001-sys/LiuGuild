@@ -173,7 +173,7 @@ gui:
       lore:
         - "<gray>状态：<yellow>{mode_state}"
         - "<gray>场地：<white>{mode_arena}"
-        - "<gray>人数：<white>{mode_team}" 最低 <white>{mode_min}"
+        - "<gray>人数：<white>{mode_team} <gray>最低 <white>{mode_min}"
         - "<gray>公平：<white>{mode_fair} / {mode_health}"
         - "<gray>时长：<white>{mode_duration} 秒"
         - "<gray>时间表：<white>{mode_schedule}"
