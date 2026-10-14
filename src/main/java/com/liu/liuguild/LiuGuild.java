@@ -77,6 +77,7 @@ public final class LiuGuild extends JavaPlugin {
     private PapiHook papi;
     private PlayerTitleHook playerTitle;
     private LuckyPeachesHook luckyPeaches;
+    private com.liu.liuguild.hook.ResidenceHook residence;
     private NotBountiesHook notBounties;
     private com.liu.liuguild.hook.McMmoHook mcmmo;
     private com.liu.liuguild.hook.GuildHomeHook guildHome;
@@ -128,6 +129,8 @@ public final class LiuGuild extends JavaPlugin {
         papi = safe(PapiHook::new);
         playerTitle = safe(PlayerTitleHook::new);
         luckyPeaches = safe(LuckyPeachesHook::new);
+        residence = safe(() -> new com.liu.liuguild.hook.ResidenceHook(this));
+        if (residence != null) residence.init();
         notBounties = safe(() -> new NotBountiesHook(this));
         mcmmo = safe(() -> new com.liu.liuguild.hook.McMmoHook(this));
         guildHome = safe(() -> new com.liu.liuguild.hook.GuildHomeHook(this));
@@ -395,6 +398,10 @@ public final class LiuGuild extends JavaPlugin {
         return luckyPeaches;
     }
 
+    public com.liu.liuguild.hook.ResidenceHook residence() {
+        return residence;
+    }
+
     public com.liu.liuguild.hook.PacketEventsHook packetEvents() {
         return packetEvents;
     }
@@ -586,6 +593,7 @@ public final class LiuGuild extends JavaPlugin {
                 + hook("HuskHomes", guildHome != null && guildHome.available())
                 + hook("mcMMO", mcmmo != null && mcmmo.available())
                 + hook("SparrowUI", sparrowUi != null && sparrowUi.enabled())
+                + hook("Residence", residence != null && residence.available())
                 + hook("PacketEvents", packetEvents != null && packetEvents.available()));
         // 模块
         out.add("&7模块: &f" + modules.ids());

@@ -74,8 +74,10 @@ public final class GuildSettings {
     public int renameCooldownSeconds = 3600;
     /** 改名字费用（Vault 金币）；0 = 免费。 */
     public double renameCost = 0;
-    /** 是否允许同时修改标签（/guild rename <新名> <新标签>）。 */
+    /** 是否允许工会改名字（/guild rename <新名> <新标签>）。 */
     public boolean renameAllowTag = true;
+    /** 是否启用 Residence 领地共享（需安装 Residence）。 */
+    public boolean residenceEnabled = true;
 
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
@@ -124,6 +126,7 @@ public final class GuildSettings {
         s.renameCooldownSeconds = Math.max(0, c.getInt("guild.rename.cooldown-seconds", s.renameCooldownSeconds));
         s.renameCost = Math.max(0, c.getDouble("guild.rename.cost", s.renameCost));
         s.renameAllowTag = c.getBoolean("guild.rename.allow-tag", s.renameAllowTag);
+        s.residenceEnabled = c.getBoolean("guild.residence.enabled", s.residenceEnabled);
         return s;
     }
 

@@ -32,7 +32,8 @@ class CommandSurfaceTest {
      * </ul>
      */
     private static final List<String> ALIASES_OR_SUBOPTIONS = List.of(
-            "help", "menu", "icon", "hq", "c", "sign", "qiandao", "wins", "losses", "level", "members");
+            "help", "menu", "icon", "hq", "c", "sign", "qiandao",
+            "res", "lingdi", "wins", "losses", "level", "members");
 
     private static String source() throws Exception {
         return Files.readString(CMD);

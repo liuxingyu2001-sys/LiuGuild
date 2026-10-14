@@ -81,6 +81,10 @@ guild:
     cost: 1000.0
     # 是否允许同时修改标签（tag，如 [SKY]）
     allow-tag: true
+  # Residence 领地共享（需安装 Residence 插件）
+  residence:
+    # 是否启用：允许会长把自有领地在工会内共享
+    enabled: true
   # 僵尸工会清理（不活跃工会）
   cleanup:
     # 自动定期清理开关（默认关闭，建议先用 dry-run 确认）

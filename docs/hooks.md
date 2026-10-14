@@ -15,6 +15,15 @@
 - 开关：各模式的 `freeze-on-prepare`（默认 `true`）；`prepare-seconds` 为锁定持续时长。
 - 软依赖：`plugin.yml` 的 `softdepend: packetevents`，未安装不影响启动。
 
+## Residence（领地共享）
+
+把成员的 Residence 领地在工会内共享（详细说明见 [residence.md](residence.md)）：
+
+- `/guild residence list|share|unshare`，仅领地主人可共享自己的领地。
+- 新成员入会自动获得共享权限；退会 / 被踢自动收回（按 UUID，会长离线也生效）。
+- 全反射调用，兼容 5 / 6 / 7 参数版本的 `setPlayerFlag`；找不到可用重载时控制台告警。
+- 开关：`guild.residence.enabled`（默认 `true`）。
+
 ## liudungeon（动态竞技场世界）
 
 - 用于按 `arena.yml` 的 `template` 动态创建独立竞技场世界。
