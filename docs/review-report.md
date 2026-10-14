@@ -124,3 +124,41 @@ cd /home/liu/plugins/LiuGuild
 mvn -o clean package -Dlicense.enabled=false   # 35 tests
 ls target/Liu-LiuGuild-0.1.0.jar
 ```
+
+---
+
+## 十、第二轮深审（管理完善 + 缺陷修复）
+
+在管理指令与图形化编辑器扩展之后，又做了一轮全量复查，重点修复“配置可写但不生效 / 跨服误判 / 权限空转”类问题。
+
+### 修复的缺陷
+| 严重度 | 问题 | 修复 |
+|---|---|---|
+| 高 | 僵尸工会清理只看**本服**在线成员，跨服有人在线也会被删 | 新增 `countNetworkOnline`，本服+其它子服去重统计；扫描转异步，删除回主线程 |
+| 高 | 竞技场 `keep-on-end` 可配置但**从不生效**，动态世界总被销毁 | `cleanup()` 按该开关决定销毁/保留 |
+| 中 | 解散工会时若正在进行工会战，战局仍引用已删工会 | `onGuildDisbanded` 取消该场战斗并出队 |
+| 中 | 并发创建同名工会存在竞态 | 新增 `pendingNames/pendingTags` 预留集合，关闭进程内竞态 |
+| 中 | `temporary-world.environment` / `name-format` 为**死配置**（liudungeon 自命名） | 新增内置临时世界（`builtin` + `WorldCreator`），environment/name-format/world-type 全部生效，结束后卸载并异步删目录 |
+| 中 | 进入队列的成员数校验只看本服 | 改为异步跨服在线人数校验 |
+| 低 | 无经济插件时创建回滚会误报“退款失败” | 仅在经济可用时才尝试退款 |
+| 低 | `deleteGuild` 三条 DELETE 非事务，可能留下孤儿数据 | 改为显式事务 + 回滚 |
+| 低 | 套装名未过滤 `.`/空格，会破坏配置路径 | `sanitizeKey` 归一化 |
+| 低 | 内置世界返回值延迟会把玩家送到已删除世界 | 内置/动态世界一律不延迟返回 |
+| 低 | 模块关闭异常被静默吞掉 | 记 warning 日志 |
+| 清理 | 死代码 `returnHome`、无效 GUI 按钮 `admin_kit` | 删除 |
+
+### 新增管理能力
+- 指令：`/guildadmin verify [fix]` —— 校验并修复 `member_count`、会长成员关系、双向成员索引。
+- 指令：`/guildadmin` 子权限全部落地（`liuguild.admin.*`，含新增 `verify`），不再“声明即空转”。
+- GUI：管理面板新增「数据校验」「僵尸工会清理」入口；竞技场编辑器新增「内置临时世界」「世界类型」开关。
+- 工会战：实时比分 **BossBar**（比分 + 剩余时间，`war.bossbar` 可关）。
+- 状态：`/guildadmin status` 汇总全部钩子（含 HuskHomes / mcMMO / SparrowUI）。
+- 聊天：工会频道消息格式改为可配置 `channels.guild-format`。
+
+### 验证
+- 每步 `mvn -o clean package -Dlicense.enabled=false` → **BUILD SUCCESS**，**35** 用例全绿。
+- 产物 `target/Liu-LiuGuild-0.1.0.jar`：578 个已重定位的 Sparrow 类，0 处 `net/momirealms` 泄漏。
+
+### 遗留风险更新
+- 名称/标签唯一性：已增加**进程内**预留，跨服并发仍有极小概率；DB 唯一索引仍建议后续补。
+- `temporary-world` 内置世界为全新地形，管理员需重新用 `setspawn` 设定 A/B/旁观出生点。
