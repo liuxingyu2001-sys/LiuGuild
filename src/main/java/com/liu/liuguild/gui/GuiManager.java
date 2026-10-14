@@ -95,8 +95,8 @@ public final class GuiManager implements GuildModule, Listener {
     public void openMain(Player player) {
         Guild g = plugin.guilds().guildOf(player.getUniqueId());
         if (g == null) {
-            plugin.messages().send(player, "not-in-guild");
-            openList(player, 0);
+            // 未入会：进入傻瓜式引导菜单，而不是直接丢一个空列表。
+            openNoGuild(player);
             return;
         }
         // 优先使用可选的 Sparrow UI 引擎；失败则回退内置 GUI。
@@ -164,6 +164,24 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(slot, "member:" + m.uuid());
         }
         addBack(inv, holder, def, ph, player, "back:main", page, "members", members.size(), perPage);
+        player.openInventory(inv);
+    }
+
+    public void openNoGuild(Player player) {
+        MenuDef def = menu("noguild");
+        if (def == null || def.buttons.isEmpty()) {
+            // 缺配置时退而求其次：至少展示工会列表（内含创建入口）。
+            openList(player, 0);
+            return;
+        }
+        Map<String, String> ph = placeholders(null);
+        Holder holder = new Holder("noguild", "", 0);
+        Inventory inv = create(holder, def, ph, player);
+        for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
+            ButtonDef b = e.getValue();
+            inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
+            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
+        }
         player.openInventory(inv);
     }
 
@@ -1365,6 +1383,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin_kit" -> "admin:kit";
             case "admin_reload" -> "admin:reload";
             case "close" -> "close";
+            case "help" -> "noop";
             case "create" -> "list:create";
             default -> buttonId;
         };

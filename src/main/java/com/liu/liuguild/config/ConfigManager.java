@@ -272,6 +272,12 @@ public final class ConfigManager {
      * 读取单个模块配置。若用户文件损坏（YAML 语法错误），
      * 备份为 {@code <name>.broken} 并用内置默认重建，保证启动不中断。
      */
+    /**
+     * 允许“新增默认键自动补齐”的模块（升级时新菜单/新按钮自动出现）。
+     * 用户文件已有的值一律优先；仅补齐缺失的叶子键。
+     */
+    private static final java.util.Set<String> MERGE_DEFAULT_MODULES = java.util.Set.of("gui.yml");
+
     private FileConfiguration loadModule(String name) {
         File f = new File(configRoot, name);
         if (!f.isFile()) {
@@ -280,11 +286,21 @@ public final class ConfigManager {
             return fallback;
         }
         YamlConfiguration cfg = new YamlConfiguration();
+        boolean parsed = true;
         try {
             cfg.load(f);
-            return cfg;
         } catch (Exception e) {
+            parsed = false;
             plugin.getLogger().warning("配置 " + name + " 解析失败，将用内置默认重建: " + e.getMessage());
+        }
+        if (parsed) {
+            // 升级兼容：新版本新增的 GUI 菜单/按钮自动补齐（不覆盖已有值）。
+            if (MERGE_DEFAULT_MODULES.contains(name)) {
+                YamlConfiguration defaults = new YamlConfiguration();
+                readResourceInto(defaults, name);
+                fillMissing(cfg, defaults);
+            }
+            return cfg;
         }
         File broken = new File(configRoot, name + ".broken");
         try {
@@ -301,6 +317,18 @@ public final class ConfigManager {
             plugin.getLogger().severe("重建默认配置 " + name + " 失败: " + e.getMessage());
         }
         return fresh;
+    }
+
+    /** 把 defaults 中缺失的叶子键补进 target（target 已有值不受影响）。 */
+    static void fillMissing(FileConfiguration target, ConfigurationSection defaults) {
+        for (String key : defaults.getKeys(true)) {
+            if (defaults.isConfigurationSection(key)) {
+                continue;
+            }
+            if (!target.isSet(key)) {
+                target.set(key, defaults.get(key));
+            }
+        }
     }
 
     private void readResourceInto(YamlConfiguration cfg, String name) {

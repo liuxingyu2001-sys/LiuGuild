@@ -116,11 +116,37 @@ gui:
       material: ARROW
       name: "<white>返回"
       # 仅当玩家未入会时显示
-    create:
-      slot: 47
-      material: NETHER_STAR
-      name: "<green>创建工会"
-      lore: ["<gray>点击后在聊天栏输入工会名称"]
+    buttons:
+      create:
+        slot: 47
+        material: NETHER_STAR
+        name: "<green>创建工会"
+        lore: ["<gray>点击后在聊天栏输入工会名称"]
+
+  # ---------------- 无工会引导菜单（新玩家首次打开 /guild gui） ----------------
+  noguild:
+    title: "<white>还没有工会 <dark_gray>· 选择一个开始"
+    rows: 3
+    buttons:
+      create:
+        slot: 11
+        material: NETHER_STAR
+        name: "<green>创建工会"
+        lore: ["<gray>建立一个属于你的工会", "<gray>点击后在聊天栏输入名称"]
+      list:
+        slot: 13
+        material: WRITABLE_BOOK
+        name: "<white>浏览工会列表"
+        lore: ["<gray>查看全服工会", "<gray>开放加入的可直接申请"]
+      help:
+        slot: 15
+        material: PAPER
+        name: "<white>如何加入工会"
+        lore: ["<gray>· 在列表中点开放加入的工会申请", "<gray>· 或等待会长 / 官员邀请"]
+      close:
+        slot: 22
+        material: BARRIER
+        name: "<red>关闭"
 
   # ---------------- 工会设置菜单 ----------------
   settings:

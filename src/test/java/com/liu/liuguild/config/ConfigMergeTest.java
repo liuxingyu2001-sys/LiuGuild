@@ -49,6 +49,26 @@ class ConfigMergeTest {
     }
 
     @Test
+    void fillMissingAddsNewDefaultsWithoutOverwritingUserValues() {
+        YamlConfiguration user = new YamlConfiguration();
+        user.set("gui.main.buttons.war.slot", 22);
+        user.set("gui.main.title", "自定义标题");
+
+        YamlConfiguration defaults = new YamlConfiguration();
+        defaults.set("gui.main.title", "默认标题");
+        defaults.set("gui.main.buttons.war.slot", 99);
+        defaults.set("gui.main.buttons.checkin.slot", 28);
+        defaults.set("gui.noguild.title", "无工会");
+
+        ConfigManager.fillMissing(user, defaults);
+
+        assertEquals("自定义标题", user.getString("gui.main.title"));   // 已有值保留
+        assertEquals(22, user.getInt("gui.main.buttons.war.slot"));       // 已有值保留
+        assertEquals(28, user.getInt("gui.main.buttons.checkin.slot"));   // 新键补齐
+        assertEquals("无工会", user.getString("gui.noguild.title"));      // 新菜单补齐
+    }
+
+    @Test
     void overridesCanAddNewKeys() {
         YamlConfiguration base = new YamlConfiguration();
         base.set("war.enabled", true);
