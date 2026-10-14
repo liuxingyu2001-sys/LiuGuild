@@ -223,7 +223,8 @@ public final class LiuGuild extends JavaPlugin {
             configWatchTask = getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
                 long fp = configManager.fingerprint();
                 if (fp != configFingerprint) {
-                    sync(this::reloadAll);
+                    // 共享目录下任一子服改动都会触发所有子服重载：只重载配置，不重读全部工会数据。
+                    sync(this::reloadConfig);
                 }
             }, 100L, 100L);
         }

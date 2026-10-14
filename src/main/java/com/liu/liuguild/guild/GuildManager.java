@@ -463,6 +463,12 @@ public final class GuildManager {
         }
         // 扫描涉及跨服探活（阻塞 Redis），放异步；删除回主线程。
         plugin.async(() -> {
+            // 共享配置下多台子服会同时触发，用 Redis 抢锁保证每个周期只清理一次。
+            long intervalSec = Math.max(60, c.cleanupIntervalMinutes * 60L);
+            if (plugin.bus() != null && plugin.bus().isReady()
+                    && !plugin.bus().acquireOnce("cleanup", intervalSec)) {
+                return;
+            }
             List<Guild> targets = findInactiveGuilds();
             if (targets.isEmpty()) {
                 return;

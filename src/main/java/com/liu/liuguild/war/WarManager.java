@@ -417,14 +417,51 @@ public final class WarManager implements GuildModule {
                 if (last != null && last == minute) {
                     continue;
                 }
-                lastSeasonTrigger.put(key, minute);
-                startSeason(mode);
+                triggerSeasonOnce(mode, minute, key);
             }
         }
     }
 
-    /** 开启一场赛季（公告 + 可选自动入队）。 */
+    /**
+     * 共享配置下的关键点：多台子服会同时到达开赛时间，
+     * 必须用 Redis 原子抢锁保证全局只有一台子服发布开赛指令。
+     * 抢锁失败/瞬时异常时不记录 lastSeasonTrigger，下一秒钟会自动重试。
+     */
+    private void triggerSeasonOnce(WarMode mode, long minute, String dedupeKey) {
+        if (plugin.bus() == null || !plugin.bus().isReady()) {
+            lastSeasonTrigger.put(dedupeKey, minute);
+            startSeason(mode);
+            return;
+        }
+        plugin.async(() -> {
+            if (!plugin.bus().acquireOnce("season:" + mode.key + ":" + minute, 180)) {
+                return;
+            }
+            plugin.sync(() -> {
+                lastSeasonTrigger.put(dedupeKey, minute);
+                startSeason(mode);
+            });
+        });
+    }
+
+    /**
+     * 开启一场赛季：跨服广播给所有子服，每台子服各自公告并自动入队本地在线工会。
+     * <p>必须只由一个子服触发（定时任务通过 Redis 抢锁，或管理员手动命令），
+     * 否则共享配置下多台子服会重复开赛。</p>
+     */
     public void startSeason(WarMode mode) {
+        if (mode == null) {
+            return;
+        }
+        if (plugin.bus() != null && plugin.bus().isReady()) {
+            plugin.bus().publish("SEASON_OPEN", CrossServerBus.map("mode", mode.key));
+        } else {
+            applySeasonOpen(mode);
+        }
+    }
+
+    /** 收到跨服开赛指令后在本服生效：公告 + 可选自动入队。 */
+    private void applySeasonOpen(WarMode mode) {
         if (mode == null) {
             return;
         }
@@ -614,6 +651,10 @@ public final class WarManager implements GuildModule {
         switch (type) {
             case "WAR_MATCHED" -> handleWarMatched(data);
             case "WAR_STATE" -> handleWarState(data);
+            case "SEASON_OPEN" -> {
+                WarMode mode = plugin.settings().mode(data.get("mode"));
+                plugin.sync(() -> applySeasonOpen(mode));
+            }
             case "WAR_QUEUE_TIMEOUT" -> {
                 String guildId = data.get("guild");
                 if (guildId != null) {

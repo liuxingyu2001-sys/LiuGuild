@@ -1,5 +1,6 @@
 package com.liu.liuguild.config;
 
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.Plugin;
@@ -26,13 +27,19 @@ public final class ConfigManager {
 
     private final Plugin plugin;
     private final File configRoot;
+    /** 游戏内编辑（GUI / 指令）写入的覆盖层；不修改带注释的基础文件。 */
+    private final File overrideRoot;
     private final Map<String, FileConfiguration> files = new LinkedHashMap<>();
     private final Messages messages;
     private volatile Settings settings;
 
+    /** 覆盖层中的删除标记。 */
+    static final String DELETED = "__liuguild_deleted__";
+
     public ConfigManager(Plugin plugin) {
         this.plugin = plugin;
         this.configRoot = resolveConfigRoot();
+        this.overrideRoot = new File(configRoot, "overrides");
         this.messages = new Messages(plugin, configRoot);
     }
 
@@ -85,6 +92,9 @@ public final class ConfigManager {
             File f = new File(configRoot, name);
             loaded.put(name, YamlConfiguration.loadConfiguration(f));
         }
+        // 应用游戏内编辑覆盖层：基础文件（带注释、可手改）不被破坏，
+        // 且共享目录下多服编辑不会互相整文件覆盖。
+        applyOverrides(loaded);
         files.clear();
         files.putAll(loaded);
 
@@ -108,36 +118,107 @@ public final class ConfigManager {
         messages.reload(main.language);
     }
 
-    /** 写入某个配置文件（用于 /guildadmin arena setspawn 等）。 */
+    /**
+     * 写入某个配置覆盖项（用于 /guildadmin arena setspawn 等）。
+     * <p>只写入 {@code overrides/<file>}，不触碰带注释的基础文件；
+     * 重复写同一路径的最后一个值生效，不会覆盖其它子服对其它键的修改。</p>
+     */
     public boolean set(String fileName, String path, Object value) {
-        FileConfiguration f = files.get(fileName);
-        if (f == null) {
+        return writeOverride(fileName, path, value);
+    }
+
+    /** 删除某个配置节点（如删除竞技场）。 */
+    public boolean remove(String fileName, String path) {
+        return writeOverride(fileName, path, DELETED);
+    }
+
+    private boolean writeOverride(String fileName, String path, Object value) {
+        if (!overrideRoot.exists() && !overrideRoot.mkdirs()) {
+            plugin.getLogger().warning("无法创建覆盖配置目录: " + overrideRoot.getAbsolutePath());
             return false;
         }
-        f.set(path, value);
+        File file = new File(overrideRoot, fileName);
+        YamlConfiguration ov = file.exists()
+                ? YamlConfiguration.loadConfiguration(file)
+                : new YamlConfiguration();
+        ov.set(path, value);
         try {
-            f.save(new File(configRoot, fileName));
+            atomicSave(ov, file);
             return true;
         } catch (IOException e) {
-            plugin.getLogger().warning("保存 " + fileName + " 失败: " + e.getMessage());
+            plugin.getLogger().warning("保存覆盖配置 " + fileName + " 失败: " + e.getMessage());
             return false;
         }
     }
 
-    /** 删除某个配置节点（如删除竞技场）并保存。 */
-    public boolean remove(String fileName, String path) {
-        FileConfiguration f = files.get(fileName);
-        if (f == null) {
-            return false;
-        }
-        f.set(path, null);
+    /** 先写临时文件再原子替换，避免其它子服读到写了一半的文件。 */
+    private void atomicSave(YamlConfiguration yml, File target) throws IOException {
+        File tmp = new File(target.getParentFile(), target.getName() + ".tmp");
+        yml.save(tmp);
         try {
-            f.save(new File(configRoot, fileName));
-            return true;
-        } catch (IOException e) {
-            plugin.getLogger().warning("保存 " + fileName + " 失败: " + e.getMessage());
-            return false;
+            Files.move(tmp.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(tmp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    /** 把 overrides/<file> 的值合并进基础配置（标记为删除的键会被移除）。 */
+    private void applyOverrides(Map<String, FileConfiguration> loaded) {
+        for (String name : MODULES) {
+            File ov = new File(overrideRoot, name);
+            if (!ov.isFile()) {
+                continue;
+            }
+            FileConfiguration base = loaded.get(name);
+            if (base == null) {
+                continue;
+            }
+            YamlConfiguration o = YamlConfiguration.loadConfiguration(ov);
+            mergeOverrides(base, o);
+        }
+    }
+
+    /** 把覆盖层合并进基础配置（标记为删除的键会被移除）。可单测。 */
+    static void mergeOverrides(FileConfiguration base, ConfigurationSection overrides) {
+        for (String key : overrides.getKeys(true)) {
+            if (overrides.isConfigurationSection(key)) {
+                continue;
+            }
+            Object v = overrides.get(key);
+            if (DELETED.equals(v)) {
+                base.set(key, null);
+            } else {
+                base.set(key, v);
+            }
+        }
+    }
+
+    /** 清空某个模块（或全部）的游戏内编辑覆盖层；返回被删除的覆盖文件数。 */
+    public int clearOverrides(String fileName) {
+        if ("all".equalsIgnoreCase(fileName)) {
+            int n = 0;
+            for (String name : MODULES) {
+                if (clearOverrides(name) > 0) {
+                    n++;
+                }
+            }
+            return n;
+        }
+        File file = new File(overrideRoot, fileName);
+        return file.isFile() && file.delete() ? 1 : 0;
+    }
+
+    /** 已存在的覆盖层文件名。 */
+    public java.util.List<String> overrideFiles() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String name : MODULES) {
+            if (new File(overrideRoot, name).isFile()) {
+                out.add(name);
+            }
+        }
+        return out;
     }
 
     /** 每服独立覆盖：plugins/LiuGuild/server.yml（不随共享配置同步），仅覆盖 server-id。 */
@@ -160,6 +241,16 @@ public final class ConfigManager {
         String sid = yml.getString("server-id", "").trim();
         if (!sid.isBlank()) {
             main.serverId = sid;
+        }
+        String lang = yml.getString("language", "").trim();
+        if (!lang.isBlank()) {
+            main.language = lang;
+        }
+        if (yml.isSet("debug")) {
+            main.debug = yml.getBoolean("debug", main.debug);
+        }
+        if (yml.isSet("auto-reload-config")) {
+            main.autoReload = yml.getBoolean("auto-reload-config", main.autoReload);
         }
     }
 
@@ -191,7 +282,10 @@ public final class ConfigManager {
         long max = 0;
         for (String name : MODULES) {
             max = Math.max(max, new File(configRoot, name).lastModified());
+            max = Math.max(max, new File(overrideRoot, name).lastModified());
         }
+        // 覆盖层目录的 mtime 会因新建/删除文件而变化，从而让其它子服也能感知删除。
+        max = Math.max(max, overrideRoot.lastModified());
         max = Math.max(max, new File(plugin.getDataFolder(), "server.yml").lastModified());
         return max;
     }

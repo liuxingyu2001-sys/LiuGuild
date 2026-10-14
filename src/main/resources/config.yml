@@ -14,10 +14,13 @@
 #    icons.yml         工会图标定义
 #    messages.yml      多语言消息
 #  多台子服可把 settings.shared-config-path 指向同一共享目录，改一处全服生效。
+#  【仅本文件的以下项为每服相关】server-id / language / debug / auto-reload-config，
+#  可在 plugins/LiuGuild/server.yml 里按子服覆盖（server.yml 不参与共享）。
 # ==========================================================
 
 settings:
-  # 共享配置目录；留空 = 使用插件自己的目录
+  # 共享配置目录；留空 = 使用插件自己的目录。
+  # 该键从 plugins/LiuGuild/config.yml 读取（每服可不同），共享目录内的同名键不生效。
   shared-config-path: ""
   # 轮询共享配置变化并自动热重载
   auto-reload-config: true

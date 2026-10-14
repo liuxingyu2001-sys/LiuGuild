@@ -129,6 +129,25 @@ public final class CrossServerBus {
         }
     }
 
+    /**
+     * 全局一次性任务抢锁（多服共享配置时的“单写者”保证）。
+     * <p>用 Redis {@code SET key NX EX ttl} 原子抢占，只有一台子服会得到 true；
+     * Redis 不可用时退化为本地执行（返回 true），由调用方按单服语义处理。</p>
+     *
+     * @param key        业务键（内部自动加 prefix）
+     * @param ttlSeconds 锁存活时间，需 ≥ 任务周期，防止崩溃后死锁
+     * @return true = 本次由本服执行
+     */
+    public boolean acquireOnce(String key, long ttlSeconds) {
+        if (!bridge.isHealthy()) {
+            return true;
+        }
+        Boolean ok = bridge.withJedis(jedis -> "OK".equals(jedis.set(
+                bridge.prefix() + "lock:" + key, conf.serverId,
+                redis.clients.jedis.params.SetParams.setParams().nx().ex(Math.max(1, ttlSeconds)))));
+        return Boolean.TRUE.equals(ok);
+    }
+
     public void shutdown() {
         ready = false;
         bridge.removeHeartbeat();
