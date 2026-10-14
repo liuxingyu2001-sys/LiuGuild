@@ -40,7 +40,6 @@ commands:
   guildadmin:
     description: 工会管理命令
     usage: /guildadmin help
-    permission: liuguild.admin
 
 permissions:
   liuguild.use:

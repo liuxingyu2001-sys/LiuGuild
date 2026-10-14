@@ -60,17 +60,17 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("liuguild.admin")) {
-            plugin.messages().send(sender, "no-permission");
-            return true;
-        }
         if (args.length == 0) {
             plugin.messages().send(sender, "admin-usage");
             return true;
         }
         String sub = args[0].toLowerCase(Locale.ROOT);
         String required = SUB_PERMISSIONS.getOrDefault(sub, "liuguild.admin");
-        if (!required.equals("liuguild.admin") && !sender.hasPermission(required)) {
+        // 允许「总权限」或「对应子权限」任一；help 对所有人可见。
+        boolean allowed = sender.hasPermission("liuguild.admin")
+                || sender.hasPermission(required)
+                || sub.equals("help");
+        if (!allowed) {
             plugin.messages().send(sender, "no-permission");
             return true;
         }
@@ -665,11 +665,13 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         plugin.async(() -> {
             String guildId;
             try {
-                guildId = plugin.repo().guildIdOf(resolveUuid(args[1]));
+                java.util.UUID uuid = resolveUuid(args[1]);
+                guildId = uuid == null ? null : plugin.repo().guildIdOf(uuid);
             } catch (Exception e) {
                 guildId = null;
             }
-            String result = guildId == null ? "无" : guildId;
+            Guild g = guildId == null ? null : plugin.guilds().guild(guildId);
+            String result = g != null ? g.name() : (guildId == null ? "无" : guildId);
             plugin.sync(() -> sender.sendMessage(cn("&6玩家 &f" + args[1] + " &7工会：&f" + result)));
         });
     }
@@ -802,7 +804,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return startsWith(SUBS, args[0]);
+            return startsWith(permittedSubs(sender), args[0]);
         }
         if (args.length == 2) {
             return switch (args[0].toLowerCase(Locale.ROOT)) {
@@ -890,6 +892,18 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             out.add(p.getName());
         }
         return startsWith(out, prefix);
+    }
+
+    private List<String> permittedSubs(CommandSender sender) {
+        List<String> out = new ArrayList<>();
+        boolean parent = sender.hasPermission("liuguild.admin");
+        for (String s : SUBS) {
+            String req = SUB_PERMISSIONS.getOrDefault(s, "liuguild.admin");
+            if (parent || sender.hasPermission(req) || s.equals("help")) {
+                out.add(s);
+            }
+        }
+        return out;
     }
 
     private static List<String> startsWith(List<String> options, String prefix) {
