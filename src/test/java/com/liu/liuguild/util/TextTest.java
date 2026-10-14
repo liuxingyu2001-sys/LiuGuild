@@ -109,4 +109,30 @@ class TextTest {
         }
         return true;
     }
+
+    private static boolean hasClickEvent(Component c) {
+        if (c.clickEvent() != null) {
+            return true;
+        }
+        for (Component child : c.children()) {
+            if (hasClickEvent(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    void commandHintBecomesClickableWithoutChangingText() {
+        Component c = Text.fmt("<red>输入 /guild help 查看帮助。");
+        assertEquals("输入 /guild help 查看帮助。", Text.plain(c));
+        assertTrue(hasClickEvent(c), "指令提示应为可点击组件");
+    }
+
+    @Test
+    void similarPathIsNotTreatedAsCommand() {
+        Component c = Text.fmt("访问 /guilds 页面无效");
+        assertEquals("访问 /guilds 页面无效", Text.plain(c));
+        assertFalse(hasClickEvent(c), "/guilds 不应被当作 /guild 指令");
+    }
 }

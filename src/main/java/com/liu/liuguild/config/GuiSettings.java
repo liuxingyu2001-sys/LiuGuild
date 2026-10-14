@@ -12,6 +12,8 @@ public final class GuiSettings {
     public ButtonDef filler;
     /** 界面引擎：legacy（内置）/ auto（优先 Sparrow UI）/ sparrow（强制）。 */
     public String engine = "auto";
+    /** 是否用 Sparrow 铁砧界面收集输入（关闭则用聊天栏输入）。 */
+    public boolean anvilInput = true;
     public final Map<String, MenuDef> menus = new LinkedHashMap<>();
 
     public static GuiSettings parse(FileConfiguration c) {
@@ -22,8 +24,9 @@ public final class GuiSettings {
         }
         s.filler = ButtonDef.parse(root.getConfigurationSection("filler"), -1);
         s.engine = root.getString("engine", s.engine);
+        s.anvilInput = root.getBoolean("anvil-input", s.anvilInput);
         for (String key : root.getKeys(false)) {
-            if ("filler".equals(key) || "engine".equals(key)) {
+            if ("filler".equals(key) || "engine".equals(key) || "anvil-input".equals(key)) {
                 continue;
             }
             ConfigurationSection menu = root.getConfigurationSection(key);

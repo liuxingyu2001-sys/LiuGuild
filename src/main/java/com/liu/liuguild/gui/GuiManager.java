@@ -49,6 +49,19 @@ public final class GuiManager implements GuildModule, Listener {
         return chatInput;
     }
 
+    /**
+     * 统一输入入口：优先用 Sparrow 铁砧界面，失败/关闭时回退到聊天栏输入。
+     * 所有“请输出…”的交互都应走这里，以充分利用前置插件。
+     */
+    public void requestText(Player player, String messageKey, java.util.function.Consumer<String> callback, Object... kv) {
+        net.kyori.adventure.text.Component prompt = plugin.messages().component(messageKey, kv);
+        com.liu.liuguild.hook.SparrowUiHook sparrow = plugin.sparrowUi();
+        if (sparrow != null && sparrow.openTextInput(player, prompt, prompt, callback)) {
+            return;
+        }
+        chatInput.request(player, plugin.messages().prefixed(messageKey, kv), callback);
+    }
+
     @Override
     public String id() {
         return "gui";
@@ -461,7 +474,7 @@ public final class GuiManager implements GuildModule, Listener {
                     plugin.messages().send(player, "already-in-guild", "guild", plugin.guilds().guildOf(player.getUniqueId()).name());
                     return;
                 }
-                chatInput.request(player, plugin.messages().prefixed("input-guild-name"), text -> {
+                requestText(player, "input-guild-name", text -> {
                     String trimmed = text.trim();
                     if (trimmed.isEmpty()) {
                         return;
@@ -558,7 +571,7 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "set:notice" -> {
                 if (g != null && plugin.guilds().canManageSettings(player, g)) {
-                    chatInput.request(player, plugin.messages().prefixed("input-notice"), text -> {
+                    requestText(player, "input-notice", text -> {
                         plugin.guilds().setNotice(player, g, text);
                         openSettings(player, g);
                     });
@@ -566,7 +579,7 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "set:desc" -> {
                 if (g != null && plugin.guilds().canManageSettings(player, g)) {
-                    chatInput.request(player, plugin.messages().prefixed("input-desc"), text -> {
+                    requestText(player, "input-desc", text -> {
                         plugin.guilds().setDescription(player, g, text);
                         openSettings(player, g);
                     });
@@ -702,7 +715,7 @@ public final class GuiManager implements GuildModule, Listener {
             openKitList(player);
         } else if (action.equals("kit_new")) {
             player.closeInventory();
-            chatInput.request(player, plugin.messages().component("kit-input"), text -> {
+            requestText(player, "kit-input", text -> {
                 saveKitFromPlayer(player, text.trim().toLowerCase(java.util.Locale.ROOT));
             });
         }
@@ -820,11 +833,11 @@ public final class GuiManager implements GuildModule, Listener {
 
     private void promptWarScore(Player player, String warId, String side) {
         player.closeInventory();
-        chatInput.request(player, plugin.messages().component("arena-input", "key", "比分 " + side.toUpperCase(java.util.Locale.ROOT)), text -> {
+        requestText(player, "arena-input", text -> {
             int value = NumberUtil.toInt(text.trim(), 0);
             plugin.war().setScore(warId, side, value);
             openWarEditor(player, warId);
-        });
+        }, "key", "比分 " + side.toUpperCase(java.util.Locale.ROOT));
     }
 
     // ---- 竞技场编辑动作 ----
@@ -865,7 +878,7 @@ public final class GuiManager implements GuildModule, Listener {
 
     private void promptArenaInput(Player player, String arenaId, String key) {
         player.closeInventory();
-        chatInput.request(player, plugin.messages().component("arena-input", "key", key), text -> {
+        requestText(player, "arena-input", text -> {
             String value = text.trim();
             if (key.equalsIgnoreCase("radius")) {
                 plugin.configs().set("arena.yml", "arenas." + arenaId + ".radius", NumberUtil.toInt(value, 48));
@@ -876,7 +889,7 @@ public final class GuiManager implements GuildModule, Listener {
             }
             plugin.reloadSettings();
             openArenaEditor(player, arenaId);
-        });
+        }, "key", key);
     }
 
     private void cycleArena(Player player, String arenaId, String key) {
@@ -948,7 +961,7 @@ public final class GuiManager implements GuildModule, Listener {
             return;
         }
         player.closeInventory();
-        chatInput.request(player, plugin.messages().component("guild-input", "key", key), text -> {
+        requestText(player, "guild-input", text -> {
             String value = text.trim();
             switch (key.toLowerCase(java.util.Locale.ROOT)) {
                 case "level" -> plugin.guilds().setLevel(guild, NumberUtil.toInt(value, guild.level()));
@@ -960,7 +973,7 @@ public final class GuiManager implements GuildModule, Listener {
                 }
             }
             openGuildEditor(player, guildId);
-        });
+        }, "key", key);
     }
 
     private boolean isShiftClick() {
@@ -1195,7 +1208,7 @@ public final class GuiManager implements GuildModule, Listener {
             return;
         }
         String key = withdraw ? "input-withdraw" : "input-deposit";
-        chatInput.request(player, plugin.messages().prefixed(key), text -> {
+        requestText(player, key, text -> {
             double amount = parseAmount(text);
             if (amount <= 0) {
                 plugin.messages().send(player, "input-invalid-number");
@@ -1217,7 +1230,7 @@ public final class GuiManager implements GuildModule, Listener {
     /** 危险操作确认：先在聊天栏提示，再要求输入 yes/确认。 */
     private void confirm(Player player, String promptKey, String targetName, Runnable action) {
         plugin.messages().send(player, promptKey, "player", targetName);
-        chatInput.request(player, plugin.messages().prefixed("input-confirm"), text -> {
+        requestText(player, "input-confirm", text -> {
             String t = text.trim().toLowerCase(java.util.Locale.ROOT);
             if (t.equals("yes") || t.equals("y") || t.equals("ok") || t.equals("确认") || t.equals("是")) {
                 action.run();

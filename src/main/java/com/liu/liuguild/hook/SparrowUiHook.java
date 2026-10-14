@@ -7,11 +7,14 @@ import com.liu.liuguild.gui.GuiManager;
 import com.liu.liuguild.gui.GuiUtil;
 import com.liu.liuguild.model.Guild;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.momirealms.sparrow.ui.SparrowUI;
 import net.momirealms.sparrow.ui.item.Item;
 import net.momirealms.sparrow.ui.pane.Element;
 import net.momirealms.sparrow.ui.pane.NormalPane;
+import net.momirealms.sparrow.ui.pane.Pane;
 import net.momirealms.sparrow.ui.pane.PaneSize;
+import net.momirealms.sparrow.ui.window.AnvilWindow;
 import net.momirealms.sparrow.ui.window.NormalWindow;
 import net.momirealms.sparrow.ui.window.Window;
 import org.bukkit.entity.Player;
@@ -21,6 +24,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Sparrow UI 界面引擎：把工会菜单渲染为响应式库存界面。
@@ -115,6 +120,68 @@ public final class SparrowUiHook {
         } catch (Throwable t) {
             // 只回退这一次调用，不永久禁用（下次仍可尝试）
             plugin.getLogger().warning("Sparrow UI 渲染主菜单失败，本次回退内置 GUI：" + t);
+            return false;
+        }
+    }
+
+    /**
+     * 使用 Sparrow UI 的**铁砧界面**收集一行文本（下栏放确认 / 取消按钮）。
+     * <p>输入框内容实时回调；点「确认」后回调并关闭。返回 false 时调用方应回退到聊天栏输入。</p>
+     *
+     * @param title     铁砧标题
+     * @param hint      提示文本（显示在确认按钮描述里，可为 null）
+     * @param onConfirm 确认回调（已 trim）
+     */
+    public boolean openTextInput(Player player, Component title, Component hint, Consumer<String> onConfirm) {
+        if (!available() || !enabled() || !plugin.settings().gui.anvilInput) {
+            return false;
+        }
+        try {
+            AtomicReference<String> text = new AtomicReference<>("");
+            NormalPane upper = Pane.builder("###").setFrozen(true).build();
+
+            List<String> lore = new ArrayList<>();
+            if (hint != null) {
+                lore.add(MiniMessage.miniMessage().serialize(hint));
+            }
+            lore.add("<gray>点击确认提交");
+            lore.add("");
+            lore.add("<dark_gray>输入后点这里，或直接关闭取消");
+
+            Item confirm = Item.builder()
+                    .setItemProviderConstant(GuiUtil.build(player, "LIME_CONCRETE", "LIME_CONCRETE",
+                            "<green>确认", lore, Map.of(), null))
+                    .addClickHandler(click -> plugin.sync(() -> {
+                        click.window().close();
+                        onConfirm.accept(text.get() == null ? "" : text.get().trim());
+                    }))
+                    .build();
+            Item cancel = Item.builder()
+                    .setItemProviderConstant(GuiUtil.build(player, "RED_CONCRETE", "RED_CONCRETE",
+                            "<red>取消", List.of("<gray>点击取消"), Map.of(), null))
+                    .addClickHandler(click -> plugin.sync(click.window()::close))
+                    .build();
+
+            NormalPane lower = Pane.builder(
+                    "#########",
+                    "#########",
+                    "###C#X###",
+                    "#########")
+                    .addIngredient('C', confirm)
+                    .addIngredient('X', cancel)
+                    .build();
+
+            AnvilWindow window = AnvilWindow.builder()
+                    .setTitle(title == null ? Component.text("输入") : title)
+                    .setUpperPane(upper)
+                    .setLowerPane(lower)
+                    .setTextFieldAlwaysEnabled(true)
+                    .addRenameHandler(text::set)
+                    .build(player);
+            window.open();
+            return true;
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Sparrow 铁砧输入不可用，回退聊天输入: " + t.getMessage());
             return false;
         }
     }

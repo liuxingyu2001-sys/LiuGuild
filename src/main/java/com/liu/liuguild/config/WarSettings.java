@@ -32,6 +32,8 @@ public final class WarSettings {
     public boolean bossBarEnabled = true;
     /** 结算阶段每 tick 分帧发放奖励的人数（防止大名单阻塞主线程）。 */
     public int settleBatchPerTick = 8;
+    /** 工会战事件是否全服（含跨服）公告；默认仅通知参赛工会，避免刷屏与重复。 */
+    public boolean announceServer = false;
 
     /** 模式公共默认值（来自 war.defaults 或 war 根节点）。 */
     public WarMode defaults = new WarMode();
@@ -49,6 +51,7 @@ public final class WarSettings {
         s.broadcastQueue = c.getBoolean("war.broadcast-queue", s.broadcastQueue);
         s.bossBarEnabled = c.getBoolean("war.bossbar", s.bossBarEnabled);
         s.settleBatchPerTick = Math.max(1, Math.min(200, c.getInt("war.settle-batch-per-tick", s.settleBatchPerTick)));
+        s.announceServer = c.getBoolean("war.announce-server", s.announceServer);
 
         WarMode base = new WarMode();
         ConfigurationSection defaults = c.getConfigurationSection("war.defaults");

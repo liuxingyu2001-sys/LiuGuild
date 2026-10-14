@@ -7,6 +7,8 @@
 gui:
   # 界面引擎：legacy = 内置库存 GUI；auto = 优先 Sparrow UI，失败自动回退；sparrow = 强制 Sparrow UI
   engine: auto
+  # 是否用 Sparrow 铁砧界面收集输入（创建工会 / 金额 / 公告等）；关闭则回退聊天栏输入。
+  anvil-input: true
   # 通用填充物
   filler:
     enabled: true

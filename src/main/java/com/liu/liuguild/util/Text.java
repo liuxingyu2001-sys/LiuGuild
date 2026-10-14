@@ -10,6 +10,7 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -71,7 +72,7 @@ public final class Text {
      * 用于 GUI 模板中既显示玩家名（需转义）又显示公告（允许颜色）的场景。
      */
     public static Component fmtSelective(String template, java.util.Set<String> richKeys, Object... kv) {
-        String source = legacyToMini(template == null ? "" : template);
+        String source = linkCommands(legacyToMini(template == null ? "" : template));
         List<TagResolver> resolvers = new ArrayList<>();
         if (kv != null) {
             for (int i = 0; i + 1 < kv.length; i += 2) {
@@ -87,7 +88,7 @@ public final class Text {
     }
 
     private static Component render(String template, boolean richValues, Object... kv) {
-        String source = legacyToMini(template == null ? "" : template);
+        String source = linkCommands(legacyToMini(template == null ? "" : template));
         List<TagResolver> resolvers = new ArrayList<>();
         if (kv != null) {
             for (int i = 0; i + 1 < kv.length; i += 2) {
@@ -101,6 +102,30 @@ public final class Text {
             }
         }
         return MM.deserialize(source, TagResolver.resolver(resolvers));
+    }
+
+    /** 消息中出现的 /guild、/guildadmin 指令自动变为可点击（点击补全到聊天栏）。 */
+    private static final Pattern COMMAND_TOKEN =
+            Pattern.compile("/(guildadmin|guild|gh|g)(?![A-Za-z0-9_\\-])((?:\\s+[A-Za-z0-9_\\-]+)*)");
+
+    /**
+     * 把模板里的指令提示变成可点击组件（附悬停说明）。
+     * 仅作用于模板自身文本；玩家输入占位符不会被解析，从而不会引入注入风险。
+     */
+    static String linkCommands(String source) {
+        if (source == null || source.indexOf('/') < 0) {
+            return source;
+        }
+        Matcher m = COMMAND_TOKEN.matcher(source);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String cmd = m.group();
+            String tag = "<click:suggest_command:'" + cmd + "'><hover:show_text:'点击补全该指令'>"
+                    + cmd + "</hover></click>";
+            m.appendReplacement(sb, Matcher.quoteReplacement(tag));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     /** 把 {key} 替换为 value 的旧式字符串替换（仅用于非组件场景，如日志）。 */

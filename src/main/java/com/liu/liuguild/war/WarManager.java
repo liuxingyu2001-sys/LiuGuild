@@ -686,13 +686,8 @@ public final class WarManager implements GuildModule {
         plugin.sync(() -> {
             if (host.equals(plugin.serverId())) {
                 adoptWar(war);
-            } else {
-                // 非承办服：通知本地参赛成员去 /guild war join
-                plugin.guilds().notifyGuild(war.guildA(), plugin.messages().component("war-match-found",
-                        "enemy", war.nameB(), "seconds", modeOf(war).prepareSeconds), null);
-                plugin.guilds().notifyGuild(war.guildB(), plugin.messages().component("war-match-found",
-                        "enemy", war.nameA(), "seconds", modeOf(war).prepareSeconds), null);
             }
+            // 非承办服不再本地通知：承办服 prepare 后会广播「匹配成功」，避免重复。
         });
     }
 
@@ -846,6 +841,30 @@ public final class WarManager implements GuildModule {
         }
         if (!dir.delete()) {
             plugin.getLogger().warning("内置临时世界目录删除失败: " + dir.getAbsolutePath());
+        }
+    }
+
+    /**
+     * 按名称查找 gamerule。新版本 Bukkit 的 {@code GameRule.getByName} 语义变为命名空间键，
+     * 运行时可能返回 null；这里优先遍历枚举常量（跨版本稳定），再回退 getByName。
+     */
+    private static org.bukkit.GameRule<?> gameRule(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String target = name.trim();
+        try {
+            for (org.bukkit.GameRule<?> rule : org.bukkit.GameRule.values()) {
+                if (rule.getName().equalsIgnoreCase(target)) {
+                    return rule;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            return org.bukkit.GameRule.getByName(target);
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
@@ -1697,13 +1716,14 @@ public final class WarManager implements GuildModule {
     }
 
     private void broadcastWar(GuildWar war, net.kyori.adventure.text.Component text) {
+        // 避免重复：优先走全服（含跨服）公告，它已覆盖参赛者；失败/关闭时只投递工会成员。
+        Player carrier = Bukkit.getOnlinePlayers().stream().findFirst().orElse(null);
+        if (conf().announceServer && plugin.chat() != null && plugin.chat().available() && carrier != null
+                && plugin.chat().broadcast(carrier, text)) {
+            return;
+        }
         plugin.guilds().announceGuild(war.guildA(), text, null);
         plugin.guilds().announceGuild(war.guildB(), text, null);
-        // 全服公告（有 LiuChat 时借其跨服链路）
-        Player carrier = Bukkit.getOnlinePlayers().stream().findFirst().orElse(null);
-        if (plugin.chat() != null && plugin.chat().available() && carrier != null) {
-            plugin.chat().broadcast(carrier, text);
-        }
     }
 
     private void showWarBar(UUID uuid) {
