@@ -5,11 +5,11 @@
 ## 配置示例
 
 ```yaml
-# war.yml
+# war.yml（共享）
 war:
   enabled: true
-  server-mode: false
-  dedicated-server: ""
+  # 注意：server-mode / dedicated-server 是【每服独立】设置，已移至 server.yml，
+  #       不再写在共享 war.yml 里，避免多台子服互相冲突。
   queue-interval-seconds: 5
   match-timeout-seconds: 180
   default-mode: match
@@ -41,6 +41,15 @@ war:
       lose-pass-xp: 100
       pass-id: ""
       win-title-id: 0
+```
+
+```yaml
+# server.yml（每服独立，不共享）
+war:
+  # true = 本服为工会战专属承办服（竞技场服）
+  server-mode: false
+  # 本服默认承办的 server-id（留空 = 由发起匹配的服务器承办）
+  dedicated-server: ""
 ```
 
 ```yaml

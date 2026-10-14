@@ -37,7 +37,8 @@ LiuGuild 提供完整的命令行与图形化（GUI）管理能力，管理员�
 | `/guildadmin arena info <id>` | 竞技场详情 |
 | `/guildadmin arena create <id>` | 新建竞技场 |
 | `/guildadmin arena remove <id>` | 删除竞技场 |
-| `/guildadmin arena setspawn <id> <a\|b\|spec>` | 用当前位置设置出生点 |
+| `/guildadmin arena setspawn <id> <点名>` | 用当前位置设置出生点（点名任意：`a`/`b`/`c`/`d`/`spec`…） |
+| `/guildadmin arena setteampoint <id> <a\|b> <点名>` | 指定 A / B 队使用哪个命名出生点 |
 | `/guildadmin arena setworld <id> <世界>` | 设置固定世界 |
 | `/guildadmin arena setserver <id> <承办服id>` | 设置承办服 |
 | `/guildadmin arena settemplate <id> <模板>` | 设置 liudungeon 动态模板 |

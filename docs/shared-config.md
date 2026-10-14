@@ -26,15 +26,44 @@ plugins/LiuGuild/
 
 | 文件 | 是否共享 | 说明 |
 |---|---|---|
-| `server.yml` | ❌ **每服独立** | 唯一 `server-id`；可覆盖 `language` / `debug` / `auto-reload-config` |
+| `server.yml` | ❌ **每服独立** | 唯一 `server-id`；工会战承办服 `war.server-mode` / `war.dedicated-server`；可覆盖 `language` / `debug` / `auto-reload-config`；通用每服覆盖 `overrides` |
 | `plugins/LiuGuild/config.yml` | ❌ 每服引导 | 仅用于读取共享路径与自动重载开关 |
 | `database.yml` | ✅ 共享 | 跨服必须同一库、同一表前缀 |
 | `cross-server.yml` | ✅ 共享 | 同一 Redis、同一 `channel`、同一 `database` |
 | `guild.yml` / `war.yml` / `war-modes.yml` / `arena.yml` / `kit.yml` / `gui.yml` / `icons.yml` / `messages.yml` / `tasks.yml` | ✅ 共享 | 玩法与展示配置，全服一致 |
 | 共享目录 `config.yml` | ✅ 共享 | 全服一致（`server-id` 已移至 `server.yml`） |
 
-**结论：唯一必须每服独立的是 `server.yml`（核心是 `server-id`）。** 其余共享即可。
-如果某台子服需要不同的语言或调试级别，用 `server.yml` 覆盖，不要改共享 `config.yml`。
+**结论：必须每服独立的都放在 `server.yml`：** `server-id`、工会战承办服设置、语言/调试。
+其余共享即可。
+
+### 哪些设置【不应】共享
+
+凡是「不同子服取值不同」的都应放在 `server.yml`，而不是共享文件：
+
+| 设置 | 为何每服不同 | 配置位置 |
+|---|---|---|
+| `server-id` | 每服唯一 | `server.yml: server-id` |
+| `war.server-mode` | 只有竞技场服为 `true`，普通子服为 `false` | `server.yml: war.server-mode` |
+| `war.dedicated-server` | 每服可指定自己的承办服 | `server.yml: war.dedicated-server` |
+| `language` / `debug` | 各服可不同 | `server.yml`（已支持） |
+| 其它任意键（如 `hooks.*`、`transfer.enabled`） | 各服安装插件/策略不同 | `server.yml: overrides.<模块>: { 路径: 值 }` |
+
+`server.yml` 的通用覆盖示例（只影响本服，不写回共享目录）：
+
+```yaml
+server-id: "survival-1"
+
+war:
+  server-mode: false
+  dedicated-server: ""
+
+overrides:
+  config.yml:
+    debug: false
+    hooks.mcmmo.enabled: true
+  cross-server.yml:
+    transfer.enabled: true
+```
 
 ## 3. 游戏内编辑不会破坏共享文件
 

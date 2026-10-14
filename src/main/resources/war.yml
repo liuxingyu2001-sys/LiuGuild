@@ -7,11 +7,10 @@
 
 war:
   enabled: true
-  # true = 本服为工会战专属承办服（竞技场服），只承接工会战
-  server-mode: false
-  # 全局默认承办服 server-id；留空 = 由发起匹配的服务器承办
-  # 模式可在 war-modes.yml 里用 dedicated-server 单独覆盖
-  dedicated-server: ""
+  # 注意：以下两个是【每服独立】设置，已移出本共享文件，请到 plugins/LiuGuild/server.yml 配置：
+  #   war.server-mode         本服是否为工会战专属承办服（竞技场服）
+  #   war.dedicated-server    本服默认承办的 server-id（留空 = 由发起匹配的服务器承办）
+  # 这样多台子服共用同一份 war.yml 时不会因为承办服设置而互相冲突。
 
   # 匹配队列轮询间隔（秒）
   queue-interval-seconds: 5

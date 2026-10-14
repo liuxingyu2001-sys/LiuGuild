@@ -8,7 +8,11 @@
 #  template: 可选，liudungeon 动态世界模板；填写且模板存在时优先动态开世界，
 #            留空则使用 world + 下方坐标的固定场地
 #  spawn-* : 精确坐标与朝向（x / y / z / yaw / pitch）
-#  管理员可用 /guildadmin arena <id> setspawn <a|b|spec> 现场设置坐标
+#            出生点数量不限：spawn-a / spawn-b / spawn-c / spawn-d / spawn-spectator…
+#            team-a-spawn / team-b-spawn 指定 A / B 队分别用哪个命名点（默认 a / b），
+#            所以可配置 3 个以上出生点并自由选择。
+#  管理员：/guildadmin arena <id> setspawn <点名> 现场设置当前坐标；
+#          /guildadmin arena <id> setteampoint <a|b> <点名> 指定队伍出生点。
 #
 #  临时世界（temporary-world）：environment / keep-on-end / name-format /
 #    gamerules / time / weather / difficulty 均可自定义。
@@ -34,6 +38,12 @@ arenas:
     spawn-a:         { x: 0.5,  y: 70.0, z: 0.5,  yaw: 0.0,   pitch: 0.0 }
     spawn-b:         { x: 20.5, y: 70.0, z: 0.5,  yaw: 180.0, pitch: 0.0 }
     spawn-spectator: { x: 10.5, y: 80.0, z: 10.5, yaw: 0.0,   pitch: 30.0 }
+    # 可继续添加任意出生点，例如：
+    # spawn-c:       { x: 0.5,  y: 70.0, z: 20.5, yaw: 0.0,   pitch: 0.0 }
+    # spawn-d:       { x: 20.5, y: 70.0, z: 20.5, yaw: 180.0, pitch: 0.0 }
+    # 队伍使用哪个命名出生点（默认 a / b）
+    team-a-spawn: a
+    team-b-spawn: b
 
     # 临时（动态）世界设置：仅在 template 生效且安装 liudungeon 时使用
     temporary-world:

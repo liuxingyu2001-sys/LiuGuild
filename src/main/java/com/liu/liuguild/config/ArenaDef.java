@@ -4,6 +4,12 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
 /**
  * 单个竞技场场地定义（arena.yml 中的一项）。
  * <p>直接写清楚「承办服 + 世界 + 坐标」，因此每条竞技场都是自描述、可完全自定义的：
@@ -25,10 +31,20 @@ public final class ArenaDef {
     public String template = "";
     /** 预热半径（方块）；0 = 不预热。 */
     public int radius = 48;
-    /** 坐标：X / Y / Z / yaw / pitch。 */
+    /** 坐标：X / Y / Z / yaw / pitch（A/B/旁观点，供旧代码使用）。 */
     public Spawn spawnA = new Spawn(0.5, 70, 0.5, 0, 0);
     public Spawn spawnB = new Spawn(20.5, 70, 0.5, 180, 0);
     public Spawn spawnSpectator = new Spawn(10.5, 80, 10.5, 0, 30);
+    /**
+     * **任意数量的命名出生点**（arena.yml 里 {@code spawn-<名>}，例如 {@code spawn-a} / {@code spawn-b} /
+     * {@code spawn-c} / {@code spawn-d} / {@code spawn-spectator}）。战争按 {@link #teamASpawn} /
+     * {@link #teamBSpawn} 选择 A/B 队的出生点，所以可以配置 3 个以上并自由指定队伍用哪个。
+     */
+    public final Map<String, Spawn> spawns = new LinkedHashMap<>();
+    /** A 队使用的出生点名（默认 a）。 */
+    public String teamASpawn = "a";
+    /** B 队使用的出生点名（默认 b）。 */
+    public String teamBSpawn = "b";
 
     /** 临时（动态）世界设置，仅在 template 生效且有 liudungeon 时使用。 */
     public final TempWorld tempWorld = new TempWorld();
@@ -85,9 +101,71 @@ public final class ArenaDef {
         a.spawnA = readSpawn(sec.getConfigurationSection("spawn-a"), a.spawnA);
         a.spawnB = readSpawn(sec.getConfigurationSection("spawn-b"), a.spawnB);
         a.spawnSpectator = readSpawn(sec.getConfigurationSection("spawn-spectator"), a.spawnSpectator);
+        a.teamASpawn = sec.getString("team-a-spawn", a.teamASpawn);
+        a.teamBSpawn = sec.getString("team-b-spawn", a.teamBSpawn);
+        loadSpawns(sec, a);
         readTempWorld(sec.getConfigurationSection("temporary-world"), a.tempWorld);
         readAfterWar(sec.getConfigurationSection("after-war"), a.afterWar);
         return a;
+    }
+
+    /** 读取所有 {@code spawn-<名>} 出生点（兼容旧的 spawn-a / spawn-b / spawn-spectator）。 */
+    private static void loadSpawns(ConfigurationSection sec, ArenaDef a) {
+        a.spawns.clear();
+        for (String key : sec.getKeys(false)) {
+            if (!key.startsWith("spawn-")) {
+                continue;
+            }
+            String name = key.substring("spawn-".length()).toLowerCase(Locale.ROOT);
+            a.spawns.put(name, readSpawn(sec.getConfigurationSection(key), defaultSpawn(name)));
+        }
+        for (String base : List.of("a", "b", "spectator")) {
+            a.spawns.putIfAbsent(base, defaultSpawn(base));
+        }
+        a.spawnA = a.spawns.get("a");
+        a.spawnB = a.spawns.get("b");
+        a.spawnSpectator = a.spawns.get("spectator");
+    }
+
+    private static Spawn defaultSpawn(String name) {
+        return switch (name) {
+            case "a" -> new Spawn(0.5, 70, 0.5, 0, 0);
+            case "b" -> new Spawn(20.5, 70, 0.5, 180, 0);
+            case "spectator" -> new Spawn(10.5, 80, 10.5, 0, 30);
+            default -> new Spawn(0.5, 70, 0.5, 0, 0);
+        };
+    }
+
+    /** 取指定名称的出生点（a/b/c/d/spectator…，找不到返回 null）。 */
+    public Spawn spawn(String point) {
+        if (point == null) {
+            return null;
+        }
+        String key = point.toLowerCase(Locale.ROOT);
+        if (key.equals("spec")) {
+            key = "spectator";
+        }
+        return spawns.get(key);
+    }
+
+    /** 按队伍（A / B）取出生点，使用 {@link #teamASpawn} / {@link #teamBSpawn}。 */
+    public Spawn teamSpawn(String side) {
+        Spawn s = spawn("A".equalsIgnoreCase(side) ? teamASpawn : teamBSpawn);
+        if (s != null) {
+            return s;
+        }
+        return "A".equalsIgnoreCase(side) ? spawnA : spawnB;
+    }
+
+    /** 全部非旁观的命名出生点（用于展示 / 管理）。 */
+    public List<String> spawnPointNames() {
+        List<String> out = new ArrayList<>();
+        for (String k : spawns.keySet()) {
+            if (!"spectator".equals(k)) {
+                out.add(k);
+            }
+        }
+        return out;
     }
 
     private static void readTempWorld(ConfigurationSection sec, TempWorld tw) {

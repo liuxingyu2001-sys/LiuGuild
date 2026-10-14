@@ -9,13 +9,15 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * 模块化配置管理器。
  * <p>每个功能模块一个配置文件（见 {@link #MODULES}），统一从「共享配置目录」读取，
- * 支持首次复制默认值、mtime 指纹热重载、每服 server.yml 覆盖 server-id。</p>
+ * 支持首次复制默认值、mtime 指纹热重载、每服 server.yml 独立覆盖。</p>
  */
 public final class ConfigManager {
 
@@ -94,6 +96,9 @@ public final class ConfigManager {
         // 应用游戏内编辑覆盖层：基础文件（带注释、可手改）不被破坏，
         // 且共享目录下多服编辑不会互相整文件覆盖。
         applyOverrides(loaded);
+        // 应用 server.yml 的「每服独立」设置（如工会战承办服），只影响本服内存配置，
+        // 不写回共享目录，避免多台子服因为同一份共享文件而互相冲突。
+        applyServerOverrides(loaded, ensureServerFile());
         files.clear();
         files.putAll(loaded);
 
@@ -225,20 +230,78 @@ public final class ConfigManager {
         return out;
     }
 
-    /** 每服独立覆盖：plugins/LiuGuild/server.yml（不随共享配置同步），仅覆盖 server-id。 */
-    private void applyServerOverride(MainSettings main) {
+    /** 确保 plugins/LiuGuild/server.yml 存在（不存在则从内置默认复制），返回该文件。 */
+    private File ensureServerFile() {
         File f = new File(plugin.getDataFolder(), "server.yml");
-        if (!f.exists()) {
-            try (InputStream in = plugin.getResource("server.yml")) {
-                if (in != null) {
-                    plugin.getDataFolder().mkdirs();
-                    Files.copy(in, f.toPath());
-                }
-            } catch (IOException e) {
-                plugin.getLogger().warning("复制 server.yml 失败: " + e.getMessage());
+        if (f.exists()) {
+            return f;
+        }
+        try (InputStream in = plugin.getResource("server.yml")) {
+            if (in != null) {
+                plugin.getDataFolder().mkdirs();
+                Files.copy(in, f.toPath());
+            }
+        } catch (IOException e) {
+            plugin.getLogger().warning("复制 server.yml 失败: " + e.getMessage());
+        }
+        return f.exists() ? f : null;
+    }
+
+    /**
+     * 应用 server.yml 的「每服独立覆盖」：
+     * <ul>
+     *   <li>{@code war.server-mode} / {@code war.dedicated-server}：本服是否专属承办服、本服默认承办服 server-id
+     *       （这些不属于共享配置，已从 war.yml 移出）；</li>
+     *   <li>{@code overrides.<模块>: { 配置路径: 值 }}：任意模块的任意键，例如
+     *       {@code overrides: {cross-server.yml: {transfer.enabled: false}}}。</li>
+     * </ul>
+     * 覆盖只作用于本服内存中的配置，不写回共享目录。
+     */
+    private void applyServerOverrides(Map<String, FileConfiguration> loaded, File serverFile) {
+        if (serverFile == null) {
+            return;
+        }
+        YamlConfiguration yml = YamlConfiguration.loadConfiguration(serverFile);
+        // 工会战承办服设置（每服不同，不共享）
+        FileConfiguration warCfg = loaded.get("war.yml");
+        if (warCfg != null) {
+            if (yml.isSet("war.server-mode")) {
+                warCfg.set("war.server-mode", yml.getBoolean("war.server-mode"));
+            }
+            if (yml.isSet("war.dedicated-server")) {
+                warCfg.set("war.dedicated-server", yml.getString("war.dedicated-server", ""));
             }
         }
-        if (!f.exists()) {
+        // 通用每服覆盖（任意模块 / 任意键）
+        org.bukkit.configuration.ConfigurationSection ov = yml.getConfigurationSection("overrides");
+        if (ov == null) {
+            return;
+        }
+        for (String moduleKey : ov.getKeys(false)) {
+            String module = moduleKey.endsWith(".yml") ? moduleKey : moduleKey + ".yml";
+            FileConfiguration cfg = loaded.get(module);
+            org.bukkit.configuration.ConfigurationSection mod = ov.getConfigurationSection(moduleKey);
+            if (cfg == null || mod == null) {
+                continue;
+            }
+            List<String> applied = new ArrayList<>();
+            for (String path : mod.getKeys(true)) {
+                if (mod.isConfigurationSection(path)) {
+                    continue;
+                }
+                cfg.set(path, mod.get(path));
+                applied.add(path + "=" + mod.get(path));
+            }
+            if (!applied.isEmpty()) {
+                plugin.getLogger().info("server.yml 每服覆盖 " + module + ": " + String.join(", ", applied));
+            }
+        }
+    }
+
+    /** 每服独立覆盖：plugins/LiuGuild/server.yml（不随共享配置同步）。 */
+    private void applyServerOverride(MainSettings main) {
+        File f = ensureServerFile();
+        if (f == null) {
             return;
         }
         YamlConfiguration yml = YamlConfiguration.loadConfiguration(f);

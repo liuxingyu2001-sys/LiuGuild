@@ -15,7 +15,7 @@
 | `gui.yml` | GUI 菜单布局 |
 | `icons.yml` | 工会图标定义 |
 | `messages.yml` | 多语言消息 |
-| `server.yml` | **每服独立**，设置唯一 `server-id`，并可覆盖 `language` / `debug` / `auto-reload-config`（不随共享配置同步） |
+| `server.yml` | **每服独立**，设置唯一 `server-id`、工会战承办服 `war.server-mode` / `war.dedicated-server`，并可覆盖 `language` / `debug` / `auto-reload-config` / 任意键（`overrides`）（不随共享配置同步） |
 
 ## 共享配置目录
 

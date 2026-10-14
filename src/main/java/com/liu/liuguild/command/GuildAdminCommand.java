@@ -186,11 +186,18 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(cn("&7承办服: &f" + (a.server.isBlank() ? "-" : a.server)));
                 sender.sendMessage(cn("&7世界: &f" + (a.world.isBlank() ? "主世界" : a.world)));
                 sender.sendMessage(cn("&7模板: &f" + (a.hasTemplate() ? a.template : "无（固定坐标）")));
-                sender.sendMessage(cn("&7A点: &f" + fmt(a.spawnA)));
-                sender.sendMessage(cn("&7B点: &f" + fmt(a.spawnB)));
+                sender.sendMessage(cn("&7A点: &f" + fmt(a.spawnA) + " &8(队伍A→&f" + a.teamASpawn + "&8)"));
+                sender.sendMessage(cn("&7B点: &f" + fmt(a.spawnB) + " &8(队伍B→&f" + a.teamBSpawn + "&8)"));
                 sender.sendMessage(cn("&7旁观点: &f" + fmt(a.spawnSpectator)));
+                for (String name : a.spawnPointNames()) {
+                    if (name.equals("a") || name.equals("b")) {
+                        continue;
+                    }
+                    sender.sendMessage(cn("&7出生点 &f" + name + "&7: &f" + fmt(a.spawn(name))));
+                }
             }
             case "setspawn" -> setSpawn(sender, args);
+            case "setteampoint" -> setTeamPoint(sender, args);
             case "setworld" -> {
                 if (require(sender, args, 4)) {
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".world", args[3]);
@@ -326,18 +333,13 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         String arenaId = args[2];
         String point = args[3].toLowerCase(Locale.ROOT);
-        String path = switch (point) {
-            case "a" -> "spawn-a";
-            case "b" -> "spawn-b";
-            case "spec", "spectator" -> "spawn-spectator";
-            default -> null;
-        };
-        if (path == null) {
+        if (!point.matches("[a-z0-9_-]{1,16}")) {
             plugin.messages().sendRaw(sender, "arena-usage");
             return;
         }
+        String name = (point.equals("spec") || point.equals("spectator")) ? "spectator" : point;
         Location loc = player.getLocation();
-        String base = "arenas." + arenaId + "." + path + ".";
+        String base = "arenas." + arenaId + ".spawn-" + name + ".";
         plugin.configs().set("arena.yml", base + "x", round(loc.getX()));
         plugin.configs().set("arena.yml", base + "y", round(loc.getY()));
         plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
@@ -345,7 +347,33 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
         plugin.reloadSettings();
         plugin.messages().sendRaw(sender, "arena-spawn-set", "arena", arenaId,
-                "point", point.toUpperCase(Locale.ROOT), "world", loc.getWorld().getName());
+                "point", name.toUpperCase(Locale.ROOT), "world", loc.getWorld().getName());
+    }
+
+    /** 指定 A/B 队使用哪个命名出生点。 */
+    private void setTeamPoint(CommandSender sender, String[] args) {
+        if (!require(sender, args, 5)) {
+            return;
+        }
+        String arenaId = args[2];
+        ArenaDef arena = plugin.settings().arena(arenaId);
+        if (arena == null) {
+            sender.sendMessage(cn("&c竞技场不存在：" + arenaId));
+            return;
+        }
+        String side = args[3].toLowerCase(Locale.ROOT);
+        if (!side.equals("a") && !side.equals("b")) {
+            sender.sendMessage(cn("&c队伍只能是 a 或 b"));
+            return;
+        }
+        String point = args[4].toLowerCase(Locale.ROOT);
+        if (arena.spawn(point) == null) {
+            sender.sendMessage(cn("&c出生点不存在：" + point + "（先用 arena setspawn " + arenaId + " " + point + " 设置）"));
+            return;
+        }
+        plugin.configs().set("arena.yml", "arenas." + arenaId + ".team-" + side + "-spawn", point);
+        plugin.reloadSettings();
+        plugin.messages().sendRaw(sender, "arena-set", "arena", arenaId, "value", "队伍" + side.toUpperCase(Locale.ROOT) + "→" + point);
     }
 
     // =====================================================================
@@ -925,7 +953,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2) {
             return switch (args[0].toLowerCase(Locale.ROOT)) {
-                case "arena" -> startsWith(List.of("list", "info", "setspawn", "setworld", "setserver", "settemplate",
+                case "arena" -> startsWith(List.of("list", "info", "setspawn", "setteampoint", "setworld", "setserver", "settemplate",
                         "create", "remove", "setradius", "settempworld", "setgamerule", "setafter", "setendspawn", "tp"), args[1]);
                 case "kit" -> startsWith(List.of("list", "save", "delete", "info"), args[1]);
                 case "mode" -> startsWith(List.of("list", "info", "start"), args[1]);

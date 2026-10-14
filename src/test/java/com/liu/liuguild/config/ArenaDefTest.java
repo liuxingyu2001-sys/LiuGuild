@@ -91,6 +91,38 @@ class ArenaDefTest {
     }
 
     @Test
+    void supportsArbitraryNamedSpawnPoints() {
+        ArenaDef a = parse("""
+                spawn-a: { x: 1.0, y: 65.0, z: 1.0 }
+                spawn-b: { x: 2.0, y: 65.0, z: 2.0 }
+                spawn-c: { x: 3.0, y: 65.0, z: 3.0 }
+                spawn-d: { x: 4.0, y: 65.0, z: 4.0 }
+                spawn-spectator: { x: 9.0, y: 70.0, z: 9.0 }
+                team-a-spawn: c
+                team-b-spawn: d
+                """);
+        assertEquals(3.0, a.spawn("c").x());
+        assertEquals(4.0, a.spawn("d").x());
+        assertEquals(9.0, a.spawn("spec").x(), "spec 应映射到 spectator");
+        assertEquals(java.util.List.of("a", "b", "c", "d"), a.spawnPointNames());
+        assertEquals(3.0, a.teamSpawn("A").x(), "A 队应使用 team-a-spawn=c");
+        assertEquals(4.0, a.teamSpawn("B").x(), "B 队应使用 team-b-spawn=d");
+    }
+
+    @Test
+    void teamSpawnDefaultsToAandB() {
+        ArenaDef a = parse("""
+                spawn-a: { x: 1.0, y: 65.0, z: 1.0 }
+                spawn-b: { x: 2.0, y: 65.0, z: 2.0 }
+                """);
+        assertEquals("a", a.teamASpawn);
+        assertEquals("b", a.teamBSpawn);
+        assertEquals(1.0, a.teamSpawn("A").x());
+        assertEquals(2.0, a.teamSpawn("B").x());
+        assertEquals(null, a.spawn("zzz"));
+    }
+
+    @Test
     void defaultsAreSaneWhenUnset() {
         ArenaDef a = parse("world: world");
         assertTrue(a.afterWar.autoReturn);

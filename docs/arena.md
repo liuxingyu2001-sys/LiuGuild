@@ -26,20 +26,27 @@ arenas:
 | `world` | 固定世界名（如 `world` / `arena_world`），留空用主世界。 |
 | `template` | 可选，liudungeon 动态世界模板。填写且模板存在时动态创建独立竞技场世界。 |
 | `radius` | 动态开世界时的区块预热半径。 |
-| `spawn-a` / `spawn-b` | 双方出生坐标与朝向。 |
-| `spawn-spectator` | 旁观出生坐标。 |
+| `spawn-<名>` | 任意数量的命名出生点（`spawn-a` / `spawn-b` / `spawn-c` / `spawn-d`…），坐标为 `x/y/z/yaw/pitch`。 |
+| `spawn-spectator` | 旁观出生坐标（名固定为 `spectator`）。 |
+| `team-a-spawn` / `team-b-spawn` | A / B 队分别使用哪个命名出生点（默认 `a` / `b`），因此可配 3 个以上并自由指定。 |
 
 ## 现场设置坐标
 
 管理员站到目标位置后：
 
 ```
-/guildadmin arena setspawn main a      # 设为 A 方出生点
-/guildadmin arena setspawn main b      # 设为 B 方出生点
-/guildadmin arena setspawn main spec   # 设为旁观点
+/guildadmin arena setspawn main a      # 设为出生点 a
+/guildadmin arena setspawn main b      # 设为出生点 b
+/guildadmin arena setspawn main c      # 设为出生点 c（可任意命名）
+/guildadmin arena setspawn main d
+/guildadmin arena setspawn main spec   # 设为旁观点（spec = spectator）
+/guildadmin arena setteampoint main a c   # A 队使用出生点 c
+/guildadmin arena setteampoint main b d   # B 队使用出生点 d
 ```
 
-会立即写入 `arena.yml` 并热重载。
+会立即写入 `arena.yml` 并热重载。也可在 GUI（竞技场编辑器）里点击「设置命名出生点…」用铁砧输入点名。
+
+> 注意：`setspawn` 才是设出生点；`setworld <id> <世界名>` 设的是**世界**，`setspawn <id> <点名> c/d` 才能保存新的点位。
 
 其它设置：
 
@@ -47,8 +54,9 @@ arenas:
 /guildadmin arena setworld main world_arena
 /guildadmin arena setserver main arena-1
 /guildadmin arena settemplate main guild_arena
+/guildadmin arena setteampoint main a c   # 指定 A 队使用出生点 c
 /guildadmin arena create pvp           # 新建固定坐标场地
-/guildadmin arena info main            # 查看详情
+/guildadmin arena info main            # 查看详情（含全部出生点）
 ```
 
 ## 引用方式

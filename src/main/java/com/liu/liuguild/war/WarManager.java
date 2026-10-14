@@ -1530,7 +1530,8 @@ public final class WarManager implements GuildModule {
             return;
         }
         ArenaDef def = plugin.settings().arena(modeOf(war).arena);
-        Location loc = "A".equals(side) ? def.spawnA.toLocation(world) : def.spawnB.toLocation(world);
+        ArenaDef.Spawn spawn = def.teamSpawn(side);
+        Location loc = (spawn == null ? ("A".equals(side) ? def.spawnA : def.spawnB) : spawn).toLocation(world);
         player.teleport(loc);
     }
 
