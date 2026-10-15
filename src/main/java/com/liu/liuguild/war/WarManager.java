@@ -951,6 +951,11 @@ public final class WarManager implements GuildModule {
         if (war == null) {
             return;
         }
+        // 本服是承办方时状态/比分以本服为准，不让回环或乱序消息倒推状态机。
+        GuildWar self = current;
+        if (self != null && self.id().equals(warId)) {
+            return;
+        }
         war.state(WarState.parse(data.get("state")));
         war.scoreA(parseInt(data.get("sa"), war.scoreA()));
         war.scoreB(parseInt(data.get("sb"), war.scoreB()));
@@ -1270,8 +1275,19 @@ public final class WarManager implements GuildModule {
         if (!plugin.bus().isReady() || !plugin.bus().transfer().available()) {
             return;
         }
-        plugin.bus().setPendingWar(player.getUniqueId(), war.id());
-        plugin.bus().transfer().connect(player, war.hostServer());
+        final UUID uuid = player.getUniqueId();
+        final String host = war.hostServer();
+        final String warId = war.id();
+        // 先异步写「待入场」标记（Redis IO），成功后再回主线程发起代理传送，
+        // 保证玩家抵达承办服时标记已就绪（主线程不做阻塞 Redis）。
+        plugin.async(() -> {
+            plugin.bus().setPendingWar(uuid, warId);
+            plugin.sync(() -> {
+                if (player.isOnline()) {
+                    plugin.bus().transfer().connect(player, host);
+                }
+            });
+        });
     }
 
     // =====================================================================
@@ -1892,22 +1908,45 @@ public final class WarManager implements GuildModule {
                 plugin.messages().send(player, "war-transfer-failed");
                 return;
             }
-            plugin.bus().setPendingWar(player.getUniqueId(), war.id());
-            if (!plugin.bus().transfer().connect(player, war.hostServer())) {
-                plugin.messages().send(player, "war-transfer-failed");
-            } else {
-                plugin.messages().send(player, "war-joined");
-            }
+            final UUID uuid = player.getUniqueId();
+            final String host = war.hostServer();
+            final String warId = war.id();
+            // 跟加入提示保持同步：先异步写待入场标记，再回主线程发起传送。
+            plugin.async(() -> {
+                plugin.bus().setPendingWar(uuid, warId);
+                plugin.sync(() -> {
+                    if (!player.isOnline()) {
+                        return;
+                    }
+                    if (!plugin.bus().transfer().connect(player, host)) {
+                        plugin.messages().send(player, "war-transfer-failed");
+                    } else {
+                        plugin.messages().send(player, "war-joined");
+                    }
+                });
+            });
         }
     }
 
     /** 玩家进入承办服后由监听器调用，消费待处理工会战。 */
     public void onPlayerJoinServer(Player player) {
-        String warId = plugin.bus().consumePendingWar(player.getUniqueId());
-        GuildWar war = current;
-        if (warId != null && war != null && war.id().equals(warId)) {
-            joinLocal(player, war);
-        }
+        final UUID uuid = player.getUniqueId();
+        // 消费标记是 Redis IO，放异步；拿到后再回主线程入队，避免卡主线程。
+        plugin.async(() -> {
+            String warId = plugin.bus().consumePendingWar(uuid);
+            if (warId == null) {
+                return;
+            }
+            plugin.sync(() -> {
+                if (!player.isOnline()) {
+                    return;
+                }
+                GuildWar war = current;
+                if (war != null && war.id().equals(warId)) {
+                    joinLocal(player, war);
+                }
+            });
+        });
     }
 
     private void joinLocal(Player player, GuildWar war) {
