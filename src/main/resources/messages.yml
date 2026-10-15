@@ -387,7 +387,7 @@ zh_CN:
   war-history-line: "<gray>- 对阵 <white>{enemy}</white>　比分 <yellow>{self}</yellow> : <yellow>{opp}</yellow>　结果 <white>{result}</white>"
 
   # ---- 数据导入 ----
-  import-usage: "<red>用法：<white>/guildadmin import <sql文件路径></white>"
+  import-usage: "<red>用法：<white>/guildadmin import <sql文件路径> [force|--force]</white>"
   import-started: "<yellow>开始导入数据，请稍候…"
   import-file-missing: "<red>找不到文件：<white>{file}</white>"
   import-done: "<green>{summary}"

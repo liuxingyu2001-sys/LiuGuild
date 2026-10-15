@@ -61,7 +61,7 @@
 | `/guildadmin reload` | 重载全部配置与模块 |
 | `/guildadmin status` | **详细运行状态**（存储、跨服、工会、队列、场地、钩子、模块） |
 | `/guildadmin gui` | 打开管理面板 GUI |
-| `/guildadmin import <sql文件>` | 导入旧版 PlayerGuild 数据（见 [import.md](import.md)） |
+| `/guildadmin import <sql文件> [force]` | 导入旧版 PlayerGuild 数据（见 [import.md](import.md)） |
 | `/guildadmin arena list` | 竞技场列表 |
 | `/guildadmin arena info <id>` | 竞技场详情 |
 | `/guildadmin arena setspawn <id> <a\|b\|spec>` | **把当前所站位置设为出生点** |

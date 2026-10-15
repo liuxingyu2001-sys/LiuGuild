@@ -137,6 +137,49 @@ class GuildRepositoryTest {
         assertEquals(1, warehouse.loadSnapshot(g.id()).items().size());
     }
 
+    @Test
+    void forceImportReplacesMappedDataAndRosterButPreservesIdentity() throws Exception {
+        Guild original = guild(UUID.randomUUID().toString(), "Import", "IMP");
+        var oldLeader = new GuildMember(original.leaderUuid(), "Old", original.id(), GuildRank.LEADER, 1, 0, 0, 0);
+        repo.insertGuildWithLeader(original, oldLeader);
+        var warehouse = new com.liu.liuguild.warehouse.WarehouseRepository(db);
+        var snapshot = warehouse.loadSnapshot(original.id());
+        assertTrue(warehouse.save(original.id(), snapshot.version(), java.util.Map.of(0,
+                new com.liu.liuguild.warehouse.WarehouseRepository.Stored("preserved", 12))));
+        Guild incoming = guild(UUID.randomUUID().toString(), "import", "NEW");
+        incoming.points(4321);
+        incoming.bank(987);
+        var leader = new GuildMember(incoming.leaderUuid(), "New", incoming.id(), GuildRank.LEADER, 2, 3, 4, 5);
+        assertEquals(-1, repo.importGuild(incoming, java.util.List.of(leader), false));
+        assertEquals(1, repo.importGuild(incoming, java.util.List.of(leader), true));
+        Guild saved = repo.loadGuild(original.id());
+        assertEquals("IMP", saved.tag());
+        assertEquals(4321, saved.points());
+        assertEquals(987, saved.bank());
+        assertEquals(incoming.leaderUuid(), saved.leaderUuid());
+        org.junit.jupiter.api.Assertions.assertNull(repo.loadGuild(incoming.id()));
+        assertEquals(leader.uuid(), repo.loadMembers(original.id()).get(0).uuid());
+        assertEquals(1, repo.importGuild(incoming, java.util.List.of(leader), true));
+        assertEquals(1, repo.loadMembers(original.id()).size());
+        assertEquals(12, warehouse.loadSnapshot(original.id()).items().get(0).amount());
+    }
+
+    @Test
+    void forceImportRejectsLeaderInAnotherGuildWithoutChangingExistingData() throws Exception {
+        Guild original = guild(UUID.randomUUID().toString(), "Target", "TAR");
+        var oldLeader = new GuildMember(original.leaderUuid(), "Old", original.id(), GuildRank.LEADER, 1, 0, 0, 0);
+        repo.insertGuildWithLeader(original, oldLeader);
+        Guild other = guild(UUID.randomUUID().toString(), "OtherImport", "OTH");
+        repo.insertGuildWithLeader(other, new GuildMember(other.leaderUuid(), "Other", other.id(), GuildRank.LEADER, 1, 0, 0, 0));
+        Guild incoming = guild(UUID.randomUUID().toString(), "Target", "NEW");
+        var conflicting = new GuildMember(other.leaderUuid(), "Conflict", incoming.id(), GuildRank.LEADER, 1, 0, 0, 0);
+        incoming.leaderUuid(other.leaderUuid());
+        assertThrows(java.sql.SQLException.class, () -> repo.importGuild(incoming, java.util.List.of(conflicting), true));
+        assertEquals(original.leaderUuid(), repo.loadGuild(original.id()).leaderUuid());
+        assertEquals(oldLeader.uuid(), repo.loadMembers(original.id()).get(0).uuid());
+        assertEquals(1, repo.loadMembers(other.id()).size());
+    }
+
     /** 重复调用 init()（相当于重启）不应因索引已存在而报错/告警。 */
     @Test
     void reInitIsIdempotentAndDoesNotFailOnExistingIndexes() throws Exception {

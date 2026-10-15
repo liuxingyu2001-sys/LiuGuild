@@ -151,6 +151,67 @@ public final class GuildRepository {
         }
     }
 
+    /** 导入一个完整工会；强制模式只覆盖同名工会的映射字段和成员，保留空间等附属数据。 */
+    public int importGuild(Guild guild, List<GuildMember> members, boolean force) throws SQLException {
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                String existingId = null;
+                try (var ps = c.prepareStatement("SELECT `guild_id` FROM `" + db.t("guilds")
+                        + "` WHERE LOWER(`name`)=LOWER(?)" + (db.isSqlite() ? "" : " FOR UPDATE"))) {
+                    ps.setString(1, guild.name());
+                    try (var rs = ps.executeQuery()) { if (rs.next()) existingId = rs.getString(1); }
+                }
+                if (existingId != null && !force) { c.rollback(); return -1; }
+                String id = existingId == null ? guild.id() : existingId;
+                List<GuildMember> accepted = new ArrayList<>();
+                java.util.Set<UUID> seen = new java.util.HashSet<>();
+                for (GuildMember member : members) {
+                    if (!seen.add(member.uuid())) continue;
+                    try (var ps = c.prepareStatement("SELECT `guild_id` FROM `" + db.t("guild_members") + "` WHERE `player_uuid`=?")) {
+                        ps.setString(1, member.uuid().toString());
+                        try (var rs = ps.executeQuery()) {
+                            if (rs.next() && !id.equals(rs.getString(1))) continue;
+                        }
+                    }
+                    accepted.add(member);
+                }
+                if (accepted.stream().noneMatch(m -> m.uuid().equals(guild.leaderUuid())))
+                    throw new SQLException("导入会长已属于其他工会，拒绝覆盖");
+                if (existingId == null) {
+                    guild.memberCount(accepted.size());
+                    try (var ps = c.prepareStatement("INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                        bindGuild(ps, guild); ps.executeUpdate();
+                    }
+                } else {
+                    try (var ps = c.prepareStatement("UPDATE `" + db.t("guilds") + "` SET `leader_uuid`=?,`leader_name`=?,`description`=?,`icon_data`=?,`open`=?,`created_at`=?,`updated_at`=?,`points`=?,`level`=?,`bank`=?,`member_count`=? WHERE `guild_id`=?")) {
+                        ps.setString(1, guild.leaderUuid().toString()); ps.setString(2, guild.leaderName());
+                        ps.setString(3, guild.description()); ps.setString(4, guild.iconData()); ps.setInt(5, guild.open() ? 1 : 0);
+                        ps.setLong(6, guild.createdAt()); ps.setLong(7, guild.updatedAt()); ps.setLong(8, guild.points());
+                        ps.setInt(9, guild.level()); ps.setLong(10, guild.bank()); ps.setInt(11, accepted.size());
+                        ps.setString(12, id); ps.executeUpdate();
+                    }
+                    try (var ps = c.prepareStatement("DELETE FROM `" + db.t("guild_members") + "` WHERE `guild_id`=?")) {
+                        ps.setString(1, id); ps.executeUpdate();
+                    }
+                }
+                try (var ps = c.prepareStatement("INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`,`last_checkin`,`checkin_streak`) VALUES (?,?,?,?,?,?,?,?,?,?)")) {
+                    for (GuildMember member : accepted) {
+                        bindMember(ps, member); ps.setString(3, id);
+                        ps.setString(4, member.uuid().equals(guild.leaderUuid()) ? GuildRank.LEADER.name()
+                                : member.rank() == GuildRank.LEADER ? GuildRank.MEMBER.name() : member.rank().name());
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+                c.commit();
+                return accepted.size();
+            } catch (SQLException e) {
+                c.rollback(); throw e;
+            } finally { c.setAutoCommit(true); }
+        }
+    }
+
     public void updateGuild(Guild g) throws SQLException {
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(guildUpdateSql())) {

@@ -29,7 +29,7 @@ import java.util.UUID;
  *   <li>{@code join_mode=0} → 开放加入；{@code create_time} → 创建时间；</li>
  *   <li>{@code guild_player.role_id}：1=会长 / 2=副会长 / 其它=成员；{@code total_money} → 贡献；{@code kill/die} → 战绩。</li>
  * </ul>
- * 幂等：已存在的工会名会被跳过，已在其它工会的玩家会被跳过。</p>
+ * 默认跳过同名工会；显式强制时覆盖映射字段及成员，跨工会玩家不迁移。</p>
  */
 public final class PlayerguildImporter {
 
@@ -74,6 +74,10 @@ public final class PlayerguildImporter {
     }
 
     public ImportResult importFile(Path file) throws Exception {
+        return importFile(file, false);
+    }
+
+    public ImportResult importFile(Path file, boolean force) throws Exception {
         String sql = Files.readString(file, StandardCharsets.UTF_8);
         List<List<String>> guildRows = SqlDump.rows(sql, "guild_info");
         List<List<String>> memberRows = SqlDump.rows(sql, "guild_player");
@@ -85,7 +89,6 @@ public final class PlayerguildImporter {
         // 先按现有工会名去重
         Set<String> usedNames = new HashSet<>();
         Set<String> usedTags = new HashSet<>();
-        Map<Integer, Guild> created = new HashMap<>();
         int guildCount = 0;
         int memberCount = 0;
         int skippedGuilds = 0;
@@ -93,7 +96,7 @@ public final class PlayerguildImporter {
 
         for (SrcGuild src : guilds) {
             String name = sanitizeName(src.name);
-            if (name == null || usedNames.contains(name.toLowerCase(Locale.ROOT)) || plugin.repo().nameTaken(name)) {
+            if (name == null || usedNames.contains(name.toLowerCase(Locale.ROOT)) || (!force && plugin.repo().nameTaken(name))) {
                 skippedGuilds++;
                 continue;
             }
@@ -125,41 +128,30 @@ public final class PlayerguildImporter {
                     src.createdAt, System.currentTimeMillis(), src.prosperity, Math.max(1, src.level),
                     0, 0, src.money, plugin.serverId(), members.size(), plugin.settings().guild.defaultIcon);
             g.iconData(src.logo);
+            List<GuildMember> importedMembers = new ArrayList<>();
+            for (SrcMember m : members) {
+                importedMembers.add(new GuildMember(m.uuid, m.name, g.id(), m.rank,
+                        m.joinedAt, m.contributed, m.kills, m.deaths));
+            }
             try {
-                plugin.repo().insertGuild(g);
+                int count = plugin.repo().importGuild(g, importedMembers, force);
+                if (count < 0) { skippedGuilds++; continue; }
+                memberCount += count;
+                skippedMembers += members.size() - count;
             } catch (Exception e) {
                 warnings.add("工会「" + name + "」写入失败: " + e.getMessage());
                 skippedGuilds++;
                 continue;
             }
-            created.put(src.id, g);
             usedNames.add(name.toLowerCase(Locale.ROOT));
             usedTags.add(tag.toLowerCase(Locale.ROOT));
             guildCount++;
-
-            for (SrcMember src2 : members) {
-                if (src2.uuid == null) {
-                    skippedMembers++;
-                    continue;
-                }
-                if (src2.uuid.equals(leaderUuid)) {
-                    src2.rank = GuildRank.LEADER;
-                }
-                GuildMember member = new GuildMember(src2.uuid, src2.name, g.id(), src2.rank,
-                        src2.joinedAt, src2.contributed, src2.kills, src2.deaths);
-                try {
-                    if (plugin.repo().insertMember(member)) {
-                        memberCount++;
-                    } else {
-                        skippedMembers++;
-                    }
-                } catch (Exception e) {
-                    skippedMembers++;
-                }
-            }
         }
 
         plugin.guilds().reloadAll();
+        for (Guild guild : plugin.repo().loadGuilds()) {
+            if (usedNames.contains(guild.name().toLowerCase(Locale.ROOT))) plugin.broadcastGuildChange(guild.id());
+        }
         return new ImportResult(guildCount, memberCount, skippedGuilds, skippedMembers, warnings);
     }
 

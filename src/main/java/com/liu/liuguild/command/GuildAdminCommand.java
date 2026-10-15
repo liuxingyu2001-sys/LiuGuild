@@ -122,7 +122,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "reload", "重载全部配置与模块");
         adminLine(sender, "status", "查看详细运行状态");
         adminLine(sender, "gui", "打开管理面板");
-        adminLine(sender, "import <sql文件>", "导入 PlayerGuild 数据");
+        adminLine(sender, "import <sql文件> [force]", "导入 PlayerGuild 数据，force 覆盖同名工会");
         adminLine(sender, "arena setspawn <id> <点名>", "设出生点（点名任意：a/b/c/d/spec…）");
         adminLine(sender, "arena setteampoint <id> <a|b> <点名>", "指定 A/B 队用哪个出生点");
         adminLine(sender, "arena setworld|setserver|settemplate", "设置世界/承办服/模板");
@@ -577,7 +577,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
     // =====================================================================
 
     private void importData(CommandSender sender, String[] args) {
-        if (args.length < 2) {
+        if (args.length < 2 || args.length > 3 || (args.length == 3
+                && !args[2].equalsIgnoreCase("force") && !args[2].equalsIgnoreCase("--force"))) {
             plugin.messages().send(sender, "import-usage");
             return;
         }
@@ -596,7 +597,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         plugin.messages().send(sender, "import-started");
         plugin.async(() -> {
             try {
-                var result = plugin.importer().importFile(target.toPath());
+                var result = plugin.importer().importFile(target.toPath(), args.length == 3);
                 plugin.sync(() -> plugin.messages().send(sender, "import-done", "summary", result.summary()));
                 result.warnings().forEach(w -> plugin.getLogger().warning("[import] " + w));
             } catch (Exception e) {
@@ -1001,6 +1002,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             if (sub.equals("war") && args[1].equalsIgnoreCase("start")) {
                 return startsWith(new ArrayList<>(plugin.settings().war.modes.keySet()), args[2]);
             }
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("import")) {
+            return startsWith(List.of("force", "--force"), args[2]);
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("overrides") && args[1].equalsIgnoreCase("clear")) {
             List<String> options = new ArrayList<>(List.of("all"));
