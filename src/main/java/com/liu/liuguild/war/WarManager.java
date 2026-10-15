@@ -1590,10 +1590,11 @@ public final class WarManager implements GuildModule {
         // 平局时两方均按参与奖励结算，不发胜利称号。
         boolean aWon = winnerId != null && winnerId.equals(war.guildA());
         boolean bWon = winnerId != null && winnerId.equals(war.guildB());
+        boolean draw = winnerId == null || winnerId.isBlank();
         long nominalA = wonGuildFunds(aWon, w, mult);
         long nominalB = wonGuildFunds(bWon, w, mult);
-        long fundsA = rewardGuild(plugin.guilds().guild(war.guildA()), aWon, w, mult);
-        long fundsB = rewardGuild(plugin.guilds().guild(war.guildB()), bWon, w, mult);
+        long fundsA = rewardGuild(plugin.guilds().guild(war.guildA()), aWon, draw, w, mult);
+        long fundsB = rewardGuild(plugin.guilds().guild(war.guildB()), bWon, draw, w, mult);
         for (UUID u : new ArrayList<>(war.rosterA())) {
             settleQueue.add(() -> rewardPlayer(u, aWon, w, mult, fundsA, nominalA));
         }
@@ -1607,16 +1608,19 @@ public final class WarManager implements GuildModule {
      *
      * @return 实际（预计）发放的点数，用于结算消息展示
      */
-    private long rewardGuild(Guild guild, boolean won, WarMode mode, double multiplier) {
+    private long rewardGuild(Guild guild, boolean won, boolean draw, WarMode mode, double multiplier) {
         if (guild == null) {
             return 0;
         }
         long nominal = wonGuildFunds(won, mode, multiplier);
         long granted = plugin.guilds().grantWarFunds(guild, nominal, mode.dailyGuildFundsCap);
-        if (won) {
-            guild.wins(guild.wins() + 1);
-        } else {
-            guild.losses(guild.losses() + 1);
+        // 平局不计入胜/负，避免双方损失数被平局虚增；胜负记录只在有明确胜者时更新。
+        if (!draw) {
+            if (won) {
+                guild.wins(guild.wins() + 1);
+            } else {
+                guild.losses(guild.losses() + 1);
+            }
         }
         plugin.guilds().saveGuild(guild);
         return granted;
@@ -1795,7 +1799,10 @@ public final class WarManager implements GuildModule {
     /** 工会被解散时：若其正在进行工会战，则取消该场战斗。 */
     public void onGuildDisbanded(String guildId) {
         GuildWar war = current;
-        if (war != null && (guildId.equals(war.guildA()) || guildId.equals(war.guildB()))) {
+        // 结算阶段（SETTLING）胜负与工会奖励已生效，解散不应把已结束的战斗重新取消、
+        // 否则会丢掉历史记录与还没发完的玩家奖励。
+        if (war != null && war.state().isLive() && war.state() != WarState.SETTLING
+                && (guildId.equals(war.guildA()) || guildId.equals(war.guildB()))) {
             cancelWar(war, "war-guild-disbanded");
         }
         localQueue.remove(guildId);
