@@ -1964,16 +1964,19 @@ public final class WarManager implements GuildModule {
         }
         Set<UUID> roster = "A".equals(s) ? war.rosterA() : war.rosterB();
         WarMode mode = modeOf(war);
+        if (roster.contains(player.getUniqueId())) {
+            return; // 已在名单：幂等返回，避免重复提示“已满”
+        }
         if (roster.size() >= mode.teamSize) {
             if (mode.allowSpectators) {
-                spectateLocal(player, war);
-                plugin.messages().send(player, "war-spectate");
+                if (spectateLocal(player, war)) {
+                    plugin.messages().send(player, "war-spectate");
+                } else {
+                    plugin.messages().send(player, "join-full", "guild", guild.name());
+                }
             } else {
                 plugin.messages().send(player, "join-full", "guild", guild.name());
             }
-            return;
-        }
-        if (roster.contains(player.getUniqueId())) {
             return;
         }
         if (war.state() == WarState.ACTIVE || war.state() == WarState.SETTLING) {
@@ -2013,16 +2016,19 @@ public final class WarManager implements GuildModule {
             plugin.messages().send(player, "war-not-in-war");
             return;
         }
-        spectateLocal(player, war);
-        plugin.messages().send(player, "war-spectate");
+        if (spectateLocal(player, war)) {
+            plugin.messages().send(player, "war-spectate");
+        } else {
+            plugin.messages().send(player, "war-spectate-disabled");
+        }
     }
 
-    private void spectateLocal(Player player, GuildWar war) {
+    private boolean spectateLocal(Player player, GuildWar war) {
         if (player == null || !player.isOnline() || localSnap.containsKey(player.getUniqueId())
                 || spectators.contains(player.getUniqueId()) || sideOf.containsKey(player.getUniqueId())
-                || !modeOf(war).allowSpectators || !war.state().isLive()) return;
+                || !modeOf(war).allowSpectators || !war.state().isLive()) return false;
         World world = arenaWorld();
-        if (world == null) return;
+        if (world == null) return false;
         spectators.add(player.getUniqueId());
         returnLoc.putIfAbsent(player.getUniqueId(), player.getLocation().clone());
         player.closeInventory();
@@ -2038,6 +2044,7 @@ public final class WarManager implements GuildModule {
             warTeleport(player, target);
             showWarBar(player.getUniqueId());
         });
+        return true;
     }
 
     private void leaveLocal(UUID uuid) {
@@ -2188,6 +2195,7 @@ public final class WarManager implements GuildModule {
             sideOf.remove(uuid);
             spectators.remove(uuid);
             returnLoc.remove(uuid);
+            livesRemaining.remove(uuid);
             if (war != null) {
                 war.rosterA().remove(uuid);
                 war.rosterB().remove(uuid);
@@ -2225,6 +2233,7 @@ public final class WarManager implements GuildModule {
                     sideOf.remove(uuid);
                     spectators.remove(uuid);
                     returnLoc.remove(uuid);
+                    livesRemaining.remove(uuid);
                     if (war != null) {
                         war.rosterA().remove(uuid);
                         war.rosterB().remove(uuid);
@@ -2435,6 +2444,8 @@ public final class WarManager implements GuildModule {
         // 交还统一装备并送回原位
         Player p = plugin.player(uuid);
         if (p != null) {
+            // 必须解冻：否则 frozen 残留会让 WarListener 持续拦截该玩家的背包/移动/指令。
+            unfreezePlayer(p);
             p.setWalkSpeed(0.2f);
             p.setFlySpeed(0.1f);
             p.setInvulnerable(false);

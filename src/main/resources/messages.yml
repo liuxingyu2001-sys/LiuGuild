@@ -151,6 +151,7 @@ zh_CN:
   war-not-in-war: "<red>你的工会当前没有工会战。"
   war-joined: "<green>你已加入出战名单，进入竞技场。"
   war-spectate: "<gray>你以旁观者身份进入竞技场。"
+  war-spectate-disabled: "<red>本场工会战未开放旁观，或你已在战斗中。"
   war-arena-failed: "<red>竞技场准备失败，工会战已取消。"
   war-transfer-failed: "<red>跨服传送失败，请稍后重试。"
   war-no-participants: "<red>本场工会战至少需要双方各有一名参赛者，比赛已取消。"
