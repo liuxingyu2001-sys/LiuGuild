@@ -20,6 +20,7 @@ public final class Settings {
 
     public final MainSettings main;
     public final GuildSettings guild;
+    public final WarehouseSettings warehouse;
     public final WarSettings war;
     public final WarModeSettings warModes;
     public final ArenaSettings arenas;
@@ -28,7 +29,8 @@ public final class Settings {
     public final IconSettings icons;
 
     public Settings(MainSettings main, GuildSettings guild, WarSettings war, WarModeSettings warModes,
-                    ArenaSettings arenas, KitSettings kit, GuiSettings gui, IconSettings icons) {
+                    ArenaSettings arenas, KitSettings kit, GuiSettings gui, IconSettings icons, WarehouseSettings warehouse) {
+        this.warehouse = warehouse;
         this.main = main;
         this.guild = guild;
         this.war = war;

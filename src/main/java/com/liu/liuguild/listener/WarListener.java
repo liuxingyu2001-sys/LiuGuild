@@ -209,6 +209,31 @@ public final class WarListener implements GuildModule, Listener {
         plugin.messages().send(player, "war-command-blocked");
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCaptureClick(org.bukkit.event.inventory.InventoryClickEvent event) {
+        if (plugin.war().isCapturing(event.getWhoClicked().getUniqueId())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCaptureDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
+        if (plugin.war().isCapturing(event.getWhoClicked().getUniqueId())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCapturePickup(org.bukkit.event.entity.EntityPickupItemEvent event) {
+        if (plugin.war().isCapturing(event.getEntity().getUniqueId())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCaptureDamage(EntityDamageEvent event) {
+        if (plugin.war().isCapturing(event.getEntity().getUniqueId())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCaptureSwap(org.bukkit.event.player.PlayerSwapHandItemsEvent event) {
+        if (plugin.war().isCapturing(event.getPlayer().getUniqueId())) event.setCancelled(true);
+    }
+
     /** 判断工会战期间是否放行该指令。 */
     public static boolean isAllowedWarCommand(String label, String[] parts) {
         if (label == null || label.isEmpty()) {

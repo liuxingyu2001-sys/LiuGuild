@@ -218,7 +218,7 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("count", String.valueOf(guilds.size()));
         Holder holder = new Holder("list", self == null ? "" : self.id(), page);
         Inventory inv = create(holder, def, ph, player);
-        int perPage = def.rows * 9 - 9;
+        int perPage = Math.max(1, (def.rows - 2) * 7);
         int from = Math.max(0, page * perPage);
         for (int i = 0; i < perPage && from + i < guilds.size(); i++) {
             Guild g = guilds.get(from + i);
@@ -234,8 +234,9 @@ public final class GuiManager implements GuildModule, Listener {
                 meta.lore(lore);
                 item.setItemMeta(meta);
             }
-            inv.setItem(i, item);
-            holder.actions.put(i, "list_entry:" + g.id());
+            int slot = def.rows >= 3 ? 10 + (i / 7) * 9 + i % 7 : i;
+            inv.setItem(slot, item);
+            holder.actions.put(slot, "list_entry:" + g.id());
         }
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
             if ("create".equals(e.getKey()) && self != null) {
@@ -632,7 +633,14 @@ public final class GuiManager implements GuildModule, Listener {
 
     private void openShopPage(Player player, Guild own, List<ShopListing> listings,
                               String holderId, boolean ownShop) {
-        Holder holder = new Holder(holderId, own == null ? "" : own.id(), 0);
+        openShopPage(player, own, listings, holderId, ownShop, 0);
+    }
+
+    private void openShopPage(Player player, Guild own, List<ShopListing> listings,
+                              String holderId, boolean ownShop, int page) {
+        int maxPage = Math.max(0, (listings.size() - 1) / 28);
+        page = Math.max(0, Math.min(page, maxPage));
+        Holder holder = new Holder(holderId, own == null ? "" : own.id(), page);
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("guild", own == null ? "" : own.name());
         Inventory inv = simpleInventory(player, holder, 6,
@@ -642,11 +650,10 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(22, GuiUtil.build(player, "CHEST", "CHEST",
                     "<gray>这里还没有任何商品", List.of(), Map.of(), null));
         }
-        int slot = 0;
-        for (ShopListing l : listings) {
-            if (slot >= 45) {
-                break;
-            }
+        int index = 0;
+        for (ShopListing l : listings.subList(Math.min(page * 28, listings.size()), Math.min((page + 1) * 28, listings.size()))) {
+            int slot = 10 + (index / 7) * 9 + index % 7;
+            index++;
             ItemStack icon = l.preview();
             if (icon == null) {
                 continue;
@@ -656,9 +663,6 @@ public final class GuiManager implements GuildModule, Listener {
             List<String> lore = new ArrayList<>();
             lore.add("<gray>售价：<white>" + plugin.economy().format(l.price()) + " <gray>/件");
             lore.add("<gray>库存：<white>" + l.stock() + " <gray>件");
-            if (l.buying()) {
-                lore.add("<gray>工会收购价：<white>" + plugin.economy().format(l.buyPrice()));
-            }
             if (!ownShop && owner != null) {
                 lore.add("<gray>出售方：<white>" + owner.name());
             }
@@ -668,15 +672,11 @@ public final class GuiManager implements GuildModule, Listener {
             if (mine && ownShop && plugin.shop().canManage(own, player)) {
                 lore.add("<yellow>Shift+左键改价");
                 lore.add("<red>Shift+右键下架");
-                if (l.buying()) {
-                    lore.add("<green>右键向工会供货");
-                }
             }
             inv.setItem(slot, GuiUtil.build(player, l.preview().getType().name(),
                     l.preview().getType().name(), "<white>" + plugin.shop().itemName(l.preview()) + " <dark_gray>x" + l.stock(),
                     lore, Map.of(), null));
             holder.actions.put(slot, "shop_buy:" + l.id());
-            slot++;
         }
 
         // 底排
@@ -692,10 +692,13 @@ public final class GuiManager implements GuildModule, Listener {
         } else {
             inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回本会商店",
                     List.of(), Map.of(), null));
-            holder.actions.put(49, "shop:open");
+            holder.actions.put(49, own == null ? "back:main" : "shop:open");
         }
-        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
-        holder.actions.put(53, "back:main");
+        inv.setItem(50, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回主页", List.of(), Map.of(), null));
+        holder.actions.put(50, "back:main");
+        put(inv, holder, 51, player, "PAPER", "<white>第 " + (page + 1) + " / " + (maxPage + 1) + " 页", List.of(), "none");
+        if (page > 0) put(inv, holder, 45, player, "ARROW", "<white>上一页", List.of(), "page_" + holderId + ":" + (page - 1));
+        if (page < maxPage) put(inv, holder, 53, player, "ARROW", "<white>下一页", List.of(), "page_" + holderId + ":" + (page + 1));
         player.openInventory(inv);
     }
 
@@ -734,47 +737,33 @@ public final class GuiManager implements GuildModule, Listener {
                     openShop(player, g);
                     return;
                 }
-                requestText(player, "shop-prompt-buy-price", buyStr -> {
-                    long buy = NumberUtil.toLong(buyStr.trim(), -1);
-                    if (buy < 0) {
-                        plugin.messages().send(player, "shop-invalid-number");
-                        openShop(player, g);
-                        return;
-                    }
-                    plugin.shop().updatePrices(g, l, price, buy);
-                    plugin.messages().send(player, "shop-price-updated",
-                            "item", plugin.shop().itemName(l.preview()),
-                            "price", plugin.economy().format(price),
-                            "buy_price", plugin.economy().format(buy));
-                    openShop(player, g);
-                });
+                plugin.shop().updatePrices(g, l, price, 0);
+                plugin.messages().send(player, "shop-price-updated",
+                        "item", plugin.shop().itemName(l.preview()),
+                        "price", plugin.economy().format(price));
+                openShop(player, g);
             });
             return;
         }
         if (right) {
-            // 右键：本会成员向工会供货（工会必须设了收购价）
-            requestText(player, "shop-prompt-amount", amtStr -> {
-                int amount = NumberUtil.toInt(amtStr.trim(), -1);
-                if (amount <= 0) {
-                    plugin.messages().send(player, "shop-amount-invalid");
-                    openShop(player, g);
-                    return;
-                }
-                plugin.shop().supply(g, player, l, amount, () -> openShop(player, g));
-            });
+            plugin.messages().send(player, "shop-not-buying");
             return;
         }
         // 左键购买：输入数量
         final Guild shopGuild = g;
+        final boolean ownShop = g != null && g.id().equals(l.guildId());
+        Runnable refresh = () -> {
+            if (ownShop) openShop(player, shopGuild);
+            else openShopAll(player);
+        };
         requestText(player, "shop-prompt-amount", amtStr -> {
             int amount = NumberUtil.toInt(amtStr.trim(), -1);
             if (amount <= 0) {
                 plugin.messages().send(player, "shop-amount-invalid");
-                openShopPage(player, shopGuild, plugin.shop().listingsOf(l.guildId()),
-                        "shop", true);
+                refresh.run();
                 return;
             }
-            plugin.shop().buy(player, shopGuild, l, amount, () -> openShop(player, shopGuild));
+            plugin.shop().buy(player, shopGuild, l, amount, refresh);
         });
     }
 
@@ -859,6 +848,8 @@ public final class GuiManager implements GuildModule, Listener {
                     openMain(player);
                 }
             }
+            case "funds" -> openFunds(player);
+            case "funds:donate" -> donateFunds(player);
             case "bank" -> bankAction(player, g, clickRight);
             case "guild:warehouse" -> {
                 if (g == null) {
@@ -1205,25 +1196,17 @@ public final class GuiManager implements GuildModule, Listener {
                             openShop(player, shopGuild);
                             return;
                         }
-                        requestText(player, "shop-prompt-buy-price", buyStr -> {
-                            long buy = NumberUtil.toLong(buyStr.trim(), -1);
-                            if (buy < 0) {
-                                plugin.messages().send(player, "shop-invalid-number");
-                                openShop(player, shopGuild);
-                                return;
-                            }
-                            String err = plugin.shop().addListing(shopGuild, player, sample, amount, price, buy);
-                            if (err != null) {
-                                plugin.messages().send(player, err,
-                                        "max", String.valueOf(plugin.settings().guild.shopMaxListings));
-                            } else {
-                                plugin.messages().send(player, "shop-listed",
-                                        "item", plugin.shop().itemName(sample),
-                                        "amount", String.valueOf(amount),
-                                        "price", plugin.economy().format(price));
-                            }
-                            openShop(player, shopGuild);
-                        });
+                        String err = plugin.shop().addListing(shopGuild, player, sample, amount, price, 0);
+                        if (err != null) {
+                            plugin.messages().send(player, err,
+                                    "max", String.valueOf(plugin.settings().guild.shopMaxListings));
+                        } else {
+                            plugin.messages().send(player, "shop-listed",
+                                    "item", plugin.shop().itemName(sample),
+                                    "amount", String.valueOf(amount),
+                                    "price", plugin.economy().format(price));
+                        }
+                        openShop(player, shopGuild);
                     });
                 }
                 case "all" -> openShopAll(player);
@@ -1236,6 +1219,12 @@ public final class GuiManager implements GuildModule, Listener {
                 plugin.war().queue(player, g, action.substring("war_queue:".length()));
                 openWar(player, g);
             }
+        } else if (action.startsWith("page_shop_all:")) {
+            openShopPage(player, g, plugin.shop().all(), "shop_all", false,
+                    Integer.parseInt(action.substring("page_shop_all:".length())));
+        } else if (action.startsWith("page_shop:")) {
+            if (g != null) openShopPage(player, g, plugin.shop().listingsOf(g.id()), "shop", true,
+                    Integer.parseInt(action.substring("page_shop:".length())));
         } else if (action.startsWith("page_members:")) {
             openMembers(player, g, Integer.parseInt(action.substring("page_members:".length())));
         } else if (action.startsWith("page_list:")) {
@@ -1807,6 +1796,7 @@ public final class GuiManager implements GuildModule, Listener {
         for (int i = 0; i < inv.getSize(); i++) {
             inv.setItem(i, filler);
         }
+        put(inv, holder, inv.getSize() - 5, viewer, "ARROW", "<white>返回主页", List.of(), "back:main");
         return inv;
     }
 
@@ -2027,6 +2017,58 @@ public final class GuiManager implements GuildModule, Listener {
         }
     }
 
+    public void openFunds(Player player) {
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) { plugin.messages().send(player, "not-in-guild"); return; }
+        plugin.async(() -> {
+            try {
+                long balance = new com.liu.liuguild.db.PersonalFundsRepository(plugin.db()).balance(player.getUniqueId());
+                plugin.sync(() -> {
+                    if (!player.isOnline()) return;
+                    Holder holder = new Holder("funds", g.id(), 0);
+                    Inventory inv = simpleInventory(player, holder, 3, "<gold>资金与金币", Map.of());
+                    put(inv, holder, 11, player, "EXPERIENCE_BOTTLE", "<green>个人工会资金：" + balance,
+                            List.of("<gray>通过每日签到获得，离会保留", "<yellow>点击捐献给当前工会", "<gray>不可提现、不可兑换金币"), "funds:donate");
+                    put(inv, holder, 13, player, "BEACON", "<gold>公共工会资金：" + g.points(),
+                            List.of("<gray>捐献、工会战与活跃奖励", "<gray>用于工会建设、仓库续期与升级", "<gray>捐献不可撤回，不兑换金币"), "none");
+                    put(inv, holder, 15, player, "GOLD_INGOT", "<yellow>工会金币：" + plugin.economy().format(g.bank()),
+                            List.of("<gray>Vault 金币，与建设资金完全独立", "<gray>来自金币存入和商店销售", "<gray>银行入口：左键存入 / 右键取出"), "bank");
+                    put(inv, holder, 22, player, "ARROW", "<white>返回工会主页", List.of(), "back:main");
+                    player.openInventory(inv);
+                });
+            } catch (java.sql.SQLException e) {
+                plugin.getLogger().warning("查询个人资金失败: " + e.getMessage());
+                plugin.sync(() -> plugin.messages().send(player, "funds-failed"));
+            }
+        });
+    }
+
+    private void donateFunds(Player player) {
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) return;
+        requestText(player, "funds-prompt", text -> {
+            long amount = NumberUtil.toLong(text.trim(), -1);
+            if (amount <= 0) { plugin.messages().send(player, "input-invalid-number"); openFunds(player); return; }
+            plugin.async(() -> {
+                try {
+                    boolean ok = new com.liu.liuguild.db.PersonalFundsRepository(plugin.db())
+                            .donate(player.getUniqueId(), g.id(), amount);
+                    if (ok) {
+                        plugin.guilds().reloadGuild(g.id());
+                        plugin.broadcastGuildChange(g.id());
+                    }
+                    plugin.sync(() -> {
+                        plugin.messages().send(player, ok ? "funds-donated" : "funds-insufficient", "amount", amount);
+                        openFunds(player);
+                    });
+                } catch (java.sql.SQLException e) {
+                    plugin.getLogger().warning("捐献资金失败: " + e.getMessage());
+                    plugin.sync(() -> plugin.messages().send(player, "funds-failed"));
+                }
+            });
+        });
+    }
+
     private void bankAction(Player player, Guild g, boolean withdraw) {
         if (g == null) {
             plugin.messages().send(player, "not-in-guild");
@@ -2149,15 +2191,23 @@ public final class GuiManager implements GuildModule, Listener {
                 inv.setItem(i, filler);
             }
         }
+        String target = switch (holder.menu) {
+            case "main", "noguild" -> "close";
+            case "icons" -> "back:settings";
+            default -> "back:main";
+        };
+        put(inv, holder, inv.getSize() - 5, viewer, "ARROW",
+                "close".equals(target) ? "<white>关闭菜单" : "<white>返回工会主页", List.of(), target);
         return inv;
     }
 
     private void addBack(Inventory inv, Holder holder, MenuDef def, Map<String, String> ph,
                          Player viewer, String target, int page, String menuKey, int total, int perPage) {
-        if (def.back != null) {
-            inv.setItem(clamp(def.back.slot), GuiUtil.fromButton(viewer, def.back, ph));
-            holder.actions.put(clamp(def.back.slot), target);
-        }
+        int backSlot = def.back == null ? inv.getSize() - 5 : Math.min(inv.getSize() - 1, Math.max(0, def.back.slot));
+        inv.setItem(backSlot, def.back == null
+                ? GuiUtil.build(viewer, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null)
+                : GuiUtil.fromButton(viewer, def.back, ph));
+        holder.actions.put(backSlot, target);
         int maxPage = Math.max(0, (total - 1) / perPage);
         if (page > 0) {
             int slot = def.rows * 9 - 9;
@@ -2312,6 +2362,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin_cleanup" -> "admin:cleanup";
             case "admin_verify" -> "admin:verify";
             case "admin_reload" -> "admin:reload";
+            case "funds" -> "funds";
             case "close" -> "close";
             case "help" -> "join_help";
             case "create" -> "list:create";

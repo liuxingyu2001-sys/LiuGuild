@@ -25,6 +25,13 @@ public final class ChatInput implements Listener {
         this.plugin = plugin;
     }
 
+    public void request(Player player, Component prompt, Consumer<String> callback, Runnable onCancel) {
+        cancellations.put(player.getUniqueId(), onCancel);
+        request(player, prompt, callback);
+    }
+
+    private final Map<UUID, Runnable> cancellations = new ConcurrentHashMap<>();
+
     public void request(Player player, Component prompt, Consumer<String> callback) {
         pending.put(player.getUniqueId(), callback);
         player.closeInventory();
@@ -33,6 +40,7 @@ public final class ChatInput implements Listener {
     }
 
     public void cancel(UUID uuid) {
+        cancellations.remove(uuid);
         pending.remove(uuid);
     }
 
@@ -49,8 +57,12 @@ public final class ChatInput implements Listener {
         }
         event.setCancelled(true);
         String message = PlainTextComponentSerializer.plainText().serialize(event.message());
+        Runnable onCancel = cancellations.remove(player.getUniqueId());
         if (message.equalsIgnoreCase("cancel") || message.equalsIgnoreCase("取消")) {
-            plugin.messages().send(player, "input-cancelled");
+            plugin.sync(() -> {
+                plugin.messages().send(player, "input-cancelled");
+                if (onCancel != null) onCancel.run();
+            });
             return;
         }
         plugin.sync(() -> cb.accept(message));
@@ -58,6 +70,7 @@ public final class ChatInput implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        cancellations.remove(event.getPlayer().getUniqueId());
         pending.remove(event.getPlayer().getUniqueId());
     }
 }

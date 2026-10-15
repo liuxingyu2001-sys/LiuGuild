@@ -72,7 +72,7 @@ public final class WarehouseLock {
      *
      * @return 抢到返回 {@link Session}；已被别人占用返回 {@code null}
      */
-    public Session acquire(String guildId, UUID player, String playerName) {
+    public synchronized Session acquire(String guildId, UUID player, String playerName) {
         if (guildId == null || player == null) {
             return null;
         }
@@ -81,6 +81,7 @@ public final class WarehouseLock {
         if (existing != null && existing.player.equals(player)) {
             return existing;
         }
+        if (plugin != null && plugin.settings().main.crossServerEnabled && !crossServer()) return null;
         String token = serverId() + ":" + player + ":" + UUID.randomUUID().toString().substring(0, 8);
         boolean ok;
         if (crossServer()) {
@@ -169,7 +170,8 @@ public final class WarehouseLock {
         for (Map.Entry<String, Session> e : sessions.entrySet()) {
             Session s = e.getValue();
             if (!remote) {
-                continue; // 本地锁无 TTL，不需要续期
+                if (plugin != null && plugin.settings().main.crossServerEnabled) sessions.remove(e.getKey(), s);
+                continue;
             }
             if (!plugin.bus().refreshLock(lockKey(e.getKey()), s.token, TTL_SECONDS)) {
                 // 锁已失效：丢弃会话，避免本地以为自己还持有

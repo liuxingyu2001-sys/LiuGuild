@@ -81,7 +81,7 @@ public final class ShopRepository {
                 ItemCodec.decodeClamped(data),
                 rs.getInt("stock"),
                 rs.getLong("price"),
-                rs.getLong("buy_price"),
+                0, // 历史收购价不再生效
                 seller,
                 rs.getString("seller_name"),
                 rs.getLong("created_at"));
@@ -114,6 +114,65 @@ public final class ShopRepository {
             ps.setLong(2, Math.max(0, buyPrice));
             ps.setString(3, listingId);
             ps.executeUpdate();
+        }
+    }
+
+    /** 库存扣减与卖方金币入账必须同时提交；价格变动时拒绝旧报价。 */
+    public boolean purchase(String id, String guildId, int amount, long unitPrice, long net) throws SQLException {
+        if (amount <= 0 || unitPrice < 0 || net < 0) return false;
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                try (var ps = c.prepareStatement("UPDATE `" + db.t("guild_shop")
+                        + "` SET `stock`=`stock`-? WHERE `listing_id`=? AND `guild_id`=? AND `stock`>=? AND `price`=?")) {
+                    ps.setInt(1, amount);
+                    ps.setString(2, id);
+                    ps.setString(3, guildId);
+                    ps.setInt(4, amount);
+                    ps.setLong(5, unitPrice);
+                    if (ps.executeUpdate() != 1) { c.rollback(); return false; }
+                }
+                try (var ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                        + "` SET `bank`=`bank`+? WHERE `guild_id`=? AND `bank`<=?")) {
+                    ps.setLong(1, net);
+                    ps.setString(2, guildId);
+                    ps.setLong(3, Long.MAX_VALUE - net);
+                    if (ps.executeUpdate() != 1) { c.rollback(); return false; }
+                }
+                c.commit();
+                return true;
+            } catch (SQLException e) {
+                c.rollback();
+                throw e;
+            }
+        }
+    }
+
+    /** 在同一事务里锁定条目、读取真实库存并删除；重复下架不会重复退货。 */
+    public int removeAndTakeStock(String listingId) throws SQLException {
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                try (var lock = c.prepareStatement("UPDATE `" + db.t("guild_shop")
+                        + "` SET `stock`=`stock` WHERE `listing_id`=?")) {
+                    lock.setString(1, listingId);
+                    lock.executeUpdate();
+                }
+                int stock = 0;
+                try (var ps = c.prepareStatement("SELECT `stock` FROM `" + db.t("guild_shop") + "` WHERE `listing_id`=?")) {
+                    ps.setString(1, listingId);
+                    try (var rs = ps.executeQuery()) { if (rs.next()) stock = rs.getInt(1); }
+                }
+                try (var ps = c.prepareStatement("DELETE FROM `" + db.t("guild_shop") + "` WHERE `listing_id`=?")) {
+                    ps.setString(1, listingId);
+                    ps.executeUpdate();
+                }
+                c.commit();
+                return stock;
+            } catch (SQLException e) {
+                c.rollback();
+                throw e;
+            }
         }
     }
 

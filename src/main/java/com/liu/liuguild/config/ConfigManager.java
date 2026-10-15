@@ -23,7 +23,7 @@ public final class ConfigManager {
 
     /** 模块文件清单。 */
     public static final String[] MODULES = {
-            "config.yml", "database.yml", "cross-server.yml", "guild.yml", "war.yml",
+            "config.yml", "database.yml", "cross-server.yml", "guild.yml", "warehouse.yml", "war.yml",
             "war-modes.yml", "arena.yml", "kit.yml", "gui.yml", "icons.yml", "messages.yml", "tasks.yml"
     };
 
@@ -88,20 +88,21 @@ public final class ConfigManager {
     // =====================================================================
 
     public void load() {
+        boolean migrateWarehouse = !new File(configRoot, "warehouse.yml").exists()
+                && new File(configRoot, "guild.yml").exists();
         copyDefaults();
         Map<String, FileConfiguration> loaded = new LinkedHashMap<>();
         for (String name : MODULES) {
             loaded.put(name, loadModule(name));
         }
+        // 迁移只读取基础 guild.yml，不能把每服覆盖写进共享文件。
+        GuildSettings legacyWarehouse = migrateWarehouse ? GuildSettings.parse(loaded.get("guild.yml")) : null;
         // 应用游戏内编辑覆盖层：基础文件（带注释、可手改）不被破坏，
         // 且共享目录下多服编辑不会互相整文件覆盖。
         applyOverrides(loaded);
         // 应用 server.yml 的「每服独立」设置（如工会战承办服），只影响本服内存配置，
         // 不写回共享目录，避免多台子服因为同一份共享文件而互相冲突。
         applyServerOverrides(loaded, ensureServerFile());
-        files.clear();
-        files.putAll(loaded);
-
         MainSettings main = MainSettings.parse(loaded.get("config.yml"));
         MainSettings.applyCrossServer(main, loaded.get("cross-server.yml"));
         applyServerOverride(main);
@@ -116,7 +117,44 @@ public final class ConfigManager {
         GuiSettings gui = GuiSettings.parse(loaded.get("gui.yml"));
         IconSettings icons = IconSettings.parse(loaded.get("icons.yml"));
         // 原子替换
-        this.settings = new Settings(main, guild, war, warModes, arenas, kit, gui, icons);
+        WarehouseSettings warehouse = WarehouseSettings.parse(migrateWarehouse
+                ? new YamlConfiguration() : loaded.get("warehouse.yml"), migrateWarehouse ? legacyWarehouse : guild);
+        if (migrateWarehouse) {
+            FileConfiguration migrated = loaded.get("warehouse.yml");
+            migrated.set("enabled", legacyWarehouse.warehouseEnabled);
+            migrated.set("manage-rank", warehouse.manageRank.name());
+            migrated.set("base-slots", warehouse.baseSlots);
+            migrated.set("access.require-rent", warehouse.requireRent);
+            migrated.set("access.max-days", warehouse.maxDays);
+            migrated.set("access.options", java.util.Arrays.stream(warehouse.rentOptions).boxed().toList());
+            migrated.set("access.price-per-day.amount", warehouse.rentPrice.amount());
+            migrated.set("levels", null);
+            migrated.createSection("levels");
+            for (var level : warehouse.levels.values()) {
+                String path = "levels." + level.number();
+                migrated.set(path + ".slots", level.slots());
+                migrated.set(path + ".price.currency", level.price().currency().name());
+                migrated.set(path + ".price.amount", level.price().amount());
+                migrated.set(path + ".duration-days", 0);
+            }
+            try { atomicSave((YamlConfiguration) migrated, new File(configRoot, "warehouse.yml")); }
+            catch (IOException e) { throw new IllegalStateException("迁移 warehouse.yml 失败", e); }
+            // 对迁移后的文件重新应用覆盖层，只改变本服运行配置。
+            applyOverrides(loaded);
+            applyServerOverrides(loaded, ensureServerFile());
+            warehouse = WarehouseSettings.parse(loaded.get("warehouse.yml"), guild);
+        }
+        // 旧 GUI/API 兼容投影；实际购买与容量计算使用 warehouse。
+        guild.warehouseEnabled = warehouse.enabled;
+        guild.warehouseRequireRent = warehouse.requireRent;
+        guild.warehouseManageRank = warehouse.manageRank;
+        guild.warehouseMaxLevel = warehouse.levels.size();
+        guild.warehouseRentOptions = warehouse.rentOptions;
+        guild.warehouseRentPricePerDay = warehouse.rentPrice.amount();
+        guild.warehouseRentMaxDays = warehouse.maxDays;
+        files.clear();
+        files.putAll(loaded);
+        this.settings = new Settings(main, guild, war, warModes, arenas, kit, gui, icons, warehouse);
 
         messages.copyDefault();
         messages.reload(main.language);
@@ -349,6 +387,9 @@ public final class ConfigManager {
         try {
             cfg.load(f);
         } catch (Exception e) {
+            if ("warehouse.yml".equals(name)) {
+                throw new IllegalArgumentException("warehouse.yml 解析失败，保留原文件和现有运行配置", e);
+            }
             parsed = false;
             plugin.getLogger().warning("配置 " + name + " 解析失败，将用内置默认重建: " + e.getMessage());
         }

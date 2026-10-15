@@ -7,6 +7,7 @@
 | `config.yml` | 本服系统设置（不含 `server-id`，已移至 `server.yml`） |
 | `database.yml` | 数据库（SQLite / MySQL） |
 | `cross-server.yml` | 跨服 Redis、传送、心跳 |
+| `warehouse.yml` | 工会空间、逐级容量、收费货币、永久/临时解锁、过期与解散保留 |
 | `guild.yml` | 工会玩法、权限、银行、图标费用 |
 | `war.yml` | 工会战全局开关与**所有模式的默认值** |
 | `war-modes.yml` | 各工会战模式（匹配 / 赛季 / 自定义） |
@@ -115,7 +116,9 @@ hooks:
 - 手动：`/guildadmin reload`。
 
 
-## 工会头衔 / 仓库 / 商店（`guild.yml`）
+## 工会头衔 / 商店（`guild.yml`）与旧仓库配置
+
+仓库配置现已迁移到独立 `warehouse.yml`。下面的 `guild.warehouse` 仅为旧版迁移参考，新版运行规则请编辑 `warehouse.yml`。首次迁移后修改旧仓库节点不会改变新规则。
 
 ```yaml
 guild:

@@ -48,10 +48,13 @@ public final class WarehouseService implements GuildModule, Listener {
     private final LiuGuild plugin;
     private final WarehouseRepository repo;
     private final WarehouseLock lock;
+    private volatile boolean running;
+    private volatile long lifecycle;
     private BukkitTask heartbeatTask;
 
     /** 已打开的仓库（玩家 → 会话），用于关服/掉线时兜底保存。 */
     private final Map<UUID, Open> open = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> loading = ConcurrentHashMap.newKeySet();
 
     /** 一个已打开的仓库会话。 */
     private static final class Open {
@@ -59,12 +62,26 @@ public final class WarehouseService implements GuildModule, Listener {
         final UUID player;
         final Inventory inv;
         final WarehouseHolder holder;
+        WarehouseContents contents;
+        long version;
+        boolean busy;
+        boolean closed;
+        boolean input;
+        int page;
+        int category;
+        int sort;
+        boolean descending;
+        String search = "";
+        List<WarehouseContents.Entry> visible = List.of();
 
-        Open(String guildId, UUID player, Inventory inv, WarehouseHolder holder) {
+        Open(String guildId, UUID player, Inventory inv, WarehouseHolder holder,
+             WarehouseContents contents, long version) {
             this.guildId = guildId;
             this.player = player;
             this.inv = inv;
             this.holder = holder;
+            this.contents = contents;
+            this.version = version;
         }
     }
 
@@ -130,24 +147,47 @@ public final class WarehouseService implements GuildModule, Listener {
 
     @Override
     public void enable(LiuGuild plugin) {
+        if (running) return;
+        running = true;
+        lifecycle++;
         Bukkit.getPluginManager().registerEvents(this, plugin);
         long period = lock.heartbeatSeconds() * 20L;
-        heartbeatTask = Bukkit.getScheduler().runTaskTimer(plugin, lock::heartbeat, period, period);
+        heartbeatTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+            if (!running) return;
+            lock.heartbeat();
+            try { repo.cleanExpired(plugin.settings().warehouse, System.currentTimeMillis()); }
+            catch (Exception e) { plugin.getLogger().warning("空间过期清理失败: " + e.getMessage()); }
+        }, period, period);
     }
 
     @Override
     public void disable() {
+        running = false;
+        lifecycle++;
+        org.bukkit.event.HandlerList.unregisterAll(this);
+        loading.clear();
         if (heartbeatTask != null) {
             heartbeatTask.cancel();
             heartbeatTask = null;
         }
-        // 关服：把还开着的仓库落库并释放锁
-        for (Map.Entry<UUID, Open> e : open.entrySet()) {
-            Open o = e.getValue();
-            flush(o);
+        for (Open o : open.values()) {
+            o.closed = true;
+            Player p = plugin.player(o.player);
+            if (p != null) p.closeInventory();
         }
         open.clear();
         lock.releaseAll();
+    }
+
+    @Override
+    public void reload() {
+        // 新配置立即生效，关闭旧展示和聊天输入会话，忙碌操作按原有回滚路径结束。
+        lifecycle++;
+        for (UUID player : new java.util.ArrayList<>(open.keySet())) kick(player);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.getOpenInventory().getTopInventory().getHolder() instanceof MenuHolder)
+                player.closeInventory();
+        }
     }
 
     public WarehouseLock lock() {
@@ -156,17 +196,13 @@ public final class WarehouseService implements GuildModule, Listener {
 
     /** 仓库槽位数：基础 + 已购买升级级数 × 每级增长，受上限约束（结果是 9 的倍数）。 */
     public int slotsFor(Guild g) {
-        var c = plugin.settings().guild;
-        int purchased = g == null ? 0 : g.warehouseLevel();
-        return com.liu.liuguild.config.GuildSettings.warehouseSlots(
-                c.warehouseBaseSlots, c.warehouseSlotsPerLevel, c.warehouseMaxSlots,
-                purchased + 1);
+        return slotsForLevel(g == null ? 0 : g.effectiveWarehouseLevel(System.currentTimeMillis()));
     }
 
     /** 仓库是否可用：关闭租赁要求时永久可用；否则必须在有效期内。 */
     public boolean isUsable(Guild g) {
-        var c = plugin.settings().guild;
-        if (!c.warehouseRequireRent) {
+        var c = plugin.settings().warehouse;
+        if (!c.requireRent) {
             return true;
         }
         return g != null && g.warehouseActive(System.currentTimeMillis());
@@ -174,33 +210,39 @@ public final class WarehouseService implements GuildModule, Listener {
 
     /** 剩余的可用时长（毫秒，0 = 已过期/未开通）。 */
     public long remainingMillis(Guild g) {
-        if (g == null || !plugin.settings().guild.warehouseRequireRent) {
+        if (g == null || !plugin.settings().warehouse.requireRent || g.warehouseExpiresAt() == Long.MAX_VALUE) {
             return Long.MAX_VALUE;
         }
         return Math.max(0, g.warehouseExpiresAt() - System.currentTimeMillis());
     }
 
     /** 本会成员能否购买时长 / 升级仓库。 */
+    static boolean allowed(boolean permission, boolean admin, boolean member) {
+        return permission && (admin || member);
+    }
+
+    private boolean authorized(Player player, Guild g) {
+        if (!running || player == null || g == null) return false;
+        boolean ok = allowed(player.hasPermission("liuguild.warehouse"),
+                player.hasPermission("liuguild.admin"), g.member(player.getUniqueId()) != null);
+        if (!ok) plugin.messages().send(player, "no-permission");
+        return ok;
+    }
+
     public boolean canManage(Guild g, Player player) {
+        if (!authorized(player, g)) return false;
         if (player != null && player.hasPermission("liuguild.admin")) {
             return true;
         }
         GuildMember m = g == null ? null : g.member(player == null ? null : player.getUniqueId());
-        return m != null && m.rank().atLeast(plugin.settings().guild.warehouseManageRank);
+        return m != null && m.rank().atLeast(plugin.settings().warehouse.manageRank);
     }
 
     /** 下次升级的花费（已到上限或无法再增加槽位时返回 -1）。 */
     public long nextUpgradeCost(Guild g) {
-        var c = plugin.settings().guild;
-        if (g == null || g.warehouseLevel() >= c.warehouseMaxLevel) {
-            return -1;
-        }
-        // 已到槽位上限时不再允许升级，避免花了钱却拿不到新槽位
-        if (slotsForLevel(g.warehouseLevel() + 1) <= slotsForLevel(g.warehouseLevel())) {
-            return -1;
-        }
-        return com.liu.liuguild.config.GuildSettings.warehouseUpgradeCost(
-                c.warehouseUpgradeBaseCost, c.warehouseUpgradeCostGrowth, g.warehouseLevel());
+        if (g == null) return -1;
+        var next = plugin.settings().warehouse.levels.get(g.effectiveWarehouseLevel(System.currentTimeMillis()) + 1);
+        return next == null ? -1 : next.price().amount();
     }
 
     /**
@@ -209,16 +251,14 @@ public final class WarehouseService implements GuildModule, Listener {
      * @return true = 已发起打开（异步加载后打开界面）。未开通/已过期时改为打开管理菜单。
      */
     public boolean open(Player player, Guild g) {
-        if (player == null || g == null) {
-            return false;
-        }
+        if (!authorized(player, g)) return false;
         var c = plugin.settings().guild;
         if (!c.warehouseEnabled) {
             plugin.messages().send(player, "wh-disabled");
             return false;
         }
-        // 未开通 / 已过期：打开管理菜单引导购买时长与升级
-        if (!isUsable(g)) {
+        // 未开通 / 已过期：按策略允许只取不存
+        if (!canAccess(g)) {
             openMenu(player, g);
             return false;
         }
@@ -237,42 +277,65 @@ public final class WarehouseService implements GuildModule, Listener {
             }
             return false;
         }
-        WarehouseLock.Session session = lock.acquire(g.id(), player.getUniqueId(), player.getName());
-        if (session == null) {
-            plugin.messages().send(player, "wh-busy");
-            return false;
-        }
-        int slots = slotsFor(g);
-        String title = plugin.messages().raw("wh-title").replace("{guild}", g.name());
+        final long openedLifecycle = lifecycle;
+        UUID uuid = player.getUniqueId();
+        if (!loading.add(uuid)) return false;
         player.closeInventory();
         plugin.async(() -> {
-            Map<Integer, String> data;
-            try {
-                data = repo.load(g.id());
-            } catch (Exception e) {
-                plugin.getLogger().warning("读取工会仓库失败: " + e.getMessage());
-                data = Map.of();
+            if (!running || lifecycle != openedLifecycle) {
+                loading.remove(uuid);
+                return;
             }
-            final Map<Integer, String> loaded = data;
+            WarehouseLock.Session session = lock.acquire(g.id(), uuid, player.getName());
+            if (session == null) {
+                loading.remove(uuid);
+                plugin.sync(() -> plugin.messages().send(player, "wh-busy"));
+                return;
+            }
+            final WarehouseRepository.Snapshot loaded;
+            try {
+                loaded = repo.loadSnapshot(g.id());
+            } catch (Exception e) {
+                loading.remove(uuid);
+                lock.release(g.id(), uuid);
+                plugin.getLogger().warning("读取工会仓库失败，已拒绝打开: " + e.getMessage());
+                plugin.sync(() -> plugin.messages().send(player, "wh-storage-failed"));
+                return;
+            }
+            Guild fresh = loadFresh(g.id());
             plugin.sync(() -> {
-                if (!player.isOnline()) {
-                    lock.release(g.id(), player.getUniqueId());
+                loading.remove(uuid);
+                applyWarehouseState(g.id(), fresh);
+                Guild current = plugin.guilds().guildOf(uuid);
+                if (fresh == null || !running || lifecycle != openedLifecycle || !player.isOnline()
+                        || !player.hasPermission("liuguild.warehouse") || current == null || !current.id().equals(g.id())
+                        || !canAccess(current) || !lock.isHeldLocallyBy(g.id(), uuid)) {
+                    plugin.async(() -> lock.release(g.id(), uuid));
+                    return;
+                }
+                WarehouseContents contents = new WarehouseContents();
+                try {
+                    for (WarehouseRepository.Stored stored : loaded.items().values()) {
+                        ItemStack stack = ItemCodec.decode(stored.itemData());
+                        long amount = stored.amount() == 0 && stack != null ? stack.getAmount() : stored.amount();
+                        if (stack == null || stack.getType().isAir() || amount <= 0 || amount > Integer.MAX_VALUE)
+                            throw new IllegalStateException("损坏的仓库条目");
+                        // 合并旧槽位但保留全部物品，即使配置缩容也不丢失。
+                        contents.deposit(stack, (int) amount, Integer.MAX_VALUE, false);
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("仓库解码失败，保留原数据并拒绝打开: " + e.getMessage());
+                    plugin.messages().send(player, "wh-storage-failed");
+                    plugin.async(() -> lock.release(g.id(), uuid));
                     return;
                 }
                 WarehouseHolder holder = new WarehouseHolder(g.id());
-                Inventory inv = Bukkit.createInventory(holder, slots, Text.mm(title));
+                Inventory inv = Bukkit.createInventory(holder, 54,
+                        Text.mm(plugin.messages().raw("wh-title").replace("{guild}", g.name())));
                 holder.inv = inv;
-                for (Map.Entry<Integer, String> e : loaded.entrySet()) {
-                    int slot = e.getKey();
-                    if (slot < 0 || slot >= slots) {
-                        continue; // 降级后多余槽位的物品保留在库里，不删
-                    }
-                    ItemStack stack = ItemCodec.decodeClamped(e.getValue());
-                    if (stack != null) {
-                        inv.setItem(slot, stack);
-                    }
-                }
-                open.put(player.getUniqueId(), new Open(g.id(), player.getUniqueId(), inv, holder));
+                Open o = new Open(g.id(), uuid, inv, holder, contents, loaded.version());
+                open.put(uuid, o);
+                render(player, o);
                 player.openInventory(inv);
             });
         });
@@ -292,16 +355,12 @@ public final class WarehouseService implements GuildModule, Listener {
 
     /** 给定仓库升级等级时的槽位数。 */
     public int slotsForLevel(int warehouseLevel) {
-        var c = plugin.settings().guild;
-        return com.liu.liuguild.config.GuildSettings.warehouseSlots(
-                c.warehouseBaseSlots, c.warehouseSlotsPerLevel, c.warehouseMaxSlots, warehouseLevel + 1);
+        return plugin.settings().warehouse.slots(warehouseLevel);
     }
 
     /** 打开仓库管理菜单（购买时长 + 升级容量 + 进入仓库）。 */
     public void openMenu(Player player, Guild g) {
-        if (player == null || g == null) {
-            return;
-        }
+        if (!authorized(player, g)) return;
         var c = plugin.settings().guild;
         if (!c.warehouseEnabled) {
             plugin.messages().send(player, "wh-disabled");
@@ -323,12 +382,16 @@ public final class WarehouseService implements GuildModule, Listener {
         long remaining = remainingMillis(g);
         Map<String, String> info = new HashMap<>();
         info.put("guild", g.name());
-        info.put("level", String.valueOf(g.warehouseLevel()));
+        int effective = g.effectiveWarehouseLevel(now);
+        var space = plugin.settings().warehouse;
+        info.put("level", String.valueOf(effective));
         info.put("max_level", String.valueOf(c.warehouseMaxLevel));
         info.put("slots", String.valueOf(slotsFor(g)));
         info.put("points", String.valueOf(g.points()));
         info.put("time", c.warehouseRequireRent ? formatDuration(remaining) : "永久");
-        info.put("state", !c.warehouseRequireRent ? "永久可用" : (g.warehouseActive(now) ? "有效" : "已过期"));
+        info.put("state", isUsable(g) ? "有效" : space.withdrawExpired ? "已过期，只取不存" : "已过期，禁止访问");
+        info.put("capacity_time", g.warehouseLevelExpiresAt() == 0 ? "永久" : formatDuration(Math.max(0, g.warehouseLevelExpiresAt() - now)));
+        info.put("retention", space.expiredRetentionDays < 0 ? "永久保留" : "到期后" + space.expiredRetentionDays + "天删除物品");
         inv.setItem(MENU_INFO_SLOT, GuiUtil.build(player, "BOOK", "BOOK",
                 plugin.messages().raw("wh-menu-info-name"), plugin.messages().rawList("wh-menu-info-lore"), info, null));
 
@@ -342,6 +405,7 @@ public final class WarehouseService implements GuildModule, Listener {
                 actions.put(slot, "rent:" + days);
                 Map<String, String> ph = new HashMap<>();
                 ph.put("days", String.valueOf(days));
+                ph.put("currency", space.rentPrice.currency().display);
                 ph.put("cost", String.valueOf(cost));
                 ph.put("points", String.valueOf(g.points()));
                 inv.setItem(slot, GuiUtil.build(player, "GOLD_INGOT", "GOLD_INGOT",
@@ -349,16 +413,25 @@ public final class WarehouseService implements GuildModule, Listener {
             }
         }
 
+        if (space.requireRent && space.permanentPrice != null && g.warehouseExpiresAt() != Long.MAX_VALUE) {
+            actions.put(15, "rent:0");
+            inv.setItem(15, GuiUtil.build(player, "NETHER_STAR", "NETHER_STAR", "<gold>永久解锁使用权",
+                    List.of("<gray>花费：" + space.permanentPrice.amount() + " " + space.permanentPrice.currency().display,
+                            "<gray>容量等级单独购买", "<yellow>点击购买（不可撤回）"), Map.of(), null));
+        }
         // 升级容量
         if (c.warehouseMaxLevel > 0) {
             actions.put(MENU_UPGRADE_SLOT, "upgrade");
             long upgradeCost = nextUpgradeCost(g);
             Map<String, String> uph = new HashMap<>();
-            uph.put("level", String.valueOf(g.warehouseLevel()));
-            uph.put("next_level", String.valueOf(g.warehouseLevel() + 1));
+            var next = space.levels.get(effective + 1);
+            uph.put("currency", next == null ? "-" : next.price().currency().display);
+            uph.put("duration", next == null ? "已达最高等级" : next.days() == 0 ? "永久" : next.days() + "天（到期退回永久等级）");
+            uph.put("level", String.valueOf(effective));
+            uph.put("next_level", String.valueOf(effective + 1));
             uph.put("max_level", String.valueOf(c.warehouseMaxLevel));
             uph.put("slots", String.valueOf(slotsFor(g)));
-            uph.put("next_slots", String.valueOf(slotsForLevel(g.warehouseLevel() + 1)));
+            uph.put("next_slots", String.valueOf(slotsForLevel(effective + 1)));
             uph.put("cost", upgradeCost < 0 ? "-" : String.valueOf(upgradeCost));
             uph.put("points", String.valueOf(g.points()));
             inv.setItem(MENU_UPGRADE_SLOT, GuiUtil.build(player, "ANVIL", "ANVIL",
@@ -366,7 +439,7 @@ public final class WarehouseService implements GuildModule, Listener {
         }
 
         // 进入仓库（仅在可用时提供）
-        if (isUsable(g)) {
+        if (canAccess(g)) {
             actions.put(MENU_OPEN_SLOT, "open");
             inv.setItem(MENU_OPEN_SLOT, GuiUtil.build(player, "ENDER_CHEST", "ENDER_CHEST",
                     plugin.messages().raw("wh-menu-open-name"), plugin.messages().rawList("wh-menu-open-lore"), Map.of(), null));
@@ -375,6 +448,8 @@ public final class WarehouseService implements GuildModule, Listener {
                     plugin.messages().raw("wh-menu-locked-name"), plugin.messages().rawList("wh-menu-locked-lore"), Map.of(), null));
         }
 
+        actions.put(26, "back");
+        inv.setItem(26, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回工会主页", List.of(), Map.of(), null));
         player.closeInventory();
         player.openInventory(inv);
     }
@@ -406,6 +481,8 @@ public final class WarehouseService implements GuildModule, Listener {
             rent(player, g, com.liu.liuguild.util.NumberUtil.toInt(action.substring(5), 0));
         } else if (action.equals("upgrade")) {
             upgrade(player, g);
+        } else if (action.equals("back")) {
+            plugin.gui().openMain(player);
         } else if (action.equals("open")) {
             open(player, g);
         }
@@ -414,13 +491,80 @@ public final class WarehouseService implements GuildModule, Listener {
     /** 管理菜单禁止拖拽（菜单是临时界面，拖进去的物品不会保存）。仓库背包则允许自由拖拽。 */
     @EventHandler
     public void onMenuDrag(InventoryDragEvent event) {
-        if (event.getView().getTopInventory().getHolder() instanceof MenuHolder) {
+        if (event.getView().getTopInventory().getHolder() instanceof MenuHolder
+                || event.getView().getTopInventory().getHolder() instanceof WarehouseHolder) {
             event.setCancelled(true);
         }
     }
 
     /** 用工会点数（工会资金）购买仓库使用时间。 */
     public void rent(Player player, Guild g, int days) {
+        var c = plugin.settings().warehouse;
+        if (days < 0 || (days == 0 && c.permanentPrice == null)) {
+            plugin.messages().send(player, "wh-rent-invalid"); return;
+        }
+        try {
+            var price = days == 0 ? c.permanentPrice : new com.liu.liuguild.config.WarehouseSettings.Price(
+                    c.rentPrice.currency(), Math.multiplyExact(c.rentPrice.amount(), days));
+            purchase(player, g, false, days, price);
+        } catch (ArithmeticException e) { plugin.messages().send(player, "wh-rent-invalid"); }
+    }
+
+    public void upgrade(Player player, Guild g) {
+        if (g == null) return;
+        var next = plugin.settings().warehouse.levels.get(g.effectiveWarehouseLevel(System.currentTimeMillis()) + 1);
+        if (next == null) { plugin.messages().send(player, "wh-upgrade-max", "max", plugin.settings().warehouse.levels.size()); return; }
+        purchase(player, g, true, 0, next.price());
+    }
+
+    private final java.util.Set<UUID> purchasing = ConcurrentHashMap.newKeySet();
+    private boolean externalPrice(Player player, com.liu.liuguild.config.WarehouseSettings.Price price, boolean refund) {
+        if (price.amount() == 0) return true;
+        return switch (price.currency()) {
+            case MONEY -> plugin.economy().available() && (refund
+                    ? plugin.economy().deposit(player, price.amount()) : plugin.economy().withdraw(player, price.amount()));
+            case PLAYER_POINTS -> new com.liu.liuguild.hook.PlayerPointsHook().change(player.getUniqueId(), price.amount(), refund);
+            default -> true;
+        };
+    }
+
+    private void purchase(Player player, Guild g, boolean upgrade, int days,
+                          com.liu.liuguild.config.WarehouseSettings.Price price) {
+        var c = plugin.settings().warehouse;
+        if (player == null || g == null || !c.enabled || !canManage(g, player)) return;
+        if (!upgrade && (!c.requireRent || g.warehouseExpiresAt() == Long.MAX_VALUE)) {
+            plugin.messages().send(player, "wh-rent-not-needed"); return;
+        }
+        if (price == null || (price.currency() == com.liu.liuguild.config.WarehouseSettings.Currency.PLAYER_POINTS
+                && price.amount() > Integer.MAX_VALUE)) return;
+        if (!purchasing.add(player.getUniqueId())) return;
+        if (!externalPrice(player, price, false)) {
+            purchasing.remove(player.getUniqueId());
+            player.sendMessage(Text.mm("<red>购买失败：" + price.currency().display + "不足或经济接口不可用。")); return;
+        }
+        int expected = g.effectiveWarehouseLevel(System.currentTimeMillis());
+        long expiry = g.warehouseExpiresAt();
+        boolean admin = player.hasPermission("liuguild.admin");
+        plugin.async(() -> {
+            boolean result;
+            try { result = repo.purchase(g.id(), player.getUniqueId(), admin, c, upgrade, days, expected, expiry, price); }
+            catch (Exception e) { result = false; plugin.getLogger().warning("空间购买失败: " + e.getMessage()); }
+            final boolean ok = result;
+            Guild fresh = loadFresh(g.id());
+            plugin.sync(() -> {
+                purchasing.remove(player.getUniqueId());
+                if (!ok && !externalPrice(player, price, true))
+                    plugin.getLogger().severe("空间退款失败，需人工补偿: " + player.getUniqueId() + " " + price);
+                applyWarehouseState(g.id(), fresh);
+                if (ok) plugin.broadcastGuildChange(g.id());
+                player.sendMessage(Text.mm(ok ? "<green>空间购买成功，花费 " + price.amount() + " " + price.currency().display
+                        : "<red>购买失败：余额不足、权限/等级变化或超过租期上限；已尝试退还外部扣款。"));
+                if (player.isOnline() && plugin.guilds().guild(g.id()) != null) openMenu(player, plugin.guilds().guild(g.id()));
+            });
+        });
+    }
+
+    private void legacyRent(Player player, Guild g, int days) {
         if (player == null || g == null) {
             return;
         }
@@ -504,6 +648,9 @@ public final class WarehouseService implements GuildModule, Listener {
         if (cached == null) {
             return;
         }
+        cached.bank(fresh.bank());
+        cached.warehouseLevelExpiresAt(fresh.warehouseLevelExpiresAt());
+        cached.warehousePermanentLevel(fresh.warehousePermanentLevel());
         cached.points(fresh.points());
         cached.level(fresh.level());
         cached.warehouseLevel(fresh.warehouseLevel());
@@ -511,7 +658,7 @@ public final class WarehouseService implements GuildModule, Listener {
     }
 
     /** 用工会点数（工会资金）升级仓库容量。 */
-    public void upgrade(Player player, Guild g) {
+    private void legacyUpgrade(Player player, Guild g) {
         if (player == null || g == null) {
             return;
         }
@@ -592,93 +739,292 @@ public final class WarehouseService implements GuildModule, Listener {
         return sb.toString();
     }
 
-    /**
-     * 关闭时保存并释放锁。保存成功后才释放，避免下一个玩家读到旧数据。
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onClose(InventoryCloseEvent event) {
-        if (!(event.getInventory().getHolder() instanceof WarehouseHolder holder)) {
-            return;
-        }
-        if (!(event.getPlayer() instanceof Player player)) {
-            return;
-        }
-        Open o = open.get(player.getUniqueId());
-        // 只处理“当前这一个”界面的关闭。
-        // 快速连点会让第二次 open 覆盖会话并重开界面，旧的 close 事件随后才到；
-        // 此时如果不比对引用，就会把新会话也一起释放掉。
-        if (o == null || o.inv != event.getInventory()) {
-            return;
-        }
-        open.remove(player.getUniqueId());
-        flushThenRelease(o);
+    private static String itemName(ItemStack item) {
+        var meta = item.getItemMeta();
+        return meta != null && meta.hasDisplayName() ? Text.plain(meta.displayName()) : item.getType().name();
     }
 
-    /** 掉线：同样保存并释放。 */
-    @EventHandler
-    public void onQuit(PlayerQuitEvent event) {
-        Open o = open.remove(event.getPlayer().getUniqueId());
-        if (o == null) {
-            return;
-        }
-        // 先把背包内容拷贝出来（玩家对象即将失效）
-        flushThenRelease(o);
+    private static int category(ItemStack item) {
+        if (item.getType().isEdible()) return 1;
+        String type = item.getType().name();
+        if (type.endsWith("_SWORD") || type.endsWith("_AXE") || type.endsWith("_PICKAXE")
+                || type.endsWith("_HELMET") || type.endsWith("_CHESTPLATE") || type.endsWith("_LEGGINGS")
+                || type.endsWith("_BOOTS") || type.contains("BOW") || type.equals("SHIELD")) return 2;
+        return item.getType().isBlock() ? 3 : 4;
     }
 
-    /** 同步落库 + 释放锁（关服路径用）。 */
-    private void flush(Open o) {
-        Map<Integer, String> snapshot = snapshot(o.inv);
-        try {
-            repo.replaceAll(o.guildId, snapshot);
-        } catch (Exception e) {
-            plugin.getLogger().warning("关服保存工会仓库失败: " + e.getMessage());
-        }
-        lock.release(o.guildId, o.player);
+    private void button(Player p, Open o, int slot, String material, String name, String... lore) {
+        o.inv.setItem(slot, GuiUtil.build(p, material, material, name, List.of(lore), Map.of(), null));
     }
 
-    /** 异步落库，成功（或失败）后再释放锁。 */
-    private void flushThenRelease(Open o) {
-        Map<Integer, String> snapshot = snapshot(o.inv);
-        plugin.async(() -> {
-            try {
-                repo.replaceAll(o.guildId, snapshot);
-            } catch (Exception e) {
-                plugin.getLogger().warning("保存工会仓库失败: " + e.getMessage());
-            } finally {
-                // 关服过程中调度器可能已拒绝新任务，兜底直接释放，避免日志抛异常
-                try {
-                    plugin.sync(() -> lock.release(o.guildId, o.player));
-                } catch (Throwable t) {
-                    lock.release(o.guildId, o.player);
-                }
+    private void render(Player p, Open o) {
+        o.inv.clear();
+        Guild g = plugin.guilds().guild(o.guildId);
+        int capacity = slotsFor(g);
+        String query = o.search.toLowerCase(java.util.Locale.ROOT);
+        List<WarehouseContents.Entry> visible = new ArrayList<>(o.contents.entries());
+        visible.removeIf(e -> (o.category > 0 && category(e.sample()) != o.category)
+                || !(itemName(e.sample()).toLowerCase(java.util.Locale.ROOT).contains(query)
+                || e.sample().getType().name().toLowerCase(java.util.Locale.ROOT).contains(query)));
+        java.util.Comparator<WarehouseContents.Entry> comparator = o.sort == 1
+                ? java.util.Comparator.comparingInt(WarehouseContents.Entry::amount)
+                : java.util.Comparator.comparing(e -> itemName(e.sample()));
+        visible.sort(o.descending ? comparator.reversed() : comparator);
+        o.visible = visible;
+        int pages = Math.max(1, (Math.max(visible.size(), o.search.isEmpty() && o.category == 0 ? capacity : 0) + 44) / 45);
+        o.page = Math.max(0, Math.min(o.page, pages - 1));
+        for (int slot = 0; slot < 45; slot++) {
+            int index = o.page * 45 + slot;
+            if (index >= visible.size()) {
+                if (index >= capacity) button(p, o, slot, "BLACK_STAINED_GLASS_PANE", "<gray>未解锁容量");
+                continue;
             }
+            WarehouseContents.Entry e = visible.get(index);
+            ItemStack display = e.sample();
+            display.setAmount(1);
+            var meta = display.getItemMeta();
+            if (meta != null) {
+                List<Component> lore = meta.lore() == null ? new ArrayList<>() : new ArrayList<>(meta.lore());
+                lore.add(Text.mm("<gold>仓库存量：" + e.amount()));
+                lore.add(Text.mm("<yellow>左键 1 / 右键 64"));
+                lore.add(Text.mm("<yellow>Shift+左键 输入数量 / Shift+右键 尽量取出"));
+                meta.lore(lore);
+                display.setItemMeta(meta);
+            }
+            o.inv.setItem(slot, display);
+        }
+        button(p, o, 45, "ARROW", "<white>上一页");
+        button(p, o, 46, "HOPPER", "<green>批量存入", "<gray>左键：已有同类", "<yellow>Shift+左键：背包全部（含快捷栏）", "<gray>不存护甲、副手或光标物品");
+        button(p, o, 47, "COMPARATOR", "<white>排序：" + (o.sort == 0 ? "名称" : "数量"), "<gray>左键切换 / 右键升降序");
+        button(p, o, 48, "COMPASS", "<white>搜索：" + (o.search.isEmpty() ? "全部" : o.search), "<gray>左键输入 / 右键清除");
+        button(p, o, 49, "BOOK", "<gold>第 " + (o.page + 1) + " / " + pages + " 页",
+                "<gray>已用类型：" + o.contents.entries().size() + " / " + capacity,
+                "<gray>点击背包：左键存1 / 右键存64", "<gray>Shift+左键存一组 / Shift+右键同类全部");
+        button(p, o, 50, "CHEST", "<white>分类：" + new String[]{"全部", "食物", "装备工具", "方块", "其他"}[o.category]);
+        button(p, o, 51, "ANVIL", "<gold>容量与续期");
+        button(p, o, 52, "ARROW", "<white>返回工会主页");
+        button(p, o, 53, "ARROW", "<white>下一页");
+    }
+
+    private boolean canAccess(Guild g) {
+        return g != null && plugin.settings().warehouse.enabled && (isUsable(g)
+                || (plugin.settings().warehouse.withdrawExpired && g.warehouseExpiresAt() > 0));
+    }
+
+    private boolean valid(Player p, Open o) {
+        Guild g = plugin.guilds().guildOf(p.getUniqueId());
+        return running && !o.closed && !o.busy && g != null && g.id().equals(o.guildId)
+                && canAccess(g) && p.hasPermission("liuguild.warehouse")
+                && lock.isHeldLocallyBy(o.guildId, o.player);
+    }
+
+    /** 保存候选内容，再在主线程校验背包快照。背包变动或掉线时回滚仓库，不发货。 */
+    private void commit(Player p, Open o, WarehouseContents next, ItemStack[] before, ItemStack[] after) {
+        Map<Integer, WarehouseRepository.Stored> encoded = new LinkedHashMap<>();
+        int index = 0;
+        for (var e : next.entries()) {
+            String data = ItemCodec.encode(e.sample());
+            if (data == null) { plugin.messages().send(p, "wh-storage-failed"); return; }
+            encoded.put(index++, new WarehouseRepository.Stored(data, e.amount()));
+        }
+        Map<Integer, WarehouseRepository.Stored> previous = new LinkedHashMap<>();
+        index = 0;
+        for (var e : o.contents.entries()) previous.put(index++, new WarehouseRepository.Stored(ItemCodec.encode(e.sample()), e.amount()));
+        o.busy = true;
+        plugin.async(() -> {
+            boolean saved;
+            try { saved = repo.save(o.guildId, o.version, encoded); }
+            catch (Exception e) { saved = false; plugin.getLogger().warning("仓库存取提交失败: " + e.getMessage()); }
+            final boolean success = saved;
+            plugin.sync(() -> {
+                Guild memberGuild = plugin.guilds().guildOf(p.getUniqueId());
+                boolean unchanged = p.isOnline() && !o.closed && memberGuild != null
+                        && memberGuild.id().equals(o.guildId) && canAccess(memberGuild)
+                        && lock.isHeldLocallyBy(o.guildId, o.player)
+                        && java.util.Arrays.equals(before, p.getInventory().getStorageContents());
+                if (success && unchanged) {
+                    p.getInventory().setStorageContents(after);
+                    o.contents = next;
+                    o.version++;
+                    o.busy = false;
+                    render(p, o);
+                } else if (success) {
+                    plugin.async(() -> {
+                        try {
+                            if (!repo.save(o.guildId, o.version + 1, previous))
+                                plugin.getLogger().severe("仓库回滚版本冲突，需人工核查: " + o.guildId);
+                        } catch (Exception e) { plugin.getLogger().severe("仓库回滚失败，需人工核查: " + o.guildId + " " + e); }
+                        plugin.sync(() -> { o.busy = false; kick(o.player); });
+                    });
+                } else {
+                    o.busy = false;
+                    plugin.messages().send(p, "wh-storage-failed");
+                    kick(o.player);
+                }
+            });
         });
     }
 
-    /** 把背包内容编码成 slot → base64。 */
-    private Map<Integer, String> snapshot(Inventory inv) {
-        Map<Integer, String> out = new LinkedHashMap<>();
-        ItemStack[] contents = inv.getContents();
-        for (int i = 0; i < contents.length; i++) {
-            String encoded = ItemCodec.encode(contents[i]);
-            if (encoded != null) {
-                out.put(i, encoded);
-            }
-        }
-        return out;
+    private static ItemStack[] cloneItems(ItemStack[] items) {
+        ItemStack[] copy = items.clone();
+        for (int i = 0; i < copy.length; i++) if (copy[i] != null) copy[i] = copy[i].clone();
+        return copy;
     }
 
-    /** 强制关闭某玩家的仓库（例如被踢出工会 / 权限被收回）。 */
-    public void kick(UUID player) {
-        Open o = open.remove(player);
-        if (o == null) {
+    private void deposit(Player p, Open o, int selected, int requested, boolean allSimilar, boolean existingOnly) {
+        if (!valid(p, o)) return;
+        if (!isUsable(plugin.guilds().guild(o.guildId))) {
+            p.sendMessage(Text.mm("<red>空间使用权已过期，仅允许取出物品，请先续期。")); return;
+        }
+        ItemStack[] before = cloneItems(p.getInventory().getStorageContents());
+        ItemStack[] after = cloneItems(before);
+        WarehouseContents next = o.contents.copy();
+        ItemStack sample = selected >= 0 && selected < before.length ? before[selected] : null;
+        int moved = 0;
+        for (int i = 0; i < after.length; i++) {
+            ItemStack item = after[i];
+            if (item == null || item.getType().isAir()) continue;
+            if (selected >= 0 && (allSimilar ? sample == null || !item.isSimilar(sample) : i != selected)) continue;
+            int take = next.deposit(item, Math.min(item.getAmount(), requested), slotsFor(plugin.guilds().guild(o.guildId)), existingOnly);
+            if (take == 0) continue;
+            moved += take;
+            item.setAmount(item.getAmount() - take);
+            if (item.getAmount() == 0) after[i] = null;
+        }
+        if (moved > 0) commit(p, o, next, before, after);
+        else plugin.messages().send(p, "wh-no-space");
+    }
+
+    private void withdraw(Player p, Open o, WarehouseContents.Entry entry, int requested) {
+        if (!valid(p, o) || !o.contents.entries().contains(entry)) return;
+        ItemStack[] before = cloneItems(p.getInventory().getStorageContents());
+        ItemStack[] after = cloneItems(before);
+        ItemStack sample = entry.sample();
+        int remaining = Math.min(requested, entry.amount());
+        int moved = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            for (int i = 0; i < after.length && remaining > 0; i++) {
+                ItemStack current = after[i];
+                if (pass == 0 && (current == null || !current.isSimilar(sample))) continue;
+                if (pass == 1 && current != null && !current.getType().isAir()) continue;
+                int count = current == null || current.getType().isAir() ? 0 : current.getAmount();
+                int take = Math.min(remaining, Math.max(0, sample.getMaxStackSize() - count));
+                if (take == 0) continue;
+                ItemStack stack = sample.clone();
+                stack.setAmount(count + take);
+                after[i] = stack;
+                remaining -= take;
+                moved += take;
+            }
+        }
+        if (moved == 0) { plugin.messages().send(p, "wh-no-space"); return; }
+        WarehouseContents next = o.contents.copy();
+        int index = o.contents.entries().indexOf(entry);
+        next.withdraw(next.entries().get(index), moved);
+        commit(p, o, next, before, after);
+    }
+
+    @EventHandler
+    public void onWarehouseCommand(org.bukkit.event.player.PlayerCommandPreprocessEvent event) {
+        Open o = open.get(event.getPlayer().getUniqueId());
+        if (o != null && o.busy) {
+            event.setCancelled(true);
+            plugin.messages().send(event.getPlayer(), "wh-processing");
+        }
+    }
+
+    @EventHandler
+    public void onWarehouseDrop(org.bukkit.event.player.PlayerDropItemEvent event) {
+        Open o = open.get(event.getPlayer().getUniqueId());
+        if (o != null && o.busy) event.setCancelled(true);
+    }
+
+    @EventHandler
+    public void onWarehouseClick(InventoryClickEvent event) {
+        if (!(event.getView().getTopInventory().getHolder() instanceof WarehouseHolder)) return;
+        event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player p)) return;
+        Open o = open.get(p.getUniqueId());
+        if (o == null || !valid(p, o)) return;
+        // 不允许数字键、丢弃键、创造模式克隆等拿走展示图标。
+        if (!(event.isLeftClick() || event.isRightClick())) return;
+        int slot = event.getRawSlot();
+        if (slot >= 54) {
+            if (event.getClickedInventory() == p.getInventory() && event.getSlot() < 36)
+                deposit(p, o, event.getSlot(), event.isShiftClick() ? (event.isRightClick() ? Integer.MAX_VALUE : 64)
+                        : event.isRightClick() ? 64 : 1, event.isShiftClick() && event.isRightClick(), false);
             return;
         }
-        Player p = plugin.player(player);
-        if (p != null) {
-            p.closeInventory();
+        if (slot < 0) return;
+        if (slot < 45) {
+            int index = o.page * 45 + slot;
+            if (index >= o.visible.size()) return;
+            var entry = o.visible.get(index);
+            if (event.isShiftClick() && event.isLeftClick()) {
+                o.input = true;
+                plugin.syncDelayed(() -> { if (o.input) kick(o.player); }, 600L);
+                plugin.gui().chatInput().request(p, plugin.messages().component("wh-input-amount"), text -> {
+                    o.input = false;
+                    int amount = com.liu.liuguild.util.NumberUtil.toInt(text.trim(), -1);
+                    if (amount > 0) withdraw(p, o, entry, amount);
+                    if (!o.closed && p.isOnline()) p.openInventory(o.inv);
+                }, () -> kick(o.player));
+            } else withdraw(p, o, entry, event.isShiftClick() ? Integer.MAX_VALUE : event.isRightClick() ? 64 : 1);
+            return;
         }
-        flushThenRelease(o);
+        switch (slot) {
+            case 45 -> { o.page--; render(p, o); }
+            case 53 -> { o.page++; render(p, o); }
+            case 46 -> deposit(p, o, -1, Integer.MAX_VALUE, false, !event.isShiftClick());
+            case 47 -> { if (event.isRightClick()) o.descending = !o.descending; else o.sort = 1 - o.sort; render(p, o); }
+            case 48 -> {
+                if (event.isRightClick()) { o.search = ""; o.page = 0; render(p, o); }
+                else {
+                    o.input = true;
+                    plugin.syncDelayed(() -> { if (o.input) kick(o.player); }, 600L);
+                    plugin.gui().chatInput().request(p, plugin.messages().component("wh-input-search"), text -> {
+                        o.input = false;
+                        o.search = text.trim(); o.page = 0;
+                        if (!o.closed && p.isOnline()) { render(p, o); p.openInventory(o.inv); }
+                    }, () -> kick(o.player));
+                }
+            }
+            case 50 -> { o.category = (o.category + 1) % 5; o.page = 0; render(p, o); }
+            case 51 -> openMenu(p, plugin.guilds().guild(o.guildId));
+            case 52 -> plugin.gui().openMain(p);
+            default -> { }
+        }
+    }
+
+    private void finish(Open o) {
+        o.closed = true;
+        if (o.busy) return;
+        open.remove(o.player, o);
+        plugin.async(() -> lock.release(o.guildId, o.player));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onClose(InventoryCloseEvent event) {
+        if (!(event.getInventory().getHolder() instanceof WarehouseHolder)) return;
+        Open o = open.get(event.getPlayer().getUniqueId());
+        if (o != null && o.inv == event.getInventory() && !o.input) finish(o);
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        Open o = open.get(event.getPlayer().getUniqueId());
+        if (o != null) { o.input = false; finish(o); }
+    }
+
+    /** 强制关闭会话；事务中的存取待提交/回滚完成再释放锁。 */
+    public void kick(UUID player) {
+        Open o = open.get(player);
+        if (o == null) return;
+        o.input = false;
+        plugin.gui().chatInput().cancel(o.player);
+        finish(o);
+        Player p = plugin.player(player);
+        if (p != null) p.closeInventory();
     }
 
     /** 清空某工会仓库（解散工会）。 */

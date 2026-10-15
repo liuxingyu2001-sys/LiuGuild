@@ -1,0 +1,45 @@
+# 工会空间独立配置：支持共享配置目录、server.yml overrides 和热重载。
+# 首次升级从旧 guild.yml 导入；以后请只修改本文件。
+# 所有价格为非负整数，0表示免费。购买不可撤回，容量和使用权分别计费。
+enabled: true
+manage-rank: OFFICER
+# 基础逻辑堆叠数；一页45类，真实数量独立保存（每堆叠最多2147483647件）。
+base-slots: 45
+access:
+  # 使用权和容量等级互相独立；永久容量不代表永久使用权。
+  require-rent: true
+  options: [1, 7, 30]
+  max-days: 90
+  # 可选永久使用权；启用后菜单显示单独按钮，/guild warehouse rent 0 也可购买。
+  # 不受max-days限制；已买永久使用权不能重复购买或续租。
+  permanent:
+    enabled: false
+    price: {currency: PLAYER_POINTS, amount: 1000}
+  price-per-day:
+    # FUNDS 公共工会资金；BANK 工会银行金币；MONEY 操作者个人Vault金币；PLAYER_POINTS 操作者点券。
+    currency: FUNDS
+    amount: 200
+# 编号必须从1连续；slots是该级总容量，必须严格递增，最大4500。
+# duration-days: 0永久；正数临时。临时等级到期回到最高已永久购买等级。
+# 到期后可重新购买下一等级；未过期不允许重复购买当前级。
+# 永久购买更高等级时其容量永久生效，覆盖低级临时容量。
+levels:
+  '1': {slots: 90, price: {currency: FUNDS, amount: 1000}, duration-days: 0}
+  '2': {slots: 135, price: {currency: FUNDS, amount: 2000}, duration-days: 0}
+  '3': {slots: 180, price: {currency: FUNDS, amount: 4000}, duration-days: 0}
+  '4': {slots: 225, price: {currency: FUNDS, amount: 8000}, duration-days: 0}
+  '5': {slots: 270, price: {currency: FUNDS, amount: 16000}, duration-days: 0}
+  '6': {slots: 315, price: {currency: FUNDS, amount: 32000}, duration-days: 0}
+  '7': {slots: 360, price: {currency: FUNDS, amount: 64000}, duration-days: 0}
+  '8': {slots: 405, price: {currency: FUNDS, amount: 128000}, duration-days: 0}
+  '9': {slots: 450, price: {currency: FUNDS, amount: 256000}, duration-days: 0}
+expiry:
+  # 使用权过期允许只取不存；缩容后已有物品始终可见，不删除超容量部分。
+  allow-withdraw: true
+  # -1永久保留（推荐）；0到期清空；正数为到期后保留天数。
+  # 从已购买使用权的到期时间计算；从未购买的空间不会被误清理。
+  retain-days: -1
+disband:
+  # 0解散即删除；-1永久保留管理员数据库备份；正数延迟删除。
+  # 保留数据按旧工会UUID隔离，不返给成员，同名新工会不会继承。
+  retain-days: 0

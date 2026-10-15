@@ -42,6 +42,8 @@
 | 文档 | 说明 |
 |---|---|
 | [docs/README.md](docs/README.md) | 文档总览与快速开始 |
+| [docs/funds.md](docs/funds.md) | 个人资金、公共资金、金币与捐献规则 |
+| [docs/shop.md](docs/shop.md) | 工会商店（仅出售，不收购） |
 | [docs/checkin.md](docs/checkin.md) | 工会每日签到 |
 | [docs/deployment.md](docs/deployment.md) | **生产部署与运维** |
 | [docs/shared-config.md](docs/shared-config.md) | **共享配置目录与多服一致性** |

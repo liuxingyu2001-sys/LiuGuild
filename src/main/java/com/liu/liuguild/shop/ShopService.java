@@ -20,8 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 工会商店：工会把自己的物品明码标价挂出来卖，任何人（含非本会玩家）都能买；
- * 收入进工会资金（按配置抽税）。工会也可以设「收购价」，成员把物品卖给工会，
- * 工会出资入库存 —— 这就是参考 LiuShop 的双向价格模型。
+ * 收入进工会金币银行（按配置抽税）。不再提供收购；建设资金不参与商店交易。
  *
  * <h3>钱与物的顺序</h3>
  * <p>买卖最怕「扣了钱没给货」或「给了货没扣钱」。这里的规则是：
@@ -181,6 +180,7 @@ public final class ShopService implements GuildModule {
      * @return 消息 key；null = 成功（成功时会给出提示，用 {@link #lastError} 风格另发）
      */
     public String addListing(Guild g, Player player, ItemStack sample, int amount, long price, long buyPrice) {
+        if (!canManage(g, player)) return "shop-no-permission";
         String err = validateNew(g, player, sample, price);
         if (err != null) {
             return err;
@@ -202,12 +202,13 @@ public final class ShopService implements GuildModule {
             return "shop-serialize-failed";
         }
         ShopListing l = new ShopListing(UUID.randomUUID().toString(), g.id(), encoded, base,
-                take, Math.max(0, price), Math.max(0, buyPrice),
+                take, Math.max(0, price), 0,
                 player.getUniqueId(), player.getName(), System.currentTimeMillis());
-        cache.put(l.id(), l);
         plugin.async(() -> {
             try {
                 repo.insert(l);
+                cache.put(l.id(), l);
+                broadcast(g.id());
             } catch (Exception e) {
                 // 落库失败：内存里的条目会在重启后消失，物品也已经被从玩家身上拿走了 ——
                 // 必须把物品退回，否则就是凭白吞物
@@ -219,14 +220,19 @@ public final class ShopService implements GuildModule {
                 });
             }
         });
-        broadcast(g.id());
         return null;
     }
 
-    /** 改价（0 表示不收购）。 */
+    /** 收购已永久关闭；保留方法签名以兼容旧调用方，不移动钱或物品。 */
+    public void supply(Guild g, Player player, ShopListing l, int amount, Runnable onDone) {
+        plugin.messages().send(player, "shop-not-buying");
+        if (onDone != null) onDone.run();
+    }
+
+    /** 改价（旧收购参数忽略）。 */
     public void updatePrices(Guild g, ShopListing l, long price, long buyPrice) {
         l.price(Math.max(0, price));
-        l.buyPrice(Math.max(0, buyPrice));
+        l.buyPrice(0);
         plugin.async(() -> {
             try {
                 repo.updatePrices(l.id(), l.price(), l.buyPrice());
@@ -251,17 +257,18 @@ public final class ShopService implements GuildModule {
      * 带回调的下架（GUI 用；删库成功后才退回物品并刷新界面）。
      */
     public String removeListing(Guild g, Player player, ShopListing l, Runnable onDone) {
+        if (g == null || !canManage(g, player)) return "shop-no-permission";
         if (l == null) {
             return "shop-not-found";
         }
         if (g == null || !l.guildId().equals(g.id())) {
             return "shop-not-found";
         }
-        final int stock = l.stock();
         final Runnable done = onDone;
         plugin.async(() -> {
+            final int stock;
             try {
-                repo.delete(l.id());
+                stock = repo.removeAndTakeStock(l.id());
             } catch (Exception e) {
                 plugin.getLogger().warning("下架工会商品失败: " + e.getMessage());
                 plugin.sync(() -> {
@@ -377,7 +384,7 @@ public final class ShopService implements GuildModule {
         plugin.async(() -> {
             boolean ok;
             try {
-                ok = repo.tryDecrement(l.id(), amount);
+                ok = repo.purchase(l.id(), l.guildId(), amount, unit, applyTax(paid));
             } catch (Exception e) {
                 plugin.getLogger().warning("扣减工会商品库存失败: " + e.getMessage());
                 ok = false;
@@ -395,24 +402,11 @@ public final class ShopService implements GuildModule {
                 }
                 l.stock(l.stock() - amount);
                 give(player, preview, amount);
-                // 货款入工会资金（按税抽成）。changeBank 是异步的且收 delta。
+                // 货款已随库存扣减在同一数据库事务中进入工会金币账户。
                 long net = applyTax(paid);
                 Guild seller = plugin.guilds().guild(l.guildId());
-                if (net > 0 && seller != null) {
-                    plugin.guilds().changeBank(seller.id(), net).whenComplete((credited, ex) -> {
-                        if (ex != null || !Boolean.TRUE.equals(credited)) {
-                            // 入账失败：钱已从买家扣了，不能吞掉 —— 全额退给买家
-                            plugin.getLogger().severe("工会商店货款入账失败，已退回买家: 工会=" + l.guildId()
-                                    + " 金额=" + net + (ex == null ? "" : (" 原因=" + ex)));
-                            plugin.sync(() -> {
-                                if (paid > 0) {
-                                    plugin.economy().deposit(player, paid);
-                                }
-                                plugin.messages().send(player, "shop-bank-credit-failed");
-                            });
-                        }
-                    });
-                }
+                plugin.guilds().reloadGuild(l.guildId());
+                plugin.broadcastGuildChange(l.guildId());
                 plugin.messages().send(player, "shop-bought",
                         "item", itemName(preview),
                         "amount", String.valueOf(amount),
@@ -475,7 +469,8 @@ public final class ShopService implements GuildModule {
      * <p>顺序：先验钱与货（都能失败，且未产生任何变更）→ 扣货、扣工会资金、
      * 给成员打钱（都成功）→ 最后异步加库存。库存加失败只影响展示，不会让任何一方亏。</p>
      */
-    public void supply(Guild g, Player player, ShopListing l, int amount, Runnable onDone) {
+    /** 不再调用的历史供货实现，禁止重新接入任何命令或 GUI。 */
+    private void disabledSupplyLegacy(Guild g, Player player, ShopListing l, int amount, Runnable onDone) {
         Runnable done = onDone == null ? () -> {
         } : onDone;
         if (!plugin.settings().guild.shopEnabled) {

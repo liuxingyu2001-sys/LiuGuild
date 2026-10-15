@@ -9,6 +9,7 @@ folia-supported: false
 
 # 软依赖：缺少任意一个都不影响主流程启动，仅对应功能降级
 softdepend:
+  - PlayerPoints
   - liudungeon
   - LiuChat
   - Liupass

@@ -415,9 +415,19 @@ public final class GuildRepository {
     }
 
     public void deleteGuild(String id) throws SQLException {
+        deleteGuild(id, 0);
+    }
+
+    public void deleteGuild(String id, int warehouseRetentionDays) throws SQLException {
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try {
+                try (PreparedStatement guard = c.prepareStatement("UPDATE `" + db.t("guilds")
+                        + "` SET `warehouse_level`=`warehouse_level` WHERE `guild_id`=?")) {
+                    guard.setString(1, id);
+                    guard.executeUpdate();
+                }
+                new com.liu.liuguild.warehouse.WarehouseRepository(db).archive(c, id, warehouseRetentionDays);
                 try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_members") + "` WHERE `guild_id`=?")) {
                     ps.setString(1, id);
                     ps.executeUpdate();
@@ -903,6 +913,8 @@ public final class GuildRepository {
         g.iconData(rs.getString("icon_data"));
         try {
             g.warehouseLevel(rs.getInt("warehouse_level"));
+            g.warehouseLevelExpiresAt(rs.getLong("warehouse_level_expires_at"));
+            g.warehousePermanentLevel(rs.getInt("warehouse_permanent_level"));
             g.warehouseExpiresAt(rs.getLong("warehouse_expires_at"));
             g.warFundsDay(rs.getLong("war_funds_day"));
             g.warFundsEarned(rs.getLong("war_funds_earned"));

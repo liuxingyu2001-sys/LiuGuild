@@ -43,6 +43,100 @@ class GuildRepositoryTest {
         }
     }
 
+    @Test
+    void spacePurchaseAndArchiveAreAtomicAndPreserveRetainedItems() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Space", "SPC");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+        repo.addPoints(g.id(), 1000);
+        var space = new com.liu.liuguild.config.WarehouseSettings();
+        space.requireRent = false;
+        var price = new com.liu.liuguild.config.WarehouseSettings.Price(
+                com.liu.liuguild.config.WarehouseSettings.Currency.FUNDS, 100);
+        space.levels.put(1, new com.liu.liuguild.config.WarehouseSettings.Level(1, 90, price, 1));
+        var warehouse = new com.liu.liuguild.warehouse.WarehouseRepository(db);
+        assertFalse(warehouse.purchase(g.id(), UUID.randomUUID(), false, space, true, 0, 0, 0, price));
+        assertTrue(warehouse.purchase(g.id(), leader.uuid(), false, space, true, 0, 0, 0, price));
+        assertFalse(warehouse.purchase(g.id(), leader.uuid(), false, space, true, 0, 0, 0, price));
+        assertEquals(900, repo.loadGuild(g.id()).points());
+        assertTrue(repo.loadGuild(g.id()).warehouseLevelExpiresAt() > System.currentTimeMillis());
+        var snapshot = warehouse.loadSnapshot(g.id());
+        assertTrue(warehouse.save(g.id(), snapshot.version(), java.util.Map.of(0,
+                new com.liu.liuguild.warehouse.WarehouseRepository.Stored("opaque-item", 100))));
+        long version = warehouse.loadSnapshot(g.id()).version();
+        repo.deleteGuild(g.id(), -1);
+        assertFalse(warehouse.save(g.id(), version, java.util.Map.of()));
+        warehouse.cleanExpired(space, System.currentTimeMillis() + 86400000L);
+        assertEquals(100, warehouse.loadSnapshot(g.id()).items().get(0).amount());
+    }
+
+    @Test
+    void expiryCleanupIsIdempotentAndPermanentAccessSurvives() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Expiry", "EXP");
+        repo.insertGuild(g);
+        var warehouse = new com.liu.liuguild.warehouse.WarehouseRepository(db);
+        var snapshot = warehouse.loadSnapshot(g.id());
+        assertTrue(warehouse.save(g.id(), snapshot.version(), java.util.Map.of(0,
+                new com.liu.liuguild.warehouse.WarehouseRepository.Stored("opaque-item", 5))));
+        var space = new com.liu.liuguild.config.WarehouseSettings();
+        space.expiredRetentionDays = 0;
+        long now = System.currentTimeMillis();
+        try (var c = db.source().getConnection(); var ps = c.prepareStatement("UPDATE `" + db.t("guilds") + "` SET warehouse_expires_at=? WHERE guild_id=?")) {
+            ps.setLong(1, now - 1); ps.setString(2, g.id()); ps.executeUpdate();
+        }
+        warehouse.cleanExpired(space, now);
+        var cleared = warehouse.loadSnapshot(g.id());
+        assertTrue(cleared.items().isEmpty());
+        warehouse.cleanExpired(space, now + 1);
+        assertEquals(cleared.version(), warehouse.loadSnapshot(g.id()).version());
+        assertEquals(0, repo.loadGuild(g.id()).warehouseExpiresAt());
+        try (var c = db.source().getConnection(); var ps = c.prepareStatement("UPDATE `" + db.t("guilds") + "` SET warehouse_expires_at=? WHERE guild_id=?")) {
+            ps.setLong(1, Long.MAX_VALUE); ps.setString(2, g.id()); ps.executeUpdate();
+        }
+        warehouse.cleanExpired(space, now + 2);
+        assertEquals(Long.MAX_VALUE, repo.loadGuild(g.id()).warehouseExpiresAt());
+    }
+
+    @Test
+    void disbandImmediateAndDelayedRetentionAreEnforced() throws Exception {
+        var warehouse = new com.liu.liuguild.warehouse.WarehouseRepository(db);
+        var settings = new com.liu.liuguild.config.WarehouseSettings();
+        long now = System.currentTimeMillis();
+        for (int days : new int[]{0, 1}) {
+            Guild g = guild(UUID.randomUUID().toString(), "Delete" + days, "D" + days);
+            repo.insertGuild(g);
+            var snapshot = warehouse.loadSnapshot(g.id());
+            assertTrue(warehouse.save(g.id(), snapshot.version(), java.util.Map.of(0,
+                    new com.liu.liuguild.warehouse.WarehouseRepository.Stored("opaque", 1))));
+            repo.deleteGuild(g.id(), days);
+            assertEquals(days == 0, warehouse.loadSnapshot(g.id()).items().isEmpty());
+            warehouse.cleanExpired(settings, now + 2 * 86400000L);
+            var cleared = warehouse.loadSnapshot(g.id());
+            assertTrue(cleared.items().isEmpty());
+            warehouse.cleanExpired(settings, now + 3 * 86400000L);
+            assertEquals(cleared.version(), warehouse.loadSnapshot(g.id()).version());
+        }
+    }
+
+    @Test
+    void disabledSpaceDoesNotDeleteExpiredContents() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Disabled", "DIS");
+        repo.insertGuild(g);
+        var warehouse = new com.liu.liuguild.warehouse.WarehouseRepository(db);
+        var snapshot = warehouse.loadSnapshot(g.id());
+        assertTrue(warehouse.save(g.id(), snapshot.version(), java.util.Map.of(0,
+                new com.liu.liuguild.warehouse.WarehouseRepository.Stored("opaque", 1))));
+        var settings = new com.liu.liuguild.config.WarehouseSettings();
+        settings.enabled = false;
+        settings.expiredRetentionDays = 0;
+        try (var c = db.source().getConnection(); var ps = c.prepareStatement("UPDATE `" + db.t("guilds") + "` SET warehouse_expires_at=1 WHERE guild_id=?")) {
+            ps.setString(1, g.id()); ps.executeUpdate();
+        }
+        warehouse.cleanExpired(settings, System.currentTimeMillis());
+        assertEquals(1, warehouse.loadSnapshot(g.id()).items().size());
+    }
+
     /** 重复调用 init()（相当于重启）不应因索引已存在而报错/告警。 */
     @Test
     void reInitIsIdempotentAndDoesNotFailOnExistingIndexes() throws Exception {
@@ -60,6 +154,58 @@ class GuildRepositoryTest {
                 "唯一索引 " + db.t("guilds") + "_tag 应已被检测到");
         assertFalse(db.indexExistsForTests("no_such_index_at_all", db.t("guilds")),
                 "不存在的索引不应被误判为已存在");
+    }
+
+    @Test
+    void personalFundsAreSeparateAndDonationIsAtomic() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Funds", "FUN");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+        PersonalFundsRepository funds = new PersonalFundsRepository(db);
+        assertTrue(funds.grantCheckin(leader.uuid(), 100, 80));
+        assertFalse(funds.grantCheckin(leader.uuid(), 100, 80));
+        assertEquals(80, funds.balance(leader.uuid()));
+        assertFalse(funds.donate(leader.uuid(), g.id(), 81));
+        assertFalse(funds.donate(leader.uuid(), "missing", 10));
+        assertFalse(funds.donate(leader.uuid(), g.id(), -1));
+        assertEquals(80, funds.balance(leader.uuid()));
+        assertTrue(funds.donate(leader.uuid(), g.id(), 30));
+        assertEquals(50, funds.balance(leader.uuid()));
+        assertEquals(30, repo.loadGuild(g.id()).points());
+        assertEquals(0, repo.loadGuild(g.id()).bank());
+    }
+
+    @Test
+    void purchaseCreditsCoinsAndRejectsStalePriceAtomically() throws Exception {
+        Guild g = guild("seller", "Seller", "SEL");
+        repo.insertGuildWithLeader(g, new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0));
+        try (var c = db.source().getConnection(); var st = c.createStatement()) {
+            st.executeUpdate("INSERT INTO guild_shop (listing_id,guild_id,item_data,stock,price,buy_price,created_at)"
+                    + " VALUES ('sale','seller','',10,5,0,0)");
+        }
+        var shop = new com.liu.liuguild.shop.ShopRepository(db);
+        assertFalse(shop.purchase("sale", "seller", 2, 4, 8));
+        assertTrue(shop.purchase("sale", "seller", 2, 5, 9));
+        assertEquals(9, repo.loadGuild("seller").bank());
+        assertEquals(0, repo.loadGuild("seller").points());
+        assertEquals(8, shop.removeAndTakeStock("sale"));
+        assertFalse(shop.purchase("sale", "seller", 1, 5, 5));
+        assertEquals(9, repo.loadGuild("seller").bank());
+    }
+
+    @Test
+    void shopRemovalReturnsDatabaseStockOnlyOnce() throws Exception {
+        try (var c = db.source().getConnection(); var st = c.createStatement()) {
+            st.executeUpdate("INSERT INTO guild_shop (listing_id,guild_id,item_data,stock,price,buy_price,created_at)"
+                    + " VALUES ('listing','guild','',12,5,999,0)");
+        }
+        var shop = new com.liu.liuguild.shop.ShopRepository(db);
+        assertTrue(shop.tryDecrement("listing", 5));
+        assertEquals(7, shop.removeAndTakeStock("listing"));
+        assertEquals(0, shop.removeAndTakeStock("listing"));
+        assertFalse(shop.tryDecrement("listing", 1));
     }
 
     private Guild guild(String id, String name, String tag) {

@@ -100,11 +100,11 @@ public final class GuildSettings {
     /** 是否必须购买使用时间才能打开仓库；false = 永久可用（旧行为，不消耗点数）。 */
     public boolean warehouseRequireRent = true;
     /** 仓库基础槽位数（至少 9，向上取整到 9 的倍数由代码保证）。 */
-    public int warehouseBaseSlots = 27;
+    public int warehouseBaseSlots = 45;
     /** 每购买 1 次「仓库升级」增加的槽位数。 */
-    public int warehouseSlotsPerLevel = 9;
+    public int warehouseSlotsPerLevel = 45;
     /** 仓库槽位上限。 */
-    public int warehouseMaxSlots = 54;
+    public int warehouseMaxSlots = 450;
     /** 每 24 小时使用时间消耗的工会点数（工会资金）。 */
     public long warehouseRentPricePerDay = 200;
     /** 一次可购买的天数选项（GUI / 命令）。 */
@@ -112,7 +112,7 @@ public final class GuildSettings {
     /** 累计最多可持有的天数（0 = 不限）。 */
     public int warehouseRentMaxDays = 90;
     /** 仓库最大可升级次数（0 = 不可升级）。 */
-    public int warehouseMaxLevel = 3;
+    public int warehouseMaxLevel = 9;
     /** 0 → 1 升级消耗的工会点数。 */
     public long warehouseUpgradeBaseCost = 1000;
     /** 每级升级成本的倍率。 */
@@ -202,9 +202,9 @@ public final class GuildSettings {
         s.residenceEnabled = c.getBoolean("guild.residence.enabled", s.residenceEnabled);
         s.warehouseEnabled = c.getBoolean("guild.warehouse.enabled", s.warehouseEnabled);
         s.warehouseRequireRent = c.getBoolean("guild.warehouse.require-rent", s.warehouseRequireRent);
-        s.warehouseBaseSlots = clamp9(c.getInt("guild.warehouse.base-slots", s.warehouseBaseSlots));
+        s.warehouseBaseSlots = warehouseCapacity(c.getInt("guild.warehouse.base-slots", s.warehouseBaseSlots));
         s.warehouseSlotsPerLevel = Math.max(0, c.getInt("guild.warehouse.slots-per-level", s.warehouseSlotsPerLevel));
-        s.warehouseMaxSlots = clamp9(c.getInt("guild.warehouse.max-slots", s.warehouseMaxSlots));
+        s.warehouseMaxSlots = warehouseCapacity(c.getInt("guild.warehouse.max-slots", s.warehouseMaxSlots));
         if (s.warehouseBaseSlots > s.warehouseMaxSlots) {
             s.warehouseBaseSlots = s.warehouseMaxSlots;
         }
@@ -338,14 +338,20 @@ public final class GuildSettings {
      * @param perLevel 每级增加
      * @param max      上限
      * @param level    当前等级
-     * @return 9 的倍数，且在 9..54 之间
+     * @return 9 的倍数，且在 9..4500 之间（逻辑容量，不是 Bukkit 库存尺寸）
      */
     public static int warehouseSlots(int base, int perLevel, int max, int level) {
-        int cap = clamp9(max);
-        int floor = Math.min(clamp9(base), cap);
+        int cap = warehouseCapacity(max);
+        int floor = Math.min(warehouseCapacity(base), cap);
         long extra = (long) Math.max(0, level - 1) * Math.max(0, perLevel);
         long total = Math.min(cap, floor + extra);
-        return clamp9((int) Math.max(9, total));
+        return warehouseCapacity((int) Math.max(9, total));
+    }
+
+    /** 逻辑容量与 Bukkit 容器尺寸解耦；最多 100 页，仍按 9 向上取整。 */
+    public static int warehouseCapacity(int slots) {
+        int value = Math.max(9, Math.min(4500, slots));
+        return ((value + 8) / 9) * 9;
     }
 
     /**

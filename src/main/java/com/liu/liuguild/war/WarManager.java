@@ -63,6 +63,7 @@ public final class WarManager implements GuildModule {
 
     private final Map<UUID, Location> returnLoc = new ConcurrentHashMap<>();
     private final Map<UUID, String> sideOf = new ConcurrentHashMap<>();
+    private final Set<UUID> capturing = ConcurrentHashMap.newKeySet();
     private final Map<UUID, KitService.Snapshot> localSnap = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> sparrowSnap = new ConcurrentHashMap<>();
     private final Set<UUID> spectators = ConcurrentHashMap.newKeySet();
@@ -96,7 +97,11 @@ public final class WarManager implements GuildModule {
 
     /** 玩家是否处于「准备阶段锁定」状态。 */
     public boolean isFrozen(UUID uuid) {
-        return frozen.contains(uuid);
+        return frozen.contains(uuid) || capturing.contains(uuid);
+    }
+
+    public boolean isCapturing(UUID uuid) {
+        return capturing.contains(uuid);
     }
 
     /** 玩家当前的锁定坐标（准备阶段出生点）；未锁定时返回 null。 */
@@ -836,8 +841,12 @@ public final class WarManager implements GuildModule {
             plugin.dungeon().create(def.template, chunks, Duration.ofSeconds(plugin.settings().arenas.createTimeoutSeconds))
                     .whenComplete((world, error) -> {
                         plugin.sync(() -> {
-                            if (error != null) {
-                                plugin.getLogger().warning("竞技场准备失败，工会战取消: " + error.getMessage());
+                            if (current != war || war.state() == WarState.CANCELLED) {
+                                if (world != null) plugin.dungeon().destroy(world);
+                                return;
+                            }
+                            if (error != null || world == null || world.world() == null) {
+                                plugin.getLogger().warning("竞技场准备失败，工会战取消: " + (error == null ? "未返回可用世界" : error.getMessage()));
                                 cancelWar(war, "war-arena-failed");
                                 return;
                             }
@@ -849,12 +858,17 @@ public final class WarManager implements GuildModule {
                     });
         } else {
             World world = def.world != null && !def.world.isBlank() ? Bukkit.getWorld(def.world) : null;
-            if (world == null && !Bukkit.getWorlds().isEmpty()) {
+            if (world == null && (def.world == null || def.world.isBlank()) && !Bukkit.getWorlds().isEmpty()) {
                 world = Bukkit.getWorlds().get(0);
             }
             fallbackWorld = world;
             if (world == null) {
                 plugin.getLogger().warning("未配置竞技场世界且无可加载世界，工会战取消。");
+                cancelWar(war, "war-arena-failed");
+                return;
+            }
+            if (def.hasTemplate()) {
+                plugin.getLogger().warning("竞技场模板不可用，拒绝回退到普通世界: " + def.template);
                 cancelWar(war, "war-arena-failed");
                 return;
             }
@@ -1701,6 +1715,9 @@ public final class WarManager implements GuildModule {
     }
 
     private void joinLocal(Player player, GuildWar war) {
+        if (player == null || !player.isOnline() || localSnap.containsKey(player.getUniqueId())
+                || spectators.contains(player.getUniqueId()) || arenaWorld() == null
+                || (war.state() != WarState.MATCHED && war.state() != WarState.PREPARING)) return;
         Guild guild = plugin.guilds().guildOf(player.getUniqueId());
         if (guild == null) {
             return;
@@ -1766,12 +1783,13 @@ public final class WarManager implements GuildModule {
     }
 
     private void spectateLocal(Player player, GuildWar war) {
+        if (player == null || !player.isOnline() || localSnap.containsKey(player.getUniqueId())
+                || spectators.contains(player.getUniqueId()) || sideOf.containsKey(player.getUniqueId())
+                || !modeOf(war).allowSpectators || !war.state().isLive()) return;
+        World world = arenaWorld();
+        if (world == null) return;
         spectators.add(player.getUniqueId());
         returnLoc.putIfAbsent(player.getUniqueId(), player.getLocation().clone());
-        World world = arenaWorld();
-        if (world == null) {
-            return;
-        }
         player.closeInventory();
         ArenaDef def = plugin.settings().arena(modeOf(war).arena);
         Location target = def.spawnSpectator.toLocation(world);
@@ -1903,6 +1921,9 @@ public final class WarManager implements GuildModule {
      * 采集并持久化玩家入场/旁观前的装备与状态，采集完成后回调执行实际的入场操作
      * （发放统一装备、切换旁观模式、传送等）。
      *
+     * <p>必须先完成内置托管写库，再采集 SparrowSync 并发放比赛装备。
+     * 等待写库期间限制玩家背包操作，写库失败拒绝入场。</p>
+     *
      * <p>为什么必须等采集启动后再清背包：
      * {@code SparrowSync.api().save(uuid)} 会在玩家线程同步读取当前背包（{@code CaptureMode.SYNC}）；
      * 若在同一 tick 紧接着调用 {@code kits().apply()} 把玩家背包替换成竞技场统一装备，
@@ -1918,12 +1939,27 @@ public final class WarManager implements GuildModule {
     private void captureSnapshot(Player player, GuildWar war, Runnable afterCaptured) {
         UUID uuid = player.getUniqueId();
         String playerName = player.getName();
+        player.closeInventory();
+        capturing.add(uuid);
         KitService.Snapshot snap = plugin.kits().snapshot(player);
         localSnap.put(uuid, snap);
 
         // 落库持久化托管快照：无论是否发放统一装备都要写，
         // 因为入场本身就会改写游戏模式/坐标，崩溃/重启后必须能兜底还原。
         String itemsData = plugin.kits().encodeSnapshotItems(snap);
+        if (itemsData == null || itemsData.isBlank()) {
+            capturing.remove(uuid);
+            localSnap.remove(uuid, snap);
+            sideOf.remove(uuid);
+            spectators.remove(uuid);
+            returnLoc.remove(uuid);
+            if (war != null) {
+                war.rosterA().remove(uuid);
+                war.rosterB().remove(uuid);
+            }
+            plugin.getLogger().warning("工会战快照编码失败，拒绝入场: " + uuid);
+            return;
+        }
         Location loc = snap.location();
         KitService.PersistedEscrow escrow = new KitService.PersistedEscrow(
                 uuid,
@@ -1948,9 +1984,30 @@ public final class WarManager implements GuildModule {
                 plugin.repo().saveWarEscrow(escrow);
             } catch (Exception e) {
                 plugin.getLogger().warning("保存工会战装备托管快照失败(" + playerName + "): " + e.getMessage());
+                plugin.sync(() -> {
+                    capturing.remove(uuid);
+                    localSnap.remove(uuid, snap);
+                    sideOf.remove(uuid);
+                    spectators.remove(uuid);
+                    returnLoc.remove(uuid);
+                    if (war != null) {
+                        war.rosterA().remove(uuid);
+                        war.rosterB().remove(uuid);
+                    }
+                });
+                return;
             }
+            plugin.sync(() -> {
+                capturing.remove(uuid);
+                if (!player.isOnline() || localSnap.get(uuid) != snap || current != war
+                        || !war.state().isLive()) return;
+                completeCapture(player, afterCaptured);
+            });
         });
+    }
 
+    private void completeCapture(Player player, Runnable afterCaptured) {
+        UUID uuid = player.getUniqueId();
         if (plugin.sparrow() != null && plugin.sparrow().available()) {
             // SparrowSync 在主线程调用 save(uuid) 时会同步完成玩家背包采集（CaptureMode.SYNC），
             // 然后异步编码写库；因此 invoke 返回后即可安全发放竞技场统一装备。
@@ -1987,6 +2044,7 @@ public final class WarManager implements GuildModule {
      * @param afterRestore 还原完成（含坐标恢复）后的回调，用于执行 {@code finishTeleport} 覆盖坐标
      */
     private void restoreSnapshot(UUID uuid, Player player, boolean quitting, Runnable afterRestore) {
+        capturing.remove(uuid);
         UUID sparrowId = sparrowSnap.remove(uuid);
         KitService.Snapshot snap = localSnap.remove(uuid);
 
@@ -2002,7 +2060,7 @@ public final class WarManager implements GuildModule {
             if (sparrowId != null && plugin.sparrow() != null && plugin.sparrow().available()) {
                 plugin.sparrow().unpin(sparrowId);
             }
-            deleteEscrowAsync(uuid);
+            if (snap != null && player != null) deleteEscrowAsync(uuid);
             if (afterRestore != null) {
                 afterRestore.run();
             }
@@ -2040,8 +2098,6 @@ public final class WarManager implements GuildModule {
         }
         if (snap != null && player != null) {
             plugin.kits().restore(player, snap, true);
-            deleteEscrowAsync(uuid);
-        } else if (snap == null) {
             deleteEscrowAsync(uuid);
         }
         if (afterRestore != null) {
@@ -2092,12 +2148,13 @@ public final class WarManager implements GuildModule {
                     plugin.sparrow().restore(uuid, sparrowId).whenComplete((ok, ex) -> {
                         plugin.sparrow().unpin(sparrowId);
                         plugin.sync(() -> {
-                            if (!Boolean.TRUE.equals(ok) && player.isOnline()) {
+                            if (!player.isOnline() || isInWar(uuid)) return;
+                            if (!Boolean.TRUE.equals(ok)) {
                                 if (fallback != null) {
                                     plugin.kits().restore(player, fallback, false);
                                 } else {
-                                    plugin.getLogger().warning("工会战托管快照不可用，无法还原玩家 "
-                                            + player.getName() + " 的装备（SparrowSync 亦失败）。");
+                                    plugin.getLogger().warning("工会战托管快照不可用，保留记录等待修复: " + uuid);
+                                    return;
                                 }
                             }
                             deleteEscrowAsync(uuid);
@@ -2109,9 +2166,8 @@ public final class WarManager implements GuildModule {
                     deleteEscrowAsync(uuid);
                     plugin.getLogger().info("已为玩家 " + player.getName() + " 恢复未归还的工会战托管装备（本地持久化快照）。");
                 } else {
-                    // 物品数据损坏时不做事，绝不能拿空背包覆盖玩家当前物品；清理记录避免反复尝试。
-                    plugin.getLogger().warning("工会战托管快照损坏，已跳过还原并清理记录: " + player.getName());
-                    deleteEscrowAsync(uuid);
+                    // 保留损坏数据供管理员修复，绝不以空背包替换或删除唯一恢复依据。
+                    plugin.getLogger().warning("工会战托管快照损坏，已保留记录: " + player.getName());
                 }
             });
         });

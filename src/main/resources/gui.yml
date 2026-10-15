@@ -47,8 +47,8 @@ gui:
       bank:
         slot: 21
         material: GOLD_INGOT
-        name: "<white>工会银行"
-        lore: ["<gray>余额：<white>{bank}", "<gray>左键存入 / 右键取出"]
+        name: "<white>工会金币银行"
+        lore: ["<gray>工会金币：<white>{bank}", "<gray>使用 Vault 金币，与工会资金独立", "<gray>左键存入 / 右键取出（需权限）"]
       home:
         slot: 22
         material: COMPASS
@@ -83,7 +83,16 @@ gui:
         slot: 30
         material: EMERALD
         name: "<white>工会商店"
-        lore: ["<gray>上架物品卖给全服玩家", "<gray>收入进工会资金", "<gray>也可收购成员物品", "", "<yellow>点击打开"]
+        lore: ["<gray>上架物品卖给全服玩家", "<gray>收入进入工会金币账户", "<gray>仅出售，不收购物品", "", "<yellow>点击打开"]
+      funds:
+        slot: 32
+        material: EXPERIENCE_BOTTLE
+        name: "<green>工会资金 · 捐献"
+        lore: ["<gray>查询个人资金与公共资金", "<gray>将个人建设资金捐给工会", "<gray>资金不能兑换金币", "", "<yellow>点击查看"]
+      close:
+        slot: 49
+        material: BARRIER
+        name: "<red>关闭菜单"
 
   # ---------------- 工会详情面板（点击主菜单名片 / 列表右键） ----------------
   info:
@@ -159,14 +168,10 @@ gui:
       fallback-material: SHIELD
       name: "<white>{guild} <dark_gray>[{tag}]"
       lore:
-        - "<gray>会长：<white>{leader}"
-        - "<gray>等级：<white>{level}"
-        - "<gray>成员：<white>{members}"
-        - "<gray>工会资金：<white>{points}"
-        - "<gray>战绩：<white>{wins} 胜 {losses} 负"
+        - "<gray>等级 <white>{level} <dark_gray>· <gray>成员 <white>{members}/{member_limit}"
+        - "<gray>加入方式：<white>{open}"
         - ""
-        - "<yellow>左键申请加入"
-        - "<aqua>右键查看详情"
+        - "<yellow>左键申请加入 <dark_gray>│ <aqua>右键详情"
     back:
       slot: 49
       material: ARROW

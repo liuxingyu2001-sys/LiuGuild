@@ -501,7 +501,7 @@ public final class GuildManager {
         rebuildIndexes();
         plugin.async(() -> {
             try {
-                plugin.repo().deleteGuild(g.id());
+                plugin.repo().deleteGuild(g.id(), plugin.settings().warehouse.disbandRetentionDays);
                 plugin.broadcastGuildChange(g.id());
             } catch (Exception e) {
                 plugin.getLogger().warning("解散工会写库失败: " + e.getMessage());
@@ -515,7 +515,7 @@ public final class GuildManager {
                 plugin.warehouse().kick(u);
             }
             plugin.warehouse().lock().release(g.id(), null);
-            plugin.warehouse().purge(g.id());
+
         }
         // 清空该工会的头衔定义
         if (plugin.titles() != null) {
@@ -1498,15 +1498,37 @@ public final class GuildManager {
         }
 
         int streak = GuildSettings.nextStreak(today, m.lastCheckin(), m.checkinStreak());
+        long reward = GuildSettings.checkinReward(c.checkinPoints, c.checkinStreakBonus,
+                c.checkinMaxStreakBonus, streak);
+        plugin.async(() -> {
+            try {
+                boolean granted = new com.liu.liuguild.db.PersonalFundsRepository(plugin.db())
+                        .grantCheckin(player.getUniqueId(), today, reward);
+                plugin.sync(() -> {
+                    if (!granted) {
+                        if (c.checkinCost > 0) plugin.economy().deposit(player, c.checkinCost);
+                        if (c.checkinGuildCost > 0) addPoints(g, c.checkinGuildCost);
+                        plugin.messages().send(player, "checkin-already");
+                        return;
+                    }
+                    completeCheckin(player, g, m, c, today, streak, reward);
+                });
+            } catch (java.sql.SQLException e) {
+                plugin.getLogger().severe("个人签到资金入账失败: " + e.getMessage());
+                plugin.sync(() -> {
+                    if (c.checkinCost > 0) plugin.economy().deposit(player, c.checkinCost);
+                    if (c.checkinGuildCost > 0) addPoints(g, c.checkinGuildCost);
+                    plugin.messages().send(player, "funds-failed");
+                });
+            }
+        });
+    }
+
+    private void completeCheckin(Player player, Guild g, GuildMember m, GuildSettings c,
+                                 long today, int streak, long reward) {
         m.lastCheckin(today);
         m.checkinStreak(streak);
         saveMemberAsync(m);
-
-        long reward = GuildSettings.checkinReward(c.checkinPoints, c.checkinStreakBonus,
-                c.checkinMaxStreakBonus, streak);
-        if (reward > 0) {
-            addPoints(g, reward);
-        }
         boolean moneyGiven = c.checkinMoney > 0 && plugin.economy().available();
         if (moneyGiven) {
             plugin.economy().deposit(player, c.checkinMoney);

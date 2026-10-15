@@ -146,19 +146,27 @@ class GuildSettingsTest {
     }
 
     @Test
-    void warehouseSlotsAreAlwaysLegalInventorySizes() {
-        // Bukkit 只接受 9 的倍数且 9..54；配错数字不能让 createInventory 抛异常
+    void warehouseSlotsAreLogicalCapacityIndependentOfInventorySize() {
+        // GUI固定54格，逻辑容量可跨页；不再受原版容器54格限制
         int[][] cases = {
                 {0, 0, 0, 1}, {1, 1, 1, 1}, {100, 100, 200, 50},
                 {27, 9, 27, 1}, {9, 3, 20, 3}, {54, 0, 9, 1}, {5, 2, 7, 10},
         };
         for (int[] c : cases) {
             int slots = GuildSettings.warehouseSlots(c[0], c[1], c[2], c[3]);
-            assertTrue(slots >= 9 && slots <= 54,
-                    "槽位必须落在 9..54，实际=" + slots + " case=" + java.util.Arrays.toString(c));
+            assertTrue(slots >= 9 && slots <= 4500,
+                    "逻辑容量必须落在 9..4500，实际=" + slots + " case=" + java.util.Arrays.toString(c));
             assertEquals(0, slots % 9,
                     "槽位必须是 9 的倍数，实际=" + slots + " case=" + java.util.Arrays.toString(c));
         }
+    }
+
+    @Test
+    void warehouseCapacitySupportsTenPagesAndBoundsOverflow() {
+        assertEquals(450, GuildSettings.warehouseSlots(45, 45, 450, 10));
+        assertEquals(90, GuildSettings.warehouseSlots(45, 45, 450, 2));
+        assertEquals(4500, GuildSettings.warehouseSlots(Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE));
+        assertEquals(54, GuildSettings.clamp9(450)); // 原版容器工具仍独立限制尺寸
     }
 
     @Test

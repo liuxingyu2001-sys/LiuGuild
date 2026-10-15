@@ -34,6 +34,15 @@ public final class Guild {
     /** 最后一次活跃时间（成员登录或工会数据变更），用于清理僵尸工会。 */
     private volatile long lastActiveAt = System.currentTimeMillis();
     /** 工会仓库已购买的升级等级（0 = 基础容量，不随工会等级增长）。 */
+    private volatile long warehouseLevelExpiresAt;
+    private volatile int warehousePermanentLevel;
+    public long warehouseLevelExpiresAt() { return warehouseLevelExpiresAt; }
+    public void warehouseLevelExpiresAt(long value) { warehouseLevelExpiresAt = value; }
+    public int warehousePermanentLevel() { return warehousePermanentLevel; }
+    public void warehousePermanentLevel(int value) { warehousePermanentLevel = value; }
+    public int effectiveWarehouseLevel(long now) {
+        return warehouseLevelExpiresAt > 0 && warehouseLevelExpiresAt <= now ? warehousePermanentLevel : warehouseLevel;
+    }
     private volatile int warehouseLevel;
     /** 工会仓库使用到期时间（epoch 毫秒，0 = 从未购买）。 */
     private volatile long warehouseExpiresAt;

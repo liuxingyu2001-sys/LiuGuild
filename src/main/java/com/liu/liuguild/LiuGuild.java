@@ -279,6 +279,11 @@ public final class LiuGuild extends JavaPlugin {
         if (modules != null) {
             modules.reloadAll();
         }
+        // 按新配置重建全局任务，避免清理开关和间隔继续沿用旧值。
+        if (presenceTask != null) { presenceTask.cancel(); presenceTask = null; }
+        if (cleanupTask != null) { cleanupTask.cancel(); cleanupTask = null; }
+        if (configWatchTask != null) { configWatchTask.cancel(); configWatchTask = null; }
+        startTasks();
     }
 
     // =====================================================================

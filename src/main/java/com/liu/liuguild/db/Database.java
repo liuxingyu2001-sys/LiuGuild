@@ -143,6 +143,10 @@ public final class Database {
                 : "`tag` VARCHAR(32) NOT NULL,";
 
         try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("personal_funds") + "` ("
+                    + "`player_uuid` VARCHAR(36) NOT NULL PRIMARY KEY,"
+                    + "`balance` BIGINT NOT NULL DEFAULT 0,"
+                    + "`checkin_day` BIGINT NOT NULL DEFAULT -1)" + engine);
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guilds") + "` ("
                     + "`guild_id` VARCHAR(36) NOT NULL,"
                     + nameCol
@@ -216,6 +220,8 @@ public final class Database {
                     + ")" + engine);
 
             // 工会仓库：物品以 ItemStack.serializeAsBytes 的 Base64 存储，可完整保留 NBT/组件
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_warehouse_state") + "` ("
+                    + "`guild_id` VARCHAR(36) NOT NULL PRIMARY KEY, `version` BIGINT NOT NULL DEFAULT 0)" + engine);
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_warehouse") + "` ("
                     + "`guild_id` VARCHAR(36) NOT NULL,"
                     + "`slot` INT NOT NULL,"
@@ -360,6 +366,7 @@ public final class Database {
     private void migrate() {
         List<String[]> columns = new ArrayList<>();
         // {table, column, 定义}
+        columns.add(new String[]{"guild_warehouse", "amount", "`amount` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "icon", "`icon` VARCHAR(64)"});
         columns.add(new String[]{"guilds", "icon_data", "`icon_data` TEXT"});
         columns.add(new String[]{"guilds", "notice", "`notice` VARCHAR(255)"});
@@ -368,6 +375,10 @@ public final class Database {
         columns.add(new String[]{"guilds", "member_count", "`member_count` INT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "updated_at", "`updated_at` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "bank", "`bank` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guilds", "warehouse_level_expires_at", "`warehouse_level_expires_at` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guilds", "warehouse_permanent_level", "`warehouse_permanent_level` INT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_warehouse_state", "deleted_at", "`deleted_at` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_warehouse_state", "purge_at", "`purge_at` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "warehouse_level", "`warehouse_level` INT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "warehouse_expires_at", "`warehouse_expires_at` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "war_funds_day", "`war_funds_day` BIGINT NOT NULL DEFAULT 0"});
