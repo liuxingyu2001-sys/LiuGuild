@@ -162,18 +162,6 @@ zh_CN:
   war-respawned: "<green>已在己方出生点复活。"
   war-bounty-blocked: "<yellow>工会战击杀不计入悬赏，避免利用比赛刷取悬赏奖励。"
   war-member-left: "<yellow>你已离开该工会，已自动退出本场工会战。"
-  # ---- Residence 领地共享 ----
-  res-unavailable: "<yellow>领地共享需要安装 Residence 插件。"
-  res-disabled: "<yellow>本服已关闭领地共享功能。"
-  res-usage: "<red>用法：<white>/guild residence <list|share <领地>|unshare <领地>></white>"
-  res-none: "<gray>你名下还没有任何领地。"
-  res-not-found: "<red>找不到领地：<white>{name}</white>"
-  res-not-owner: "<red>你不是领地 <white>{name}</white> 的主人，无法共享它。"
-  res-failed: "<red>共享失败，请确认你有权限修改该领地的标志。"
-  res-shared: "<green>已把领地 <white>{name}</white> 共享给工会 <white>{guild}</white>（{count} 名成员）。"
-  res-unshared: "<green>已取消领地 <white>{name}</white> 的共享（{count} 名成员）。"
-  res-list-header: "<gold>你的领地（当前工会：<white>{guild}</white>）："
-  res-list-line: "<gray>  · <white>{name}"
   # ---- 工会仓库 ----
   wh-title: "<dark_gray>工会仓库 · <white>{guild}"
   wh-disabled: "<yellow>工会仓库当前未启用。"

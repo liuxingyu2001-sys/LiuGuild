@@ -23,7 +23,6 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [checkin.md](checkin.md) | 工会每日签到（连续奖励） |
 | [tasks.md](tasks.md) | 工会任务与 liupass 对接（扩展任务类型 / 通行证经验） |
 | [activity.md](activity.md) | 玩家在线活跃发工会资金（活跃判定 + 每日上限） |
-| [residence.md](residence.md) | Residence 领地共享 |
 | [warehouse.md](warehouse.md) | 工会仓库（跨服共享 + 原子锁） |
 | [titles.md](titles.md) | 工会自定义头衔 |
 | [shop.md](shop.md) | 工会商店（按工会隔离；个人工会资金购买，点数入账） |

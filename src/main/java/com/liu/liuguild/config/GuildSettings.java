@@ -91,8 +91,6 @@ public final class GuildSettings {
     public double renameCost = 0;
     /** 是否允许工会改名字（/guild rename <新名> <新标签>）。 */
     public boolean renameAllowTag = true;
-    /** 是否启用 Residence 领地共享（需安装 Residence）。 */
-    public boolean residenceEnabled = true;
 
     // ---- 工会仓库 ----
     /** 是否启用工会仓库（跨服共享，同一时刻仅一人可打开）。 */
@@ -197,7 +195,6 @@ public final class GuildSettings {
         s.renameCooldownSeconds = Math.max(0, c.getInt("guild.rename.cooldown-seconds", s.renameCooldownSeconds));
         s.renameCost = Math.max(0, c.getDouble("guild.rename.cost", s.renameCost));
         s.renameAllowTag = c.getBoolean("guild.rename.allow-tag", s.renameAllowTag);
-        s.residenceEnabled = c.getBoolean("guild.residence.enabled", s.residenceEnabled);
         s.warehouseEnabled = c.getBoolean("guild.warehouse.enabled", s.warehouseEnabled);
         s.warehouseRequireRent = c.getBoolean("guild.warehouse.require-rent", s.warehouseRequireRent);
         s.warehouseBaseSlots = warehouseCapacity(c.getInt("guild.warehouse.base-slots", s.warehouseBaseSlots));

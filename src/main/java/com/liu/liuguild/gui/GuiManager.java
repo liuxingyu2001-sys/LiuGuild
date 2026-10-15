@@ -174,8 +174,6 @@ public final class GuiManager implements GuildModule, Listener {
         }
         return switch (buttonId) {
             case "home", "homes" -> plugin.guildHome() != null && plugin.guildHome().available();
-            case "residences" -> plugin.residence() != null && plugin.residence().available()
-                    && plugin.settings().guild.residenceEnabled;
             case "chat" -> plugin.guildChat() != null && plugin.guildChat().available();
             case "warehouse_manage" -> plugin.warehouse() != null;
             default -> true;
@@ -719,7 +717,7 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     // =====================================================================
-    // 排行榜 / 领地共享 / 入会邀请
+    // 排行榜 / 入会邀请
     // =====================================================================
 
     /** 工会排行榜：主界面原本没有入口，只能靠 /guild top 指令。 */
@@ -777,55 +775,6 @@ public final class GuiManager implements GuildModule, Listener {
         }
         inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回主页", List.of(), Map.of(), null));
         holder.actions.put(53, "back:main");
-        show(player, holder, inv);
-    }
-
-    /** 领地共享：把 Residence 名下领地共享给全工会 / 取消共享。 */
-    public void openResidences(Player player, Guild g) {
-        if (g == null) {
-            plugin.messages().send(player, "not-in-guild");
-            return;
-        }
-        var res = plugin.residence();
-        if (res == null || !res.available()) {
-            plugin.messages().send(player, "res-unavailable");
-            return;
-        }
-        if (!plugin.settings().guild.residenceEnabled) {
-            plugin.messages().send(player, "res-disabled");
-            return;
-        }
-        List<String> owned = res.residencesOf(player);
-        Holder holder = new Holder("residences", g.id(), 0);
-        Map<String, String> ph = new LinkedHashMap<>();
-        ph.put("guild", g.name());
-        Inventory inv = simpleInventory(player, holder, 6, "<gold>领地共享 <dark_gray>· {guild}", ph);
-        if (owned.isEmpty()) {
-            inv.setItem(22, GuiUtil.build(player, "BARRIER", "BARRIER",
-                    "<gray>你名下还没有任何领地",
-                    List.of("<gray>请先在 Residence 里创建领地"), Map.of(), null));
-        }
-        int slot = 0;
-        for (String name : owned) {
-            if (slot >= 45) {
-                break;
-            }
-            Object claim = res.residence(name);
-            boolean owner = claim != null && res.isOwner(claim, player);
-            List<String> lore = new ArrayList<>();
-            lore.add("<gray>领地：<white>" + name);
-            if (!owner) {
-                lore.add("<red>你不是该领地主人，无法共享");
-            } else {
-                lore.add("");
-                lore.add("<yellow>左键共享给全工会");
-                lore.add("<yellow>右键取消共享");
-            }
-            String material = owner ? "GRASS_BLOCK" : "DIRT";
-            inv.setItem(slot, GuiUtil.build(player, material, material, "<white>" + name, lore, Map.of(), null));
-            holder.actions.put(slot, "res_claim:" + name);
-            slot++;
-        }
         show(player, holder, inv);
     }
 
@@ -1128,7 +1077,6 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "home" -> openHomes(player, require(g, player));
             case "top:open" -> openTop(player, "points");
-            case "res:open" -> openResidences(player, g);
             case "invites:open" -> openInvites(player);
             case "warehouse:manage" -> {
                 if (g != null && plugin.warehouse() != null) {
@@ -1503,28 +1451,6 @@ public final class GuiManager implements GuildModule, Listener {
             }
         } else if (action.startsWith("top_cat:")) {
             openTop(player, action.substring("top_cat:".length()));
-        } else if (action.startsWith("res_claim:")) {
-            String name = action.substring("res_claim:".length());
-            var res = plugin.residence();
-            if (g != null && res != null && res.available()) {
-                Object claim = res.residence(name);
-                if (claim == null) {
-                    plugin.messages().send(player, "res-not-found", "name", name);
-                } else if (!res.isOwner(claim, player)) {
-                    plugin.messages().send(player, "res-not-owner", "name", name);
-                } else if (isRightClick()) {
-                    int n = res.revoke(claim, g);
-                    plugin.messages().send(player, "res-unshared", "name", name, "count", n, "guild", g.name());
-                } else {
-                    int n = res.share(claim, g);
-                    if (n <= 0) {
-                        plugin.messages().send(player, "res-failed");
-                    } else {
-                        plugin.messages().send(player, "res-shared", "name", name, "count", n, "guild", g.name());
-                    }
-                }
-                openResidences(player, g);
-            }
         } else if (action.startsWith("invite_pick:")) {
             Guild target = plugin.guilds().guild(action.substring("invite_pick:".length()));
             if (target == null) {
@@ -2682,11 +2608,10 @@ public final class GuiManager implements GuildModule, Listener {
             case "warehouse" -> "guild:warehouse";
             case "warehouse_manage" -> "warehouse:manage";
             case "top" -> "top:open";
-            case "residences" -> "res:open";
+            case "shop" -> "shop:open";
             case "invites" -> "invites:open";
             case "chat" -> "chat:toggle";
             case "titles" -> "title:open";
-            case "shop" -> "shop:open";
             case "toggle_open" -> "set:open";
             case "notice" -> "set:notice";
             case "desc" -> "set:desc";

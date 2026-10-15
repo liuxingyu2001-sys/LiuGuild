@@ -22,6 +22,7 @@
 
 ## 构建记录
 
+- `0.2.6`：移除**工会领地共享（Residence）**功能。审查发现其设计存在无法修复的权限泄漏：没有“已共享”状态持久化，新成员入会会被自动授予所有成员的全部领地（隐私泄漏）；领地主退会时剩余成员仍保留其私宅权限；工会解散不回收集权限；取消共享写 `deny` 会覆盖分组权限。连同 `ResidenceHook`、指令 / GUI / 配置 / 消息 / 文档一并删除，`plugin.yml` 不再软依赖 Residence。**195 项单元测试通过**。
 - `0.2.5`：世界识别兼容 Paper 1.21.11+ / Leaf 26.x 的 `dimensions/<命名空间>/<世界>` 新布局（新增 `WorldResolver`，支持纯名 / `minecraft:xxx` / 目录名，修复 gamerule 名归一化），新增 `/guildadmin arena listworlds`；GUI 全面接入 Sparrow UI 会话栈，**按 ESC 返回上一页**（子菜单压栈、根菜单才关闭），仓库菜单与铁砧输入一并接入。**201 项单元测试通过**。详见 [GUI 文档](docs/gui.md) 与 [竞技场文档](docs/arena.md)。
 - `0.2.4`：修复 `/guildadmin arena tp <id>` 与 `/guildadmin war tp` 在非承办服上「世界未加载，无法传送」——改为先代理传送到承办服（写入待传送标记），抵达后再送到竞技场 A 点。197 项单元测试通过。
 - `0.2.3`：修复跨服工会战「A 服传不到承办服」——承办服判定兼容插件 `server-id` 与代理（BungeeCord/Velocity）登记名，新增 `GetServer`/`GetServers` 子通道探测、代理名不一致警告与承办服补领；明确 `server-id` 必须等于代理 `[servers]` 名称。197 项单元测试通过。

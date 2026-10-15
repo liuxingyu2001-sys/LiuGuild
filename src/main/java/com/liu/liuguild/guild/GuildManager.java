@@ -558,8 +558,6 @@ public final class GuildManager {
         g.putMember(m);
         memberIndex.put(player.getUniqueId(), g.id());
         invites.remove(player.getUniqueId());
-        // 加入即共享已有工会领地，无需会长重新授权
-        grantSharedResidences(g, player.getUniqueId());
 
         plugin.async(() -> {
             try {
@@ -739,58 +737,6 @@ public final class GuildManager {
         return true;
     }
 
-    /**
-     * 授予新成员在「本工会共享领地上的权限。
-     *
-     * <p>与收回对称，全程用 UUID 查询，不需要领地主人在线。</p>
-     */
-    private void grantSharedResidences(Guild g, UUID member) {
-        com.liu.liuguild.hook.ResidenceHook res = plugin.residence();
-        if (res == null || !res.available() || !conf().residenceEnabled) {
-            return;
-        }
-        for (GuildMember owner : g.memberMap().values()) {
-            if (owner.uuid().equals(member)) {
-                continue;
-            }
-            for (String claimName : res.residencesOf(owner.uuid())) {
-                Object claim = res.residence(claimName);
-                if (claim == null) {
-                    continue;
-                }
-                UUID claimOwner = res.ownerOf(claim);
-                if (claimOwner != null && claimOwner.equals(owner.uuid())) {
-                    res.shareFor(claim, member);
-                }
-            }
-        }
-    }
-
-    /**
-     * 收回某成员在「本工会共享领地上的权限。
-     *
-     * <p>不需要领地主人在线：全程用 UUID 查询（{@code residencesOf(uuid)} +
-     * {@code ownerOf(claim)}），因此对离线会长也生效。</p>
-     */
-    private void revokeSharedResidences(Guild g, UUID member) {
-        com.liu.liuguild.hook.ResidenceHook res = plugin.residence();
-        if (res == null || !res.available() || !conf().residenceEnabled) {
-            return;
-        }
-        for (GuildMember owner : g.memberMap().values()) {
-            for (String claimName : res.residencesOf(owner.uuid())) {
-                Object claim = res.residence(claimName);
-                if (claim == null) {
-                    continue;
-                }
-                UUID claimOwner = res.ownerOf(claim);
-                if (claimOwner != null && claimOwner.equals(owner.uuid())) {
-                    res.revokeFor(claim, member);
-                }
-            }
-        }
-    }
-
     public boolean kick(Player actor, Guild g, UUID targetId, String targetName) {
         if (actor.getUniqueId().equals(targetId)) {
             plugin.messages().send(actor, "self-target");
@@ -830,8 +776,6 @@ public final class GuildManager {
         g.removeMember(uuid);
         memberIndex.remove(uuid);
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
-        // 退会/被踢：收回工会共享领地上的权限（避免退会后仍能破坏共享领地）
-        revokeSharedResidences(g, uuid);
         // 若该成员正开着工会仓库，先落库并关掉，避免退会后继续操作
         if (plugin.warehouse() != null) {
             plugin.warehouse().kick(uuid);

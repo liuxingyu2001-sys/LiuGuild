@@ -74,11 +74,6 @@ gui:
         material: GOLDEN_HELMET
         name: "<white>工会排行榜"
         lore: ["<gray>按资金 / 等级 / 战绩排名", "<gray>查看全服最强工会", "", "<yellow>点击查看"]
-      residences:
-        slot: 31
-        material: GRASS_BLOCK
-        name: "<white>领地共享"
-        lore: ["<gray>把自己的领地共享给工会", "<gray>成员可建造 / 使用", "", "<yellow>点击打开"]
       warehouse_manage:
         slot: 33
         material: ANVIL

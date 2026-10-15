@@ -31,7 +31,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             "help", "menu", "gui", "create", "disband", "join", "leave", "invite", "accept", "deny",
             "kick", "promote", "demote", "transfer", "members", "seticon", "icon", "rename", "set", "bank",
             "home", "hq", "info", "list", "top", "war", "chat", "c", "checkin", "sign", "qiandao",
-            "residence", "res", "lingdi", "warehouse", "wh", "cangku", "title", "titles", "chenghao",
+            "warehouse", "wh", "cangku", "title", "titles", "chenghao",
             "shop", "shangdian", "store");
 
     private final LiuGuild plugin;
@@ -93,7 +93,6 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             case "chat", "c" -> plugin.guildChat().chat(player, args.length > 1
                     ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : "");
             case "checkin", "sign", "qiandao" -> plugin.guilds().checkin(player);
-            case "res", "residence", "lingdi" -> residence(player, args);
             case "warehouse", "wh", "cangku" -> {
                 Guild g = plugin.guilds().guildOf(player.getUniqueId());
                 if (g == null) {
@@ -154,9 +153,6 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "驻地", "/guild home set [槽位]", "把当前位置设为工会驻地");
         helpLine(player, "驻地", "/guild home del [槽位]", "删除工会驻地");
         helpLine(player, "日常", "/guild checkin", "每日签到领取工会资金");
-        helpLine(player, "领地", "/guild residence list", "列出自己的领地（需 Residence）");
-        helpLine(player, "领地", "/guild residence share <领地>", "把自己的领地在工会内共享");
-        helpLine(player, "领地", "/guild residence unshare <领地>", "取消领地共享");
         helpLine(player, "仓库", "/guild warehouse", "打开工会共享仓库（同一时间仅一人）");
         helpLine(player, "仓库", "/guild warehouse rent <天数>", "按空间配置购买时长；显式输入0购买永久使用权");
         helpLine(player, "仓库", "/guild warehouse upgrade", "用工会资金升级仓库容量");
@@ -475,15 +471,6 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 + "<click:suggest_command:'/guild top losses'><white>losses</white></click>"));
     }
 
-    // =====================================================================
-    // 领地共享（Residence 软依赖）
-    // =====================================================================
-
-    /**
-     * /guild residence list              列出自己拥有的领地
-     * /guild residence share <领地名>    把自己拥有的领地在工会内共享
-     * /guild residence unshare <领地名>  取消共享
-     */
     /**
      * 工会头衔：查看 / 装备 / 创建 / 删除。
      *
@@ -783,79 +770,6 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    private void residence(Player player, String[] args) {
-        com.liu.liuguild.hook.ResidenceHook res = plugin.residence();
-        if (res == null || !res.available()) {
-            plugin.messages().send(player, "res-unavailable");
-            return;
-        }
-        if (!plugin.settings().guild.residenceEnabled) {
-            plugin.messages().send(player, "res-disabled");
-            return;
-        }
-        Guild g = plugin.guilds().guildOf(player.getUniqueId());
-        if (g == null) {
-            plugin.messages().send(player, "not-in-guild");
-            return;
-        }
-        String action = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "list";
-        switch (action) {
-            case "list" -> {
-                java.util.List<String> owned = res.residencesOf(player);
-                if (owned.isEmpty()) {
-                    plugin.messages().send(player, "res-none");
-                    return;
-                }
-                plugin.messages().sendRaw(player, "res-list-header", "guild", g.name());
-                for (String name : owned) {
-                    plugin.messages().sendRaw(player, "res-list-line", "name", name);
-                }
-            }
-            case "share" -> {
-                if (args.length < 3) {
-                    plugin.messages().send(player, "res-usage");
-                    return;
-                }
-                String target = args[2];
-                Object claim = res.residence(target);
-                if (claim == null) {
-                    plugin.messages().send(player, "res-not-found", "name", target);
-                    return;
-                }
-                if (!res.isOwner(claim, player)) {
-                    plugin.messages().send(player, "res-not-owner", "name", target);
-                    return;
-                }
-                int n = res.share(claim, g);
-                if (n <= 0) {
-                    plugin.messages().send(player, "res-failed");
-                    return;
-                }
-                plugin.messages().send(player, "res-shared", "name", target,
-                        "count", n, "guild", g.name());
-            }
-            case "unshare" -> {
-                if (args.length < 3) {
-                    plugin.messages().send(player, "res-usage");
-                    return;
-                }
-                String target = args[2];
-                Object claim = res.residence(target);
-                if (claim == null) {
-                    plugin.messages().send(player, "res-not-found", "name", target);
-                    return;
-                }
-                if (!res.isOwner(claim, player)) {
-                    plugin.messages().send(player, "res-not-owner", "name", target);
-                    return;
-                }
-                int n = res.revoke(claim, g);
-                plugin.messages().send(player, "res-unshared", "name", target, "count", n);
-            }
-            default -> plugin.messages().send(player, "res-usage");
-        }
-    }
-
     private void war(Player player, String[] args) {
         Guild g = plugin.guilds().guildOf(player.getUniqueId());
         String action = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "status";
@@ -954,9 +868,6 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             }
             if (sub.equals("war")) {
                 return filter(List.of("queue", "leave", "join", "spectate", "status", "history"), args[1]);
-            }
-            if (sub.equals("residence") || sub.equals("res") || sub.equals("lingdi")) {
-                return filter(List.of("list", "share", "unshare"), args[1]);
             }
             if (sub.equals("set")) {
                 return filter(List.of("open", "notice", "desc"), args[1]);
