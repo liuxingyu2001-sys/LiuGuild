@@ -890,7 +890,7 @@ public final class GuiManager implements GuildModule, Listener {
             }
             Guild owner = plugin.guilds().guild(l.guildId());
             List<String> lore = new ArrayList<>();
-            lore.add("<gray>售价：<white>" + plugin.economy().format(l.price()) + " <gray>/件");
+            lore.add("<gray>售价：<white>" + l.price() + " <gray>工会资金/件");
             lore.add("<gray>库存：<white>" + l.stock() + " <gray>件");
             lore.add("<gray>上架者：<white>" + (l.sellerName() == null ? "?" : l.sellerName()));
             lore.add("");
@@ -957,7 +957,7 @@ public final class GuiManager implements GuildModule, Listener {
                 plugin.shop().updatePrices(g, l, price, 0);
                 plugin.messages().send(player, "shop-price-updated",
                         "item", plugin.shop().itemName(l.preview()),
-                        "price", plugin.economy().format(price));
+                        "price", String.valueOf(price));
                 openShop(player, g);
             });
             return;
@@ -1394,15 +1394,6 @@ public final class GuiManager implements GuildModule, Listener {
                     final Guild shopGuild = g;
                     final int amount = hand.getAmount();
                     final ItemStack sample = hand.clone();
-                    // 若装了 LiuShop，先给个参考价（否则工会只能瞎定价）
-                    var ls = plugin.liuShop();
-                    if (ls != null && ls.available()) {
-                        double sug = ls.suggestPrice(sample, plugin.settings().guild.shopSellMarkup, -1);
-                        if (sug > 0) {
-                            plugin.messages().send(player, "shop-suggest-price",
-                                    "price", plugin.economy().format(sug));
-                        }
-                    }
                     requestText(player, "shop-prompt-price", priceStr -> {
                         long price = NumberUtil.toLong(priceStr.trim(), -1);
                         if (price < 0) {
@@ -1418,7 +1409,7 @@ public final class GuiManager implements GuildModule, Listener {
                             plugin.messages().send(player, "shop-listed",
                                     "item", plugin.shop().itemName(sample),
                                     "amount", String.valueOf(amount),
-                                    "price", plugin.economy().format(price));
+                                    "price", String.valueOf(price));
                         }
                         openShop(player, shopGuild);
                     });

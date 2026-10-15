@@ -122,8 +122,6 @@ guild:
     tax-percent: 5.0
     # 谁能上架/改价/下架（MEMBER / OFFICER / LEADER）
     manage-rank: OFFICER
-    # 建议价回退倍率：LiuShop 只给了收购价时，乘以它作为建议售价
-    sell-markup: 2.0
   # 工会仓库：跨服共享物品存储，同一时刻只允许一个成员打开（跨服原子锁）
   # 使用时间与容量升级均消耗【工会资金（点数）】，与工会银行（Vault 金币）无关。
   warehouse:

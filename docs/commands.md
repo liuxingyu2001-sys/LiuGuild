@@ -52,7 +52,7 @@
 | `/guild title delete <标识>` | 删除头衔（管理） |
 | `/guild shop` | 打开本会商店（别名 `shangdian` / `store`） |
 | `/guild shop all` | ~~浏览全服工会商店~~（已移除：商店按工会隔离） |
-| `/guild shop add <售价> [收购价]` | 上架手持物品（管理） |
+| `/guild shop add <工会资金单价>` | 上架手持物品（管理） |
 | `/guild shop remove <编号前8位>` | 下架并退回剩余（管理） |
 
 ## 管理指令 `/guildadmin`（权限 `liuguild.admin`）

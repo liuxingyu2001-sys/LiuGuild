@@ -19,18 +19,17 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 工会商店：工会把自己的物品明码标价挂出来，<b>只供本会成员购买</b>，
- * 收入进工会金币银行（按配置抽税）。
+ * 工会商店：工会把自己的物品明码标价挂出来，<b>只供本会成员购买</b>。
+ * 购买用成员自己的<b>个人工会资金</b>支付，税后货款进入工会<b>点数</b>（公共工会资金）。
  *
  * <p><b>工会隔离</b>：上架记录以 {@code guild_id} 为准，每个工会的商店物品完全独立，
  * 工会之间不能互相看到或购买对方的商品（因此也不存在“全服共享商店”）。</p>
  *
- * <p>不再提供收购；建设资金不参与商店交易。</p>
+ * <p>不再提供收购；Vault 金币与工会银行不参与商店交易。</p>
  *
  * <h3>钱与物的顺序</h3>
- * <p>买卖最怕「扣了钱没给货」或「给了货没扣钱」。这里的规则是：
- * <b>先把能失败的事做完、并且做完就能立刻回滚，再执行不可逆的那一步。</b>
- * 具体见 {@link #buy} / {@link #supply} 里的注释。</p>
+ * <p>买卖最怕「扣了钱没给货」或「给了货没扣钱」。个人资金扣款、库存扣减和工会点数入账
+ * 在数据库同一事务里完成（见 {@link ShopRepository#purchase}），任一步失败都整体回滚。</p>
  *
  * <h3>并发</h3>
  * <p>库存扣减走数据库原子 UPDATE（见 {@link ShopRepository#tryDecrement}），
@@ -327,15 +326,14 @@ public final class ShopService implements GuildModule {
     }
 
     /**
-     * 购买。
+     * 购买（成员个人工会资金 → 工会点数）。
      *
      * <p>顺序（每一步失败都能干净回退）：</p>
      * <ol>
-     *   <li>背包空间预检 —— 放不下就别开始，避免「给了货又得收回」这种脏流程。</li>
-     *   <li>扣钱（Vault，主线程同步）。失败 → 直接返回，无副作用。</li>
-     *   <li>数据库原子扣库存。失败（被别人抢走）→ <b>退钱</b>。</li>
-     *   <li>发货。此时一定成功（空间已预检）。</li>
-     *   <li>货款进工会资金（扣税），异步。</li>
+     *   <li>背包空间预检 —— 放不下就别开始。</li>
+     *   <li>异步查询个人工会资金余额，不足直接提示（真正扣款由数据库事务裁决）。</li>
+     *   <li>数据库同一事务：扣个人资金 + 原子扣库存 + 税后点数入工会；任一步失败即整体回滚。</li>
+     *   <li>发货（主线程）并刷新/广播库存。</li>
      * </ol>
      */
     public void buy(Player player, Guild viewerGuild, ShopListing l, int amount, Runnable onDone) {
@@ -347,6 +345,8 @@ public final class ShopService implements GuildModule {
         }
         long unit = l.price();
         long total = safeMul(unit, amount);
+        final long paid = total;
+        final long net = applyTax(total);
         ItemStack preview = l.preview();
         if (preview == null) {
             plugin.messages().send(player, "shop-not-found");
@@ -358,63 +358,51 @@ public final class ShopService implements GuildModule {
             if (onDone != null) onDone.run();
             return;
         }
-        var eco = plugin.economy();
-        if (total > 0) {
-            if (!eco.available()) {
-                plugin.messages().send(player, "shop-no-economy");
-                if (onDone != null) onDone.run();
-                return;
-            }
-            if (!eco.has(player, total)) {
-                plugin.messages().send(player, "shop-not-enough-money",
-                        "cost", eco.format(total), "have", eco.format(eco.balance(player)));
-                if (onDone != null) onDone.run();
-                return;
-            }
-            if (!eco.withdraw(player, total)) {
-                plugin.messages().send(player, "shop-not-enough-money",
-                        "cost", eco.format(total), "have", eco.format(eco.balance(player)));
-                if (onDone != null) onDone.run();
-                return;
-            }
-        }
-        final long paid = total;
+        final UUID buyer = player.getUniqueId();
         plugin.async(() -> {
-            boolean ok;
+            long loaded;
             try {
-                ok = repo.purchase(l.id(), l.guildId(), amount, unit, applyTax(paid));
+                loaded = new com.liu.liuguild.db.PersonalFundsRepository(plugin.db()).balance(buyer);
             } catch (Exception e) {
-                plugin.getLogger().warning("扣减工会商品库存失败: " + e.getMessage());
-                ok = false;
+                loaded = -1;
             }
-            final boolean success = ok;
+            final long balance = loaded;
+            if (balance >= 0 && balance < paid) {
+                plugin.sync(() -> {
+                    plugin.messages().send(player, "shop-funds-not-enough",
+                            "cost", String.valueOf(paid), "have", String.valueOf(balance));
+                    if (onDone != null) onDone.run();
+                });
+                return;
+            }
+            boolean success;
+            try {
+                success = repo.purchase(l.id(), l.guildId(), buyer, amount, unit, paid, net);
+            } catch (Exception e) {
+                plugin.getLogger().warning("购买工会商品失败: " + e.getMessage());
+                success = false;
+            }
+            final boolean ok = success;
             plugin.sync(() -> {
-                if (!success) {
-                    // 被别人抢走了：原样退钱
-                    if (paid > 0) {
-                        plugin.economy().deposit(player, paid);
-                    }
-                    plugin.messages().send(player, "shop-out-of-stock");
+                if (!ok) {
+                    plugin.messages().send(player, "shop-purchase-failed");
                     if (onDone != null) onDone.run();
                     return;
                 }
                 l.stock(l.stock() - amount);
                 give(player, preview, amount);
-                // 货款已随库存扣减在同一数据库事务中进入工会金币账户。
-                long net = applyTax(paid);
-                Guild seller = plugin.guilds().guild(l.guildId());
+                // 货款已随库存扣减在同一事务中进入工会点数账户。
                 plugin.guilds().reloadGuild(l.guildId());
                 plugin.broadcastGuildChange(l.guildId());
                 plugin.messages().send(player, "shop-bought",
                         "item", itemName(preview),
                         "amount", String.valueOf(amount),
-                        "cost", plugin.economy().format(paid));
-                if (seller != null && paid > net) {
+                        "cost", String.valueOf(paid));
+                if (paid > net) {
                     plugin.messages().send(player, "shop-bought-tax",
-                            "tax", plugin.economy().format(paid - net));
+                            "tax", String.valueOf(paid - net), "net", String.valueOf(net));
                 }
-                // 库存已变，通知其他子服刷新显示（否则它们会拿着陈旧库存
-                // 把买得起的东西误报为“缺货”）
+                // 库存已变，通知其他子服刷新显示
                 broadcast(l.guildId());
                 if (onDone != null) onDone.run();
             });

@@ -103,7 +103,7 @@ gui:
         slot: 30
         material: EMERALD
         name: "<white>工会商店"
-        lore: ["<gray>上架物品供本会成员购买", "<gray>收入进入工会金币账户", "<gray>仅出售，不收购物品", "", "<yellow>点击打开"]
+        lore: ["<gray>上架物品供本会成员购买", "<gray>用个人工会资金支付，货款入工会点数", "<gray>仅出售，不收购物品", "", "<yellow>点击打开"]
       funds:
         slot: 32
         material: EXPERIENCE_BOTTLE

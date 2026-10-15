@@ -220,22 +220,36 @@ class GuildRepositoryTest {
     }
 
     @Test
-    void purchaseCreditsCoinsAndRejectsStalePriceAtomically() throws Exception {
+    void purchaseSpendsPersonalFundsAndCreditsGuildPoints() throws Exception {
         Guild g = guild("seller", "Seller", "SEL");
-        repo.insertGuildWithLeader(g, new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
-                System.currentTimeMillis(), 0, 0, 0));
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+        PersonalFundsRepository funds = new PersonalFundsRepository(db);
+        assertTrue(funds.grantCheckin(leader.uuid(), 100, 100));
         try (var c = db.source().getConnection(); var st = c.createStatement()) {
             st.executeUpdate("INSERT INTO guild_shop (listing_id,guild_id,item_data,stock,price,buy_price,created_at)"
                     + " VALUES ('sale','seller','',10,5,0,0)");
         }
         var shop = new com.liu.liuguild.shop.ShopRepository(db);
-        assertFalse(shop.purchase("sale", "seller", 2, 4, 8));
-        assertTrue(shop.purchase("sale", "seller", 2, 5, 9));
-        assertEquals(9, repo.loadGuild("seller").bank());
+        // 报价被并发修改（4 != 5）→ 整笔拒绝，不动资金/库存/点数
+        assertFalse(shop.purchase("sale", "seller", leader.uuid(), 2, 4, 8, 7));
+        assertEquals(100, funds.balance(leader.uuid()));
         assertEquals(0, repo.loadGuild("seller").points());
+        // 正常购买：扣 10 个人资金，工会 +9 点数，库存 10→8
+        assertTrue(shop.purchase("sale", "seller", leader.uuid(), 2, 5, 10, 9));
+        assertEquals(90, funds.balance(leader.uuid()));
+        assertEquals(9, repo.loadGuild("seller").points());
+        assertEquals(0, repo.loadGuild("seller").bank());
+        // 个人资金不足 → 回滚，库存与点数不变
+        assertFalse(shop.purchase("sale", "seller", leader.uuid(), 2, 5, 500, 475));
+        assertEquals(90, funds.balance(leader.uuid()));
+        assertEquals(9, repo.loadGuild("seller").points());
+        // 非本会成员 → 拒绝
+        assertFalse(shop.purchase("sale", "seller", UUID.randomUUID(), 1, 5, 5, 5));
         assertEquals(8, shop.removeAndTakeStock("sale"));
-        assertFalse(shop.purchase("sale", "seller", 1, 5, 5));
-        assertEquals(9, repo.loadGuild("seller").bank());
+        assertFalse(shop.purchase("sale", "seller", leader.uuid(), 1, 5, 5, 5));
+        assertEquals(9, repo.loadGuild("seller").points());
     }
 
     @Test

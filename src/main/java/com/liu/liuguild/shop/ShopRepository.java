@@ -117,12 +117,40 @@ public final class ShopRepository {
         }
     }
 
-    /** 库存扣减与卖方金币入账必须同时提交；价格变动时拒绝旧报价。 */
-    public boolean purchase(String id, String guildId, int amount, long unitPrice, long net) throws SQLException {
-        if (amount <= 0 || unitPrice < 0 || net < 0) return false;
+    /**
+     * 购买：在同一事务里扣买家的<b>个人工会资金</b>、原子扣库存、把税后货款记入工会<b>点数</b>。
+     *
+     * <p>三个动作必须同生共死：任何一步失败都整体回滚，避免“扣了点数没拿到货”或
+     * “发货了却没给工会入账”。库存更新用带条件的原子 UPDATE，报价被改或库存不足都会失败。</p>
+     *
+     * @param total 买家应付总额（个人工会资金）
+     * @param net   税后真正进入工会点数的金额（0 <= net <= total）
+     * @return true = 交易成功并已提交
+     */
+    public boolean purchase(String id, String guildId, UUID buyer, int amount,
+                            long unitPrice, long total, long net) throws SQLException {
+        if (amount <= 0 || unitPrice < 0 || total < 0 || net < 0 || net > total
+                || buyer == null || guildId == null) {
+            return false;
+        }
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try {
+                // 1) 扣买家个人工会资金：余额不足或不是该会成员都拒绝。
+                if (total > 0) {
+                    try (var ps = c.prepareStatement("UPDATE `" + db.t("personal_funds")
+                            + "` SET `balance`=`balance`-? WHERE `player_uuid`=? AND `balance`>=?"
+                            + " AND EXISTS (SELECT 1 FROM `" + db.t("guild_members")
+                            + "` WHERE `player_uuid`=? AND `guild_id`=?)")) {
+                        ps.setLong(1, total);
+                        ps.setString(2, buyer.toString());
+                        ps.setLong(3, total);
+                        ps.setString(4, buyer.toString());
+                        ps.setString(5, guildId);
+                        if (ps.executeUpdate() != 1) { c.rollback(); return false; }
+                    }
+                }
+                // 2) 原子扣库存，并校验报价未被并发修改。
                 try (var ps = c.prepareStatement("UPDATE `" + db.t("guild_shop")
                         + "` SET `stock`=`stock`-? WHERE `listing_id`=? AND `guild_id`=? AND `stock`>=? AND `price`=?")) {
                     ps.setInt(1, amount);
@@ -132,12 +160,15 @@ public final class ShopRepository {
                     ps.setLong(5, unitPrice);
                     if (ps.executeUpdate() != 1) { c.rollback(); return false; }
                 }
-                try (var ps = c.prepareStatement("UPDATE `" + db.t("guilds")
-                        + "` SET `bank`=`bank`+? WHERE `guild_id`=? AND `bank`<=?")) {
-                    ps.setLong(1, net);
-                    ps.setString(2, guildId);
-                    ps.setLong(3, Long.MAX_VALUE - net);
-                    if (ps.executeUpdate() != 1) { c.rollback(); return false; }
+                // 3) 税后货款进入工会点数（公共工会资金）。
+                if (net > 0) {
+                    try (var ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                            + "` SET `points`=`points`+? WHERE `guild_id`=? AND `points`<=?")) {
+                        ps.setLong(1, net);
+                        ps.setString(2, guildId);
+                        ps.setLong(3, Long.MAX_VALUE - net);
+                        if (ps.executeUpdate() != 1) { c.rollback(); return false; }
+                    }
                 }
                 c.commit();
                 return true;

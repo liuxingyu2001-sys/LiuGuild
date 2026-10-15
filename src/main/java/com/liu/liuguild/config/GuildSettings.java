@@ -143,8 +143,6 @@ public final class GuildSettings {
     public double shopTaxPercent = 5.0;
     /** 谁能上架/改价/下架。 */
     public GuildRank shopManageRank = GuildRank.OFFICER;
-    /** 建议价回退倍率：LiuShop 只给了收购价时，乘以它作为建议售价。 */
-    public double shopSellMarkup = 2.0;
 
     public static GuildSettings parse(FileConfiguration c) {
         GuildSettings s = new GuildSettings();
@@ -222,7 +220,6 @@ public final class GuildSettings {
         s.shopMaxSupply = Math.max(1, c.getInt("guild.shop.max-supply", s.shopMaxSupply));
         s.shopTaxPercent = clamp(c.getDouble("guild.shop.tax-percent", s.shopTaxPercent), 0, 100);
         s.shopManageRank = GuildRank.parse(c.getString("guild.shop.manage-rank", s.shopManageRank.name()));
-        s.shopSellMarkup = Math.max(1.0, c.getDouble("guild.shop.sell-markup", s.shopSellMarkup));
         s.titlesEnabled = c.getBoolean("guild.titles.enabled", s.titlesEnabled);
         s.titlesMax = Math.max(1, Math.min(64, c.getInt("guild.titles.max", s.titlesMax)));
         s.titlesManageRank = GuildRank.parse(c.getString("guild.titles.manage-rank", s.titlesManageRank.name()));

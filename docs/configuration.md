@@ -167,16 +167,15 @@ guild:
 
   shop:
     enabled: true
-    max-listings: 45
+    max-listings: 10
     max-stack-per-listing: 2304
     max-per-purchase: 2304
     max-supply: 2304
     tax-percent: 5.0
     manage-rank: OFFICER
-    sell-markup: 2.0
 ```
 
 - [titles.md](titles.md) —— 工会头衔
 - [activity.md](activity.md) —— 玩家在线活跃发工会资金（活跃判定 + 每日上限）
 - [warehouse.md](warehouse.md) —— 工会仓库（跨服独占锁；用工会资金购买时长 / 升级容量）
-- [shop.md](shop.md) —— 工会商店（双向价格 + LiuShop 参考价）
+- [shop.md](shop.md) —— 工会商店（按工会隔离；个人工会资金购买，税后货款入工会点数）

@@ -697,9 +697,9 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().sendRaw(player, "shop-list-line",
                     "id", l.id().substring(0, 8),
                     "item", plugin.shop().itemName(l.preview()),
-                    "price", plugin.economy().format(l.price()),
+                    "price", String.valueOf(l.price()),
                     "stock", String.valueOf(l.stock()),
-                    "buy_price", plugin.economy().format(l.buyPrice()));
+                    "buy_price", String.valueOf(l.buyPrice()));
         }
         plugin.messages().send(player, "shop-usage");
     }
@@ -743,7 +743,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         plugin.messages().send(player, "shop-listed",
                 "item", plugin.shop().itemName(hand),
                 "amount", String.valueOf(hand.getAmount()),
-                "price", plugin.economy().format(price));
+                "price", String.valueOf(price));
         announce(g, "shop-broadcast-list", player,
                 "item", plugin.shop().itemName(hand),
                 "amount", String.valueOf(hand.getAmount()));

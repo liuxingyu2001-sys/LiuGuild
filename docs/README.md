@@ -26,7 +26,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [residence.md](residence.md) | Residence 领地共享 |
 | [warehouse.md](warehouse.md) | 工会仓库（跨服共享 + 原子锁） |
 | [titles.md](titles.md) | 工会自定义头衔 |
-| [shop.md](shop.md) | 工会商店（双向价格 + LiuShop 集成） |
+| [shop.md](shop.md) | 工会商店（按工会隔离；个人工会资金购买，点数入账） |
 | [api.md](api.md) | 开放 API 与 Bukkit 事件 |
 | [placeholders.md](placeholders.md) | PlaceholderAPI 变量 |
 | [craftengine.md](craftengine.md) | CraftEngine 物品/图标集成 |
