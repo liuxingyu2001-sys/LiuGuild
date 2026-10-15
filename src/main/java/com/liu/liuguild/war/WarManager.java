@@ -207,15 +207,21 @@ public final class WarManager implements GuildModule {
             plugin.getLogger().info("工会战模块：未启用（war.enabled=false）。");
             return;
         }
+        scheduleTasks();
+        // 只在插件启动时做中断恢复；热重载不能碰本服正在进行的战斗。
+        recoverInterruptedWars();
+        plugin.getLogger().info("工会战模块已启用（server-mode=" + conf().serverMode
+                + "，承办服=" + (conf().dedicated() ? conf().dedicatedServer : "本服")
+                + "，模式=" + conf().modes.keySet() + "）。");
+    }
+
+    /** 启动/重载共用的定时任务装配，不触发崩溃恢复。 */
+    private void scheduleTasks() {
         int interval = Math.max(1, conf().queueIntervalSeconds);
         queueTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::matchTick,
                 20L * interval, 20L * interval);
         tickTask = Bukkit.getScheduler().runTaskTimer(plugin, this::warTick, 20L, 20L);
         seasonTask = Bukkit.getScheduler().runTaskTimer(plugin, this::seasonTick, 40L, 20L);
-        recoverInterruptedWars();
-        plugin.getLogger().info("工会战模块已启用（server-mode=" + conf().serverMode
-                + "，承办服=" + (conf().dedicated() ? conf().dedicatedServer : "本服")
-                + "，模式=" + conf().modes.keySet() + "）。");
     }
 
     /**
@@ -231,6 +237,11 @@ public final class WarManager implements GuildModule {
             try {
                 for (GuildWar w : plugin.repo().loadLiveWars()) {
                     if (w == null || w.id() == null || !plugin.serverId().equals(w.hostServer())) {
+                        continue;
+                    }
+                    // 内存里正跑着的战斗不算「中断」，否则热重载/误触发会把进行中的战在库里结掉。
+                    GuildWar running = current;
+                    if (running != null && running.id().equals(w.id())) {
                         continue;
                     }
                     // endedAt 已写入说明已进入/完成结算阶段，按 ENDED 归档（进入历史）；
@@ -271,10 +282,10 @@ public final class WarManager implements GuildModule {
 
     @Override
     public void reload() {
-        // 配置热重载只重启定时任务，不结算、不取消正在进行的工会战。
+        // 配置热重载只重启定时任务，不结算、不取消正在进行的工会战，也不做崩溃恢复。
         cancelTasks();
         if (conf().enabled) {
-            enable(plugin);
+            scheduleTasks();
         }
     }
 
@@ -568,6 +579,14 @@ public final class WarManager implements GuildModule {
 
     /** 每秒检查各模式的开战时间表。 */
     private void seasonTick() {
+        try {
+            seasonTickInternal();
+        } catch (Throwable t) {
+            plugin.getLogger().warning("工会战赛季 tick 异常（任务继续运行）: " + t);
+        }
+    }
+
+    private void seasonTickInternal() {
         if (!conf().enabled) {
             return;
         }
@@ -1446,6 +1465,15 @@ public final class WarManager implements GuildModule {
 
     /** 每秒主线程 tick：倒计时、结束判定、比分播报。 */
     private void warTick() {
+        try {
+            warTickInternal();
+        } catch (Throwable t) {
+            // 单次 tick 异常不能杀死重复任务，否则战斗永远无法结算/回收。
+            plugin.getLogger().warning("工会战 tick 异常（任务继续运行）: " + t);
+        }
+    }
+
+    private void warTickInternal() {
         long now = System.currentTimeMillis();
         pruneStaleMirrors(now);
         GuildWar war = current;
