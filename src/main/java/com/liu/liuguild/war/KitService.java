@@ -184,15 +184,19 @@ public final class KitService {
         player.getInventory().setStorageContents(deepCopy(snap.contents()));
         player.getInventory().setArmorContents(deepCopy(snap.armor()));
         player.getInventory().setItemInOffHand(snap.offhand() == null ? null : snap.offhand().clone());
-        player.setGameMode(snap.gameMode());
+        if (snap.gameMode() != null) {
+            player.setGameMode(snap.gameMode());
+        }
         player.setFoodLevel(snap.food());
         player.setLevel(snap.level());
         player.setExp(snap.exp());
         for (PotionEffect e : new java.util.ArrayList<>(player.getActivePotionEffects())) {
             player.removePotionEffect(e.getType());
         }
-        for (PotionEffect e : snap.effects()) {
-            player.addPotionEffect(e);
+        if (snap.effects() != null) {
+            for (PotionEffect e : snap.effects()) {
+                player.addPotionEffect(e);
+            }
         }
         if (!skipTeleport && snap.location() != null && snap.location().getWorld() != null) {
             player.teleport(snap.location());

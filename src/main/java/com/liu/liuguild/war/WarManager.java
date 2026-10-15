@@ -2375,7 +2375,7 @@ public final class WarManager implements GuildModule {
             return;
         }
         UUID uuid = player.getUniqueId();
-        if (isInWar(uuid)) {
+        if (isWarRestricted(uuid)) {
             return;
         }
         plugin.async(() -> {
@@ -2390,7 +2390,7 @@ public final class WarManager implements GuildModule {
                 return;
             }
             plugin.sync(() -> {
-                if (!player.isOnline() || isInWar(uuid)) {
+                if (!player.isOnline() || isWarRestricted(uuid)) {
                     return;
                 }
                 UUID sparrowId = escrow.sparrowSnapshotId();
@@ -2399,7 +2399,7 @@ public final class WarManager implements GuildModule {
                     plugin.sparrow().restore(uuid, sparrowId).whenComplete((ok, ex) -> {
                         plugin.sparrow().unpin(sparrowId);
                         plugin.sync(() -> {
-                            if (!player.isOnline() || isInWar(uuid)) return;
+                            if (!player.isOnline() || isWarRestricted(uuid)) return;
                             if (!Boolean.TRUE.equals(ok)) {
                                 if (fallback != null) {
                                     plugin.kits().restore(player, fallback, false);
