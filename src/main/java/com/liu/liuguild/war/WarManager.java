@@ -2508,6 +2508,9 @@ public final class WarManager implements GuildModule {
     // =====================================================================
 
     public void onKill(Player killer, Player victim) {
+        if (killer == null || victim == null) {
+            return;
+        }
         GuildWar war = current;
         if (war == null || war.state() != WarState.ACTIVE) {
             return;
@@ -2662,7 +2665,11 @@ public final class WarManager implements GuildModule {
     /** 参赛者死亡：重生时由监听器重新发放装备并传送回出生点。 */
     public void onRespawn(Player player) {
         GuildWar war = current;
-        if (war == null) {
+        if (war == null || war.state() != WarState.ACTIVE) {
+            return;
+        }
+        // 已淘汰/正在观战重生的玩家不能被重新发装备、传回出生点。
+        if (eliminated.contains(player.getUniqueId()) || spectators.contains(player.getUniqueId())) {
             return;
         }
         String side = war.sideOf(player.getUniqueId());
