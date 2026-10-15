@@ -1052,7 +1052,9 @@ public final class WarManager implements GuildModule {
             }
             World existing = Bukkit.getWorld(name);
             if (existing != null) {
-                builtinWorld = existing;
+                // 世界已存在（可能是服主自建的同名世界）：只复用，不纳入赛后销毁范围，
+                // 否则会误删服主的永久世界。
+                plugin.getLogger().warning("竞技场世界名 " + name + " 已存在，赛后不会销毁该世界。");
                 return existing;
             }
             World.Environment env;
@@ -1149,7 +1151,7 @@ public final class WarManager implements GuildModule {
         ArenaDef.TempWorld tw = def.tempWorld;
         try {
             for (Map.Entry<String, Boolean> e : tw.gamerules.entrySet()) {
-                org.bukkit.GameRule rule = org.bukkit.GameRule.getByName(e.getKey());
+                org.bukkit.GameRule rule = gameRule(e.getKey());
                 if (rule != null) {
                     world.setGameRule(rule, e.getValue());
                 } else {
@@ -1845,6 +1847,19 @@ public final class WarManager implements GuildModule {
         war.rosterB().clear();
         ArenaDef activeDef = currentArena;
         boolean keepWorld = activeDef != null && activeDef.tempWorld.keepOnEnd;
+        // 销毁世界前先把滞留在竞技场里的玩家挪出去：SparrowSync 异步还原可能还没执行完，
+        // 直接把世界卸掉会让这些玩家卡在已销毁世界。
+        if (!keepWorld) {
+            World arenaRef = arenaWorld();
+            World fallback = fallbackWorld != null ? fallbackWorld
+                    : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
+            if (arenaRef != null && fallback != null && !fallback.equals(arenaRef)) {
+                for (Player stray : new ArrayList<>(arenaRef.getPlayers())) {
+                    Location dest = returnLoc.get(stray.getUniqueId());
+                    warTeleport(stray, dest != null && dest.getWorld() != null ? dest : fallback.getSpawnLocation());
+                }
+            }
+        }
         if (builtinWorld != null) {
             if (keepWorld) {
                 plugin.getLogger().info("工会战 " + war.id() + " 已结束，按配置保留内置世界（" + builtinWorld.getName() + "）。");
