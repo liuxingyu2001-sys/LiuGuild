@@ -146,6 +146,9 @@ public final class WarManager implements GuildModule {
     private final Map<String, Long> localQueuedAt = new ConcurrentHashMap<>();
     /** 本服队列中每个工会选择的模式。 */
     private final Map<String, String> localMode = new ConcurrentHashMap<>();
+    /** 允许跨服转发的队列通知 key（白名单，防任意消息 key）。 */
+    private static final java.util.Set<String> QUEUE_NOTIFY_KEYS =
+            java.util.Set.of("war-queue-timeout", "war-queue-removed");
 
     private BukkitTask queueTask;
     private BukkitTask tickTask;
@@ -460,18 +463,24 @@ public final class WarManager implements GuildModule {
         if (plugin.bus().isReady()) {
             // Redis 操作是阻塞 IO，放异步线程，避免卡主线程。
             plugin.async(() -> {
-                if (plugin.guilds().countNetworkOnline(guild) < mode.minMembers) {
-                    plugin.sync(() -> plugin.messages().send(player, "war-need-members", "min", mode.minMembers));
-                    return;
+                try {
+                    if (plugin.guilds().countNetworkOnline(guild) < mode.minMembers) {
+                        plugin.sync(() -> plugin.messages().send(player, "war-need-members", "min", mode.minMembers));
+                        return;
+                    }
+                    if (isQueued(guild.id())) {
+                        plugin.sync(() -> plugin.messages().send(player, "war-already-queued"));
+                        return;
+                    }
+                    plugin.bus().queueGuild(guild.id(), CrossServerBus.map(
+                            "name", guild.name(), "tag", guild.tag(), "server", plugin.serverId(),
+                            "mode", mode.key, "leader", player.getName()));
+                    plugin.sync(() -> announceQueued(player, guild, mode));
+                } catch (RuntimeException e) {
+                    // Redis 握手中断时不能无声吞掉：否则玩家点了匹配以为已排队。
+                    plugin.getLogger().warning("工会战入队失败: " + e.getMessage());
+                    plugin.sync(() -> plugin.messages().send(player, "war-queue-error"));
                 }
-                if (isQueued(guild.id())) {
-                    plugin.sync(() -> plugin.messages().send(player, "war-already-queued"));
-                    return;
-                }
-                plugin.bus().queueGuild(guild.id(), CrossServerBus.map(
-                        "name", guild.name(), "tag", guild.tag(), "server", plugin.serverId(),
-                        "mode", mode.key, "leader", player.getName()));
-                plugin.sync(() -> announceQueued(player, guild, mode));
             });
         } else {
             if (plugin.guilds().onlineMembers(guild).size() < mode.minMembers) {
@@ -680,8 +689,24 @@ public final class WarManager implements GuildModule {
         List<Map<String, String>> valid = new ArrayList<>();
         for (Map<String, String> meta : snapshot) {
             String id = meta.get("guildId");
-            if (id == null || plugin.guilds().guild(id) == null || warOf(id) != null) {
+            if (id == null) {
+                continue;
+            }
+            Guild guild = plugin.guilds().guild(id);
+            WarMode mode = mode(meta.getOrDefault("mode", conf().defaultMode));
+            // 工会在排队后可能被解散、进入其它战斗、模式被关闭、或等级被调低，这里统一剔除。
+            if (guild == null || warOf(id) != null) {
                 plugin.bus().dequeueGuild(id);
+                continue;
+            }
+            if (!mode.enabled) {
+                plugin.bus().dequeueGuild(id);
+                notifyQueueServer(meta, "war-queue-removed");
+                continue;
+            }
+            if (guild.level() < mode.minLevel) {
+                plugin.bus().dequeueGuild(id);
+                notifyQueueServer(meta, "war-queue-removed");
                 continue;
             }
             long queued = parseLong(meta.get("queuedAt"), now);
@@ -722,7 +747,9 @@ public final class WarManager implements GuildModule {
         if (!plugin.bus().claimPair(idA, idB)) {
             return;
         }
-        createMatch(a, b, chosenMode);
+        if (!createMatch(a, b, chosenMode)) {
+            requeueFailedMatch(List.of(idA, idB), chosenMode);
+        }
     }
 
     private void localMatch() {
@@ -730,11 +757,23 @@ public final class WarManager implements GuildModule {
         int timeout = conf().matchTimeoutSeconds;
         for (String id : new ArrayList<>(localQueue)) {
             long queued = localQueuedAt.getOrDefault(id, now);
+            Guild g = plugin.guilds().guild(id);
+            WarMode m = mode(localMode.getOrDefault(id, conf().defaultMode));
+            boolean invalid = g == null || warOf(id) != null || !m.enabled || g.level() < m.minLevel;
+            if (invalid) {
+                localQueue.remove(id);
+                localQueuedAt.remove(id);
+                localMode.remove(id);
+                if (g != null) {
+                    final String key = (!m.enabled || g.level() < m.minLevel) ? "war-queue-removed" : "war-queue-timeout";
+                    plugin.sync(() -> plugin.guilds().notifyGuild(id, plugin.messages().component(key), null));
+                }
+                continue;
+            }
             if (timeout > 0 && now - queued > timeout * 1000L) {
                 localQueue.remove(id);
                 localQueuedAt.remove(id);
                 localMode.remove(id);
-                Guild g = plugin.guilds().guild(id);
                 if (g != null) {
                     plugin.sync(() -> plugin.guilds().notifyGuild(id, plugin.messages().component("war-queue-timeout"), null));
                 }
@@ -760,16 +799,23 @@ public final class WarManager implements GuildModule {
             localMode.remove(idB);
             Map<String, String> a = CrossServerBus.map("guildId", idA, "server", plugin.serverId(), "mode", e.getKey());
             Map<String, String> b = CrossServerBus.map("guildId", idB, "server", plugin.serverId(), "mode", e.getKey());
-            createMatch(a, b, e.getKey());
+            if (!createMatch(a, b, e.getKey())) {
+                requeueFailedMatch(List.of(idA, idB), e.getKey());
+            }
             return;
         }
     }
 
-    private void createMatch(Map<String, String> a, Map<String, String> b, String modeKey) {
+    /**
+     * 创建一场工会战。
+     *
+     * @return true = 已写库并广播；false = 创建失败（工会消失 / 写库异常）
+     */
+    private boolean createMatch(Map<String, String> a, Map<String, String> b, String modeKey) {
         Guild ga = plugin.guilds().guild(a.get("guildId"));
         Guild gb = plugin.guilds().guild(b.get("guildId"));
         if (ga == null || gb == null) {
-            return;
+            return false;
         }
         WarMode mode = mode(modeKey);
         ArenaDef arenaDef = plugin.settings().arena(mode.arena);
@@ -786,7 +832,7 @@ public final class WarManager implements GuildModule {
             plugin.repo().insertWar(war);
         } catch (Exception e) {
             plugin.getLogger().warning("创建工会战写库失败: " + e.getMessage());
-            return;
+            return false;
         }
         Map<String, String> data = CrossServerBus.map(
                 "war", war.id(), "host", host, "mode", mode.key,
@@ -798,6 +844,25 @@ public final class WarManager implements GuildModule {
             plugin.bus().publish("WAR_MATCHED", data);
         } else {
             handleWarMatched(data);
+        }
+        return true;
+    }
+
+    /**
+     * 匹配创建失败时把双方重新放回队列并通知。
+     *
+     * <p>否则 {@code claimPair} 已经把两队移出队列，但它们永远不会被匹配，
+     * 玩家侧表现为“点了匹配没反应、也收不到任何提示”。</p>
+     */
+    private void requeueFailedMatch(List<String> guildIds, String modeKey) {
+        for (String id : guildIds) {
+            Guild g = plugin.guilds().guild(id);
+            if (g == null) {
+                continue;
+            }
+            enqueue(id, g.name(), g.tag(), modeKey);
+            plugin.sync(() -> plugin.guilds().notifyGuild(id,
+                    plugin.messages().component("war-requeue-failed"), null));
         }
     }
 
@@ -823,8 +888,15 @@ public final class WarManager implements GuildModule {
             case "WAR_QUEUE_TIMEOUT" -> {
                 String guildId = data.get("guild");
                 if (guildId != null) {
+                    // key 由发起服指定并做白名单，避免旧版/恶意消息渲染任意 key；
+                    // 缺省回退为超时文案（兼容只发 guild 的旧节点）。
+                    String key = data.get("key");
+                    if (key == null || !QUEUE_NOTIFY_KEYS.contains(key)) {
+                        key = "war-queue-timeout";
+                    }
+                    String messageKey = key;
                     plugin.sync(() -> plugin.guilds().notifyGuild(guildId,
-                            plugin.messages().component("war-queue-timeout"), null));
+                            plugin.messages().component(messageKey), null));
                 }
             }
             default -> {
@@ -2601,7 +2673,7 @@ public final class WarManager implements GuildModule {
             plugin.sync(() -> plugin.guilds().notifyGuild(guildId, plugin.messages().component(key), null));
         } else {
             plugin.bus().publishTo(server, "WAR_QUEUE_TIMEOUT",
-                    CrossServerBus.map("guild", guildId, "server", plugin.serverId()));
+                    CrossServerBus.map("guild", guildId, "key", key, "server", plugin.serverId()));
         }
     }
 
