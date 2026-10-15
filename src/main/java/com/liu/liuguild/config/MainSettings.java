@@ -31,6 +31,21 @@ public final class MainSettings {
     /** 工会战期间静默屏蔽 mcMMO 技能经验。 */
     public boolean mcmmoSuppressXp = false;
 
+    // ---- liupass（战令） ----
+    /** 是否向 Liupass 上报工会玩法任务进度（需 Liupass 1.6.3+ 扩展任务类型）。 */
+    public boolean passEnabled = true;
+    public boolean passJoin = true;
+    public boolean passCreate = true;
+    public boolean passWar = true;
+    public boolean passWarWin = true;
+    public boolean passWarKill = true;
+    public boolean passCheckin = true;
+    public boolean passDonate = true;
+    /** 工会银行存入推进任务；存取循环可能刷进度，默认关闭。 */
+    public boolean passBankDeposit = false;
+    /** 是否继续支持旧版按任务 ID 绑定的 tasks.yml。 */
+    public boolean passLegacyTaskIds = true;
+
     /** LiuChat 工会频道消息格式（占位符由 LiuChat 提供）。 */
     public String guildChannelFormat = "&a[${channel_name}] &f${player}&7: ${message}";
 
@@ -54,6 +69,16 @@ public final class MainSettings {
         s.mcmmoEnabled = c.getBoolean("hooks.mcmmo.enabled", s.mcmmoEnabled);
         s.mcmmoSuppressAbilities = c.getBoolean("hooks.mcmmo.suppress-abilities-in-war", s.mcmmoSuppressAbilities);
         s.mcmmoSuppressXp = c.getBoolean("hooks.mcmmo.suppress-xp-in-war", s.mcmmoSuppressXp);
+        s.passEnabled = c.getBoolean("hooks.liupass.enabled", s.passEnabled);
+        s.passJoin = c.getBoolean("hooks.liupass.join", s.passJoin);
+        s.passCreate = c.getBoolean("hooks.liupass.create", s.passCreate);
+        s.passWar = c.getBoolean("hooks.liupass.war", s.passWar);
+        s.passWarWin = c.getBoolean("hooks.liupass.war-win", s.passWarWin);
+        s.passWarKill = c.getBoolean("hooks.liupass.war-kill", s.passWarKill);
+        s.passCheckin = c.getBoolean("hooks.liupass.checkin", s.passCheckin);
+        s.passDonate = c.getBoolean("hooks.liupass.donate", s.passDonate);
+        s.passBankDeposit = c.getBoolean("hooks.liupass.bank-deposit", s.passBankDeposit);
+        s.passLegacyTaskIds = c.getBoolean("hooks.liupass.legacy-task-ids", s.passLegacyTaskIds);
         s.guildChannelFormat = c.getString("channels.guild-format", s.guildChannelFormat);
         return s;
     }

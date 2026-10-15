@@ -16,6 +16,11 @@
 
 个人资金存于独立的 `personal_funds` 表，以玩家 UUID 为键。个人扣款、工会入账在同一 SQL 事务提交，数据库检查余额、成员身份和溢出。签到领取以玩家和日期判重，换服或退会重入不能重复领取当天个人资金。
 
+## 战令任务
+
+成功捐献会触发 `GuildFundsEvent`（`Action.DONATE`），并向 liupass 上报 `liuguild:donate`，**进度为捐献金额**（开关 `hooks.liupass.donate`）。
+可据此配置「累计捐献 N 资金」类任务，详见 [tasks.md](tasks.md)。
+
 ## 升级兼容
 
 - 原公共 points 和 bank 保持原值；不自动拆分、兑换或分配给成员。

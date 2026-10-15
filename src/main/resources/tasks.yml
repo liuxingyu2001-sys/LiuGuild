@@ -1,4 +1,6 @@
-# liupass 中另行创建同 task-id 的 CUSTOM 任务；该文件只绑定行为，不定义奖励。
+# 旧版 liupass 对接：按任务 ID 推进已有的 CUSTOM 任务。
+# 新的推荐做法是在 liupass 任务里直接写 type: liuguild:war / liuguild:checkin 等扩展类型，
+# 不需要本文件；本文件仅为兼容旧配置保留，可用 config.yml 的 hooks.liupass.legacy-task-ids 关闭。
 # pass-id 留空使用玩家默认通行证。BANK_DEPOSIT 默认关闭：存取循环可能刷进度。
 enabled: true
 bindings:

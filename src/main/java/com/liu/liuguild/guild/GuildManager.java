@@ -2,6 +2,7 @@ package com.liu.liuguild.guild;
 
 import com.liu.liuguild.LiuGuild;
 import com.liu.liuguild.api.event.GuildBankEvent;
+import com.liu.liuguild.api.event.GuildCheckinEvent;
 import com.liu.liuguild.api.event.GuildCreateEvent;
 import com.liu.liuguild.api.event.GuildDisbandEvent;
 import com.liu.liuguild.api.event.GuildJoinEvent;
@@ -1533,6 +1534,7 @@ public final class GuildManager {
         if (moneyGiven) {
             plugin.economy().deposit(player, c.checkinMoney);
         }
+        Bukkit.getPluginManager().callEvent(new GuildCheckinEvent(g, player, streak, reward));
         // 分行提示：只列出实际发生的项目，0 / 未配置的不占行
         plugin.messages().sendRaw(player, "checkin-success-header", "streak", streak);
         if (c.checkinCost > 0) {

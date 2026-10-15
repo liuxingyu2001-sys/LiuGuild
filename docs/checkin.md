@@ -58,6 +58,11 @@ guild:
     broadcast: true      # 是否向全会广播
 ```
 
+## 战令任务
+
+签到成功会触发 `GuildCheckinEvent`，并向 liupass 上报一次 `liuguild:checkin`（开关 `hooks.liupass.checkin`）。
+在 liupass 任务里写 `type: liuguild:checkin` 即可，详见 [tasks.md](tasks.md)。
+
 ## 数据
 
 签到状态持久化在 `guild_members` 表的 `last_checkin`（epoch day）与 `checkin_streak` 列，

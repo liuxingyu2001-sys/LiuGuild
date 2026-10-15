@@ -1,6 +1,7 @@
 package com.liu.liuguild.gui;
 
 import com.liu.liuguild.LiuGuild;
+import com.liu.liuguild.api.event.GuildFundsEvent;
 import com.liu.liuguild.config.ArenaDef;
 import com.liu.liuguild.config.ButtonDef;
 import com.liu.liuguild.config.GuiSettings;
@@ -2058,6 +2059,10 @@ public final class GuiManager implements GuildModule, Listener {
                         plugin.broadcastGuildChange(g.id());
                     }
                     plugin.sync(() -> {
+                        if (ok) {
+                            Bukkit.getPluginManager().callEvent(new GuildFundsEvent(
+                                    g, player, GuildFundsEvent.Action.DONATE, amount));
+                        }
                         plugin.messages().send(player, ok ? "funds-donated" : "funds-insufficient", "amount", amount);
                         openFunds(player);
                     });

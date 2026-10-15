@@ -106,7 +106,20 @@ hooks:
     enabled: true                    # mcMMO 兼容总开关（默认开启）
     suppress-abilities-in-war: true  # 工会战期间静默屏蔽技能
     suppress-xp-in-war: false        # 工会战期间静默屏蔽技能经验
+  liupass:
+    enabled: true                    # 向 liupass 上报工会玩法任务进度（需 Liupass 1.6.3+）
+    join: true                       # liuguild:join
+    create: true                     # liuguild:create
+    war: true                        # liuguild:war（target = 模式 ID）
+    war-win: true                    # liuguild:war-win
+    war-kill: true                   # liuguild:war-kill
+    checkin: true                    # liuguild:checkin
+    donate: true                     # liuguild:donate（进度 = 金额）
+    bank-deposit: false              # liuguild:bank-deposit（可循环刷进度，默认关闭）
+    legacy-task-ids: true            # 兼容旧版 tasks.yml 的任务 ID 绑定
 ```
+
+`hooks.liupass` 只控制任务进度；工会战通行证经验由 `war-modes.yml` 配置，完整用法见 [tasks.md](tasks.md)。
 
 - `messages.yml`：按语言段组织（内置 `zh_CN`），占位符用 `{name}`，同时支持 MiniMessage 与 `&` legacy 颜色代码（含 `&#RRGGBB`）。占位符值默认按纯文本插入以防注入。升级后新增的消息键会自动回退到内置默认，不会显示为键名。
 

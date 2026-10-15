@@ -62,10 +62,13 @@
 - 未安装时相关命令提示不可用；工会战期间可禁用（`guild.home.deny-in-war`）。
 - 详见 [home.md](home.md)。
 
-## liupass（通行证经验）
+## liupass（通行证经验 / 工会任务）
 
-- `addXp(UUID, int)` / `addXp(UUID, String passId, int)`：工会战胜利/失败按模式配置发放通行证经验。
-- 由 `war-modes.yml` 的 `rewards.win-pass-xp` / `lose-pass-xp` / `pass-id` 控制。
+- **通行证经验**：`PassAPI.addXp(UUID, int)` / `addXp(UUID, String passId, int)`。工会战胜利/失败按模式配置发放，由 `war-modes.yml` 的 `rewards.win-pass-xp` / `lose-pass-xp` / `pass-id` 控制；`pass-id` 留空使用玩家默认通行证。
+- **扩展任务类型（Liupass 1.6.3+）**：启动时注册 `liuguild:join` / `create` / `war` / `war-win` / `war-kill` / `checkin` / `donate` / `bank-deposit`，liupass 任务直接写 `type: liuguild:xxx` 即可；开关见 `config.yml` 的 `hooks.liupass.*`。
+- **旧版任务 ID**：`tasks.yml` 事件绑定 + `addTaskProgress(UUID, String, String, int)`，由 `hooks.liupass.legacy-task-ids` 控制，默认保留兼容。
+- liupass 热重载/重新启用后自动重新注册；未安装或版本过旧时任务进度静默降级，仅保留经验发放。
+- 完整说明：[tasks.md](tasks.md)。
 
 ## Sparrow Sync（玩家快照）
 

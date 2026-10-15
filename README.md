@@ -22,6 +22,7 @@
 
 ## 构建记录
 
+- `0.2.1`：完善 liupass 战令对接——注册 `liuguild:join/create/war/war-win/war-kill/checkin/donate/bank-deposit` 扩展任务类型，新增 `GuildCheckinEvent` / `GuildFundsEvent`，`config.yml` 的 `hooks.liupass.*` 控制开关，保留旧版 `tasks.yml` 任务 ID 绑定；189 项单元测试通过。详见 [docs/tasks.md](docs/tasks.md)。
 - `0.2.0`：包含独立工会空间配置、逐级收费与数据保留策略，以及资金、商店和装备托管修复；178 项单元测试通过。跨服返程与崩溃恢复的限制见 [工会战文档](docs/war.md) 和 [空间文档](docs/warehouse.md)。
 
 ## 快速开始
@@ -49,6 +50,7 @@
 | [docs/funds.md](docs/funds.md) | 个人资金、公共资金、金币与捐献规则 |
 | [docs/shop.md](docs/shop.md) | 工会商店（仅出售，不收购） |
 | [docs/checkin.md](docs/checkin.md) | 工会每日签到 |
+| [docs/tasks.md](docs/tasks.md) | 工会任务与 liupass 对接（任务类型 / 通行证经验） |
 | [docs/deployment.md](docs/deployment.md) | **生产部署与运维** |
 | [docs/shared-config.md](docs/shared-config.md) | **共享配置目录与多服一致性** |
 | [docs/threading.md](docs/threading.md) | **线程模型 / 预加载 / 生命周期** |

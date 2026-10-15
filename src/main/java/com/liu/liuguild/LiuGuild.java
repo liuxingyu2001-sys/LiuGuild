@@ -127,7 +127,7 @@ public final class LiuGuild extends JavaPlugin {
         // 软依赖钩子（缺失自动降级）
         economy = safe(EconomyHook::new);
         chat = safe(ChatHook::new);
-        pass = safe(PassHook::new);
+        pass = safe(() -> new PassHook(this));
         craftEngine = safe(CraftEngineHook::new);
         dungeon = safe(() -> new DungeonHook(this));
         sparrow = safe(SparrowSyncHook::new);
@@ -184,6 +184,7 @@ public final class LiuGuild extends JavaPlugin {
         guildChat = new GuildChatHook(this);
         guildChat.start();
         GuildAPI.init(this);
+        if (pass != null) Bukkit.getPluginManager().registerEvents(pass, this);
         registerPapi();
         registerCommands();
         guilds.reloadAll();
@@ -198,6 +199,7 @@ public final class LiuGuild extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (pass != null) pass.close();
         if (guildChat != null) guildChat.close();
         if (modules != null) {
             modules.disableAll();
@@ -635,6 +637,13 @@ public final class LiuGuild extends JavaPlugin {
                 + hook("SparrowUI", sparrowUi != null && sparrowUi.enabled())
                 + hook("Residence", residence != null && residence.available())
                 + hook("PacketEvents", packetEvents != null && packetEvents.available()));
+        if (pass != null && pass.available()) {
+            out.add("&7liupass 任务类型: &f" + (!s.main.passEnabled
+                    ? "任务进度已关闭（hooks.liupass.enabled: false）"
+                    : pass.taskTypesAvailable()
+                    ? pass.registeredTypes() + " 个已注册（type: liuguild:xxx）"
+                    : "旧版 API，未支持扩展任务类型（仅经验 / tasks.yml）"));
+        }
         // 模块
         out.add("&7模块: &f" + modules.ids());
         if (!configWarnings.isEmpty()) {

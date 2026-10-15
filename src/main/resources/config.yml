@@ -37,6 +37,29 @@ hooks:
     suppress-abilities-in-war: true
     # 工会战期间静默屏蔽 mcMMO 技能经验（默认关闭）。
     suppress-xp-in-war: false
+  liupass:
+    # 向 Liupass 上报工会玩法任务进度（需要 Liupass 1.6.3+ 的扩展任务类型）。
+    # 在 Liupass 任务里直接用 type: liuguild:xxx 定义，无需再创建同 ID 的 CUSTOM 任务。
+    enabled: true
+    # 加入工会（liuguild:join）
+    join: true
+    # 创建工会（liuguild:create）
+    create: true
+    # 参与一场工会战，target 为模式 ID（liuguild:war）
+    war: true
+    # 赢得一场工会战，target 为模式 ID（liuguild:war-win）
+    war-win: true
+    # 工会战中的击杀，target 为模式 ID（liuguild:war-kill）
+    war-kill: true
+    # 完成每日签到（liuguild:checkin）
+    checkin: true
+    # 捐献个人工会资金，进度为捐献金额（liuguild:donate）
+    donate: true
+    # 向工会银行存入金币，进度为金额（liuguild:bank-deposit）
+    # 成员可循环存取刷进度，默认关闭
+    bank-deposit: false
+    # 兼容旧版 tasks.yml（按 liupass 任务 ID 上报 addTaskProgress）
+    legacy-task-ids: true
 
 # 聊天频道
 channels:

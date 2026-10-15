@@ -55,6 +55,8 @@ if (GuildAPI.isReady()) {
 | `GuildLeaveEvent` | `guild`, `player`, `cause`（QUIT/KICK/DISBAND） |
 | `GuildLevelUpEvent` | `guild`, `oldLevel`, `newLevel` |
 | `GuildBankEvent` | `guild`, `player`, `action`（DEPOSIT/WITHDRAW）, `amount`, `balance` |
+| `GuildCheckinEvent` | `guild`, `player`, `streak`, `reward` |
+| `GuildFundsEvent` | `guild`, `player`, `action`（DONATE）, `amount` |
 | `GuildWarMatchEvent` | `war` |
 | `GuildWarStartEvent` | `war` |
 | `GuildKillEvent` | `war`, `killer`, `victim`, `points` |

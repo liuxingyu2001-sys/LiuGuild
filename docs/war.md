@@ -119,6 +119,8 @@ modes:
 | `win-title-id` | 获胜方参赛玩家的 PlayerTitle 称号，0 表示不发 |
 | `win-pass-xp` / `lose-pass-xp` / `pass-id` | 每位参赛玩家的通行证经验 |
 
+通行证经验与「工会战任务」是两条独立路径：前者由本表直接发放，后者由 liupass 任务完成时的 `xp` 发放（`type: liuguild:war` / `war-win` / `war-kill`），见 [tasks.md](tasks.md)。
+
 ### 每日上限（防刷）
 
 - `daily-guild-funds-cap` 按**工会 + 自然日**统计，默认由 `war.defaults` 提供、模式可单独覆盖：匹配战默认 `2000`，赛季默认 `20000`。
