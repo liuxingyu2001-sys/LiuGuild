@@ -403,7 +403,7 @@ zh_CN:
   import-failed: "<red>导入失败：<white>{error}</white>"
 
   # ---- 管理：场地 / 装备 / 模式 ----
-  arena-usage: "<red>用法：<white>/guildadmin arena <list|info|setspawn|setworld|setserver|settemplate|create> ...</white>"
+  arena-usage: "<red>用法：<white>/guildadmin arena <list|listworlds|info|setspawn|setworld|setserver|settemplate|create> ...</white>"
   arena-set: "<green>竞技场 <white>{arena}</white> 已更新为 <white>{value}</white>。"
   arena-created: "<green>已新建竞技场 <white>{arena}</white>（固定坐标模式）。"
   arena-spawn-set: "<green>竞技场 <white>{arena}</white> 的 <white>{point}</white> 点已设为当前坐标（世界 <white>{world}</white>）。"

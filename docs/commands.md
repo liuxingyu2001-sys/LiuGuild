@@ -64,6 +64,7 @@
 | `/guildadmin gui` | 打开管理面板 GUI |
 | `/guildadmin import <sql文件> [force]` | 导入旧版 PlayerGuild 数据（见 [import.md](import.md)） |
 | `/guildadmin arena list` | 竞技场列表 |
+| `/guildadmin arena listworlds` | 列出识别到的世界（区分已加载 / 仅在磁盘）；兼容 `dimensions/<命名空间>/<世界>` 新布局 |
 | `/guildadmin arena info <id>` | 竞技场详情 |
 | `/guildadmin arena setspawn <id> <a\|b\|spec>` | **把当前所站位置设为出生点** |
 | `/guildadmin arena setworld <id> <世界>` | 设置固定世界 |

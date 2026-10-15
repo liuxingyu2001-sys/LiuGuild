@@ -10,8 +10,14 @@ gui:
   engine: auto   # legacy | auto | sparrow
 ```
 - `legacy`：使用内置库存 GUI（与旧版一致）。
-- `auto`（默认）：优先使用 **Sparrow UI** 引擎渲染主菜单，初始化或渲染失败时自动回退内置 GUI。
+- `auto`（默认）：优先使用 **Sparrow UI** 引擎渲染全部菜单，初始化或渲染失败时自动回退内置 GUI。
 - `sparrow`：强制使用 Sparrow UI（仍会在失败时回退）。
+
+所有由 `GuiManager` 与仓库管理菜单构建的库存都会经同一渲染器接入 Sparrow 会话栈：
+
+- 进入子菜单时压栈，**按 ESC（主动关窗）返回上一页**；在根菜单按 ESC 才真正关闭。
+- 菜单内的「返回 / 关闭」按钮仍按配置语义跳转（返回主页会重置会话栈，避免无限叠层）。
+- 仓库的**真实存储界面**仍是原生库存（需要自由存取物品），打开前会先结束 Sparrow 会话。
 
 Sparrow UI（`beta.38`）是面向 Paper/Folia 的响应式库存 UI 库，已随 LiuGuild 打包，并 relocate 到
 `com.liu.liuguild.libs.sparrow.ui`，因此无需在服务端单独安装，也不会与其它携带该库的插件冲突。

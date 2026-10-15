@@ -124,7 +124,7 @@ public final class KitService {
             offhand = decoded[40];
             Location loc = null;
             if (worldName != null && !worldName.isBlank()) {
-                org.bukkit.World w = org.bukkit.Bukkit.getWorld(worldName);
+                org.bukkit.World w = com.liu.liuguild.util.WorldResolver.resolve(worldName);
                 if (w != null) {
                     loc = new Location(w, x, y, z, yaw, pitch);
                 }

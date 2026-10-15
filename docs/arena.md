@@ -23,7 +23,7 @@ arenas:
 | 字段 | 说明 |
 |---|---|
 | `server` | 承办该场工会战的服务器 `server-id`。跨服时玩家会被传送到该服。 |
-| `world` | 固定世界名（如 `world` / `arena_world`），留空用主世界。 |
+| `world` | 固定世界名（如 `world` / `arena_world`），留空用主世界。兼容 Paper 1.21.11+ / Leaf 26.x 的 `dimensions/<命名空间>/<世界>` 新布局：填纯名、`minecraft:jjc` 或目录名都能识别；`/guildadmin arena listworlds` 可查看识别结果。 |
 | `template` | 可选，liudungeon 动态世界模板。填写且模板存在时动态创建独立竞技场世界。 |
 | `radius` | 动态开世界时的区块预热半径。 |
 | `spawn-<名>` | 任意数量的命名出生点（`spawn-a` / `spawn-b` / `spawn-c` / `spawn-d`…），坐标为 `x/y/z/yaw/pitch`。 |

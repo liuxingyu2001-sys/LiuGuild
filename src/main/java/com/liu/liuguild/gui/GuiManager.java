@@ -16,6 +16,7 @@ import com.liu.liuguild.model.ShopListing;
 import com.liu.liuguild.module.GuildModule;
 import com.liu.liuguild.util.NumberUtil;
 import com.liu.liuguild.util.Text;
+import com.liu.liuguild.util.WorldResolver;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -91,6 +92,8 @@ public final class GuiManager implements GuildModule, Listener {
         final String guildId;
         final int page;
         final Map<Integer, String> actions = new LinkedHashMap<>();
+        /** 菜单标题（Sparrow 渲染时使用）。 */
+        Component title;
 
         Holder(String menu, String guildId, int page) {
             this.menu = menu;
@@ -101,6 +104,16 @@ public final class GuiManager implements GuildModule, Listener {
         @Override
         public Inventory getInventory() {
             return inv;
+        }
+
+        /** 菜单标题（Sparrow 渲染用）。 */
+        public Component title() {
+            return title;
+        }
+
+        /** 槽位绑定的动作；无则返回 null。 */
+        public String actionAt(int slot) {
+            return actions.get(slot);
         }
     }
 
@@ -120,11 +133,7 @@ public final class GuiManager implements GuildModule, Listener {
             openNoGuild(player);
             return;
         }
-        // 优先使用可选的 Sparrow UI 引擎；失败则回退内置 GUI。
-        com.liu.liuguild.hook.SparrowUiHook sparrow = plugin.sparrowUi();
-        if (sparrow != null && sparrow.openMain(player, g)) {
-            return;
-        }
+        // 统一由 show() 渲染：Sparrow 可用时走会话式窗口（ESC 返回上一页），否则回退内置 GUI。
         MenuDef def = menu("main");
         if (def == null) {
             return;
@@ -153,7 +162,7 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(clamp(b.slot), item);
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /**
@@ -210,7 +219,7 @@ public final class GuiManager implements GuildModule, Listener {
         inv.setItem(51, GuiUtil.build(player, "NAME_TAG", "NAME_TAG", "<green>邀请玩家",
                 List.of("<gray>输入在线玩家名字发出入会邀请"), Map.of(), null));
         holder.actions.put(51, "invite_player");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openNoGuild(Player player) {
@@ -232,7 +241,7 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openList(Player player, int page) {
@@ -276,7 +285,7 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
         }
         addBack(inv, holder, def, ph, player, "back:main", page, "list", guilds.size(), perPage);
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openWar(Player player, Guild g) {
@@ -338,7 +347,7 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
             holder.actions.put(clamp(b.slot), actionId(key));
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /** 管理员 GUI：状态 / 模式 / 场地 / 装备 / 重载。 */
@@ -361,7 +370,7 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /**
@@ -405,7 +414,7 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(clamp(b.slot), item);
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openSettings(Player player, Guild g) {
@@ -447,7 +456,7 @@ public final class GuiManager implements GuildModule, Listener {
             inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openIcons(Player player, Guild g, int page) {
@@ -491,7 +500,7 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(i, "icon:" + icon.id);
         }
         addBack(inv, holder, def, ph, player, "back:settings", page, "icons", icons.size(), perPage);
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     // =====================================================================
@@ -577,7 +586,7 @@ public final class GuiManager implements GuildModule, Listener {
         holder.actions.put(49, "title:clear");
         inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
         holder.actions.put(53, "back:main");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /** 头衔面板：左键装备/卸下，右键删除。 */
@@ -697,7 +706,7 @@ public final class GuiManager implements GuildModule, Listener {
                 holder.actions.put(slot, "home_tp:" + i);
             }
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /** 驻地设为位置 / 删除后需要等异步写库回写，再延迟刷新菜单。 */
@@ -768,7 +777,7 @@ public final class GuiManager implements GuildModule, Listener {
         }
         inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回主页", List.of(), Map.of(), null));
         holder.actions.put(53, "back:main");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /** 领地共享：把 Residence 名下领地共享给全工会 / 取消共享。 */
@@ -817,7 +826,7 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(slot, "res_claim:" + name);
             slot++;
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /** 待处理入会邀请：无工会玩家过去只能手输 /guild accept <工会>。 */
@@ -840,7 +849,7 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(slot, "invite_pick:" + inv0.guildId());
             slot++;
         }
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     // =====================================================================
@@ -916,7 +925,7 @@ public final class GuiManager implements GuildModule, Listener {
         put(inv, holder, 51, player, "PAPER", "<white>第 " + (page + 1) + " / " + (maxPage + 1) + " 页", List.of(), "none");
         if (page > 0) put(inv, holder, 45, player, "ARROW", "<white>上一页", List.of(), "page_shop:" + (page - 1));
         if (page < maxPage) put(inv, holder, 53, player, "ARROW", "<white>下一页", List.of(), "page_shop:" + (page + 1));
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /** 商店条目点击：左键购买，Shift+左键改价，Shift+右键下架/供货。 */
@@ -992,20 +1001,62 @@ public final class GuiManager implements GuildModule, Listener {
             if (!(event.getWhoClicked() instanceof Player player)) {
                 return;
             }
-            String action = holder.actions.get(event.getRawSlot());
-            if (action == null) {
+            if (holder.actions.get(event.getRawSlot()) == null) {
                 return;
             }
-            clickRight = event.isRightClick();
-            clickShift = event.isShiftClick();
-            try {
-                sound(player, Sound.UI_BUTTON_CLICK, 0.4f, 1.4f);
-                handle(player, holder, action);
-            } finally {
-                clickRight = false;
-                clickShift = false;
-            }
+            dispatch(player, holder, event.getRawSlot(), event.isRightClick(), event.isShiftClick());
         }
+    }
+
+    /**
+     * 由 Sparrow 点击回调派发到与内置点击一致的动作处理（主线程）。
+     */
+    public void dispatch(Player player, Holder holder, int slot, boolean right, boolean shift) {
+        String action = holder.actions.get(slot);
+        if (action == null) {
+            return;
+        }
+        clickRight = right;
+        clickShift = shift;
+        try {
+            sound(player, Sound.UI_BUTTON_CLICK, 0.4f, 1.4f);
+            handle(player, holder, action);
+        } finally {
+            clickRight = false;
+            clickShift = false;
+        }
+    }
+
+    /**
+     * 统一打开菜单：优先 Sparrow UI（支持 ESC 返回上一页），失败/禁用时回退内置库存 GUI。
+     */
+    public void show(Player player, Holder holder, Inventory inv) {
+        com.liu.liuguild.hook.SparrowUiHook sparrow = plugin.sparrowUi();
+        if (sparrow != null && sparrow.openWindow(player, holder, inv)) {
+            return;
+        }
+        player.openInventory(inv);
+    }
+
+    /**
+     * 显式返回按钮：丢弃当前 Sparrow 会话栈，避免反复返回把窗口无限压栈。
+     */
+    private void resetSparrow(Player player) {
+        com.liu.liuguild.hook.SparrowUiHook sparrow = plugin.sparrowUi();
+        if (sparrow != null) {
+            sparrow.reset(player);
+        }
+    }
+
+    /**
+     * 统一关闭菜单：优先关闭 Sparrow 窗口（结束会话），回退内置库存 GUI。
+     */
+    public void closeMenu(Player player) {
+        com.liu.liuguild.hook.SparrowUiHook sparrow = plugin.sparrowUi();
+        if (sparrow != null && sparrow.closeWindow(player)) {
+            return;
+        }
+        player.closeInventory();
     }
 
     @EventHandler
@@ -1048,13 +1099,13 @@ public final class GuiManager implements GuildModule, Listener {
                     openList(player, 0);
                 }
             }
-            case "close" -> player.closeInventory();
+            case "close" -> closeMenu(player);
             case "members" -> openMembers(player, require(g, player), 0);
             case "war" -> openWar(player, require(g, player));
             case "settings" -> openSettings(player, require(g, player));
             case "list" -> openList(player, 0);
             case "checkin" -> {
-                player.closeInventory();
+                closeMenu(player);
                 plugin.guilds().checkin(player);
                 // 签到状态是同步更新的，立即重开让「今日：已签到」马上刷新
                 if (plugin.guilds().guildOf(player.getUniqueId()) != null) {
@@ -1097,11 +1148,14 @@ public final class GuiManager implements GuildModule, Listener {
                         plugin.messages().send(player, "leave-leader-denied");
                         return;
                     }
-                    player.closeInventory();
+                    closeMenu(player);
                     confirm(player, "confirm-leave", g.name(), () -> plugin.guilds().leave(player));
                 }
             }
-            case "back:main" -> openMain(player);
+            case "back:main" -> {
+                resetSparrow(player);
+                openMain(player);
+            }
             case "list:create" -> {
                 if (plugin.guilds().guildOf(player.getUniqueId()) != null) {
                     plugin.messages().send(player, "already-in-guild", "guild", plugin.guilds().guildOf(player.getUniqueId()).name());
@@ -1128,9 +1182,12 @@ public final class GuiManager implements GuildModule, Listener {
                     }, "min", c.tagMin, "max", c.tagMax);
                 }, "min", plugin.settings().guild.nameMin, "max", plugin.settings().guild.nameMax);
             }
-            case "back:settings" -> openSettings(player, require(g, player));
+            case "back:settings" -> {
+                resetSparrow(player);
+                openSettings(player, require(g, player));
+            }
             case "admin:status" -> {
-                player.closeInventory();
+                closeMenu(player);
                 for (String line : plugin.statusLines()) {
                     player.sendMessage(Text.mm(line.replace('&', '\u00a7')));
                 }
@@ -1205,13 +1262,13 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin:wars_back" -> openAdmin(player);
             case "admin:kits" -> openKitList(player);
             case "admin:cleanup" -> {
-                player.closeInventory();
+                closeMenu(player);
                 var conf = plugin.settings().guild;
                 var targets = plugin.guilds().purgeInactive(true);
                 plugin.messages().sendRaw(player, "admin-cleanup-scan", "days", conf.cleanupInactiveDays, "count", targets.size());
             }
             case "admin:verify" -> {
-                player.closeInventory();
+                closeMenu(player);
                 java.util.List<String> issues = plugin.guilds().verifyData(false);
                 plugin.messages().sendRaw(player, "admin-verify-result", "count", issues.size());
                 int shown = 0;
@@ -1257,7 +1314,7 @@ public final class GuiManager implements GuildModule, Listener {
                 openWar(player, require(g, player));
             }
             case "war_spectate" -> {
-                player.closeInventory();
+                closeMenu(player);
                 plugin.war().spectate(player);
             }
             case "set:icon" -> openIcons(player, require(g, player), 0);
@@ -1269,7 +1326,7 @@ public final class GuiManager implements GuildModule, Listener {
                     plugin.messages().send(player, "no-permission-rank");
                     break;
                 }
-                player.closeInventory();
+                closeMenu(player);
                 confirm(player, "confirm-disband", g.name(), () -> plugin.guilds().disband(g, true));
             }
             case "set:rename" -> {
@@ -1357,7 +1414,7 @@ public final class GuiManager implements GuildModule, Listener {
                 } else {
                     // 左键：申请加入
                     plugin.guilds().join(player, target, false);
-                    player.closeInventory();
+                    closeMenu(player);
                 }
             }
         } else if (action.startsWith("info_view:")) {
@@ -1434,7 +1491,7 @@ public final class GuiManager implements GuildModule, Listener {
                     }
                 } else {
                     home.openSlot(player, slot);
-                    player.closeInventory();
+                    closeMenu(player);
                 }
             }
         } else if (action.startsWith("home_set:")) {
@@ -1479,12 +1536,12 @@ public final class GuiManager implements GuildModule, Listener {
             } else {
                 plugin.guilds().accept(player, target.name());
             }
-            player.closeInventory();
+            closeMenu(player);
         } else if (action.equals("invite_player")) {
             if (g == null) {
                 return;
             }
-            player.closeInventory();
+            closeMenu(player);
             requestText(player, "invite-prompt", text -> {
                 String name = text == null ? "" : text.trim();
                 if (!name.isEmpty()) {
@@ -1515,12 +1572,12 @@ public final class GuiManager implements GuildModule, Listener {
         } else if (action.startsWith("arena_tp:")) {
             String id = action.substring("arena_tp:".length());
             ArenaDef a = plugin.settings().arena(id);
-            org.bukkit.World world = a.world != null && !a.world.isBlank() ? Bukkit.getWorld(a.world)
+            org.bukkit.World world = a.world != null && !a.world.isBlank() ? WorldResolver.resolve(a.world)
                     : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
             if (world == null) {
                 plugin.messages().send(player, "home-failed");
             } else {
-                player.closeInventory();
+                closeMenu(player);
                 player.teleport(a.spawnA.toLocation(world));
             }
         } else if (action.startsWith("arena_setspawn:")) {
@@ -1574,7 +1631,7 @@ public final class GuiManager implements GuildModule, Listener {
             String[] parts = action.substring("war_scoreinput:".length()).split(":", 2);
             promptWarScore(player, parts[0], parts.length > 1 ? parts[1] : "a");
         } else if (action.startsWith("war_tp:")) {
-            player.closeInventory();
+            closeMenu(player);
             if (!plugin.war().teleportToArena(player)) {
                 plugin.messages().send(player, "war-transfer-failed");
             }
@@ -1601,7 +1658,7 @@ public final class GuiManager implements GuildModule, Listener {
             plugin.messages().sendRaw(player, "kit-deleted", "key", key);
             openKitList(player);
         } else if (action.equals("kit_new")) {
-            player.closeInventory();
+            closeMenu(player);
             requestText(player, "kit-input", text -> {
                 saveKitFromPlayer(player, text.trim().toLowerCase(java.util.Locale.ROOT));
             });
@@ -1641,7 +1698,7 @@ public final class GuiManager implements GuildModule, Listener {
         }
         inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
         holder.actions.put(53, "admin:wars_back");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /**
@@ -1690,7 +1747,7 @@ public final class GuiManager implements GuildModule, Listener {
 
         inv.setItem(40, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回模式列表", List.of(), Map.of(), null));
         holder.actions.put(40, "admin:modes");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /** 布尔开关按钮（左键翻转）。 */
@@ -1733,7 +1790,7 @@ public final class GuiManager implements GuildModule, Listener {
         holder.actions.put(49, "kit_new");
         inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
         holder.actions.put(53, "admin:wars_back");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openKitEditor(Player player, String key) {
@@ -1751,7 +1808,7 @@ public final class GuiManager implements GuildModule, Listener {
         holder.actions.put(15, "kit_delete:" + key);
         inv.setItem(22, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回列表", List.of(), Map.of(), null));
         holder.actions.put(22, "admin:kits");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     private void saveKitFromPlayer(Player player, String key) {
@@ -1789,7 +1846,7 @@ public final class GuiManager implements GuildModule, Listener {
         }
         inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
         holder.actions.put(49, "admin:wars_back");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openWarEditor(Player player, String warId) {
@@ -1812,11 +1869,11 @@ public final class GuiManager implements GuildModule, Listener {
         inv.setItem(16, GuiUtil.build(player, "TNT", "TNT", "<red>强制结束比赛",
                 List.of("<gray>将立即结算奖励"), Map.of(), null));
         holder.actions.put(16, "war_stop:" + warId);
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     private void promptWarScore(Player player, String warId, String side) {
-        player.closeInventory();
+        closeMenu(player);
         requestText(player, "arena-input", text -> {
             int value = NumberUtil.toInt(text.trim(), 0);
             plugin.war().setScore(warId, side, value);
@@ -1850,7 +1907,7 @@ public final class GuiManager implements GuildModule, Listener {
 
     /** 铁砧输入一个出生点名，然后在当前位置保存。 */
     private void promptArenaPoint(Player player, String arenaId, String defaultPoint) {
-        player.closeInventory();
+        closeMenu(player);
         requestText(player, "arena-point-input", text -> {
             String name = text.trim().toLowerCase(java.util.Locale.ROOT);
             setArenaSpawn(player, arenaId, name.isEmpty() ? defaultPoint : name);
@@ -1873,7 +1930,7 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private void promptArenaInput(Player player, String arenaId, String key) {
-        player.closeInventory();
+        closeMenu(player);
         requestText(player, "arena-input", text -> {
             String value = text.trim();
             if (key.equalsIgnoreCase("radius")) {
@@ -1980,7 +2037,7 @@ public final class GuiManager implements GuildModule, Listener {
         if (m == null) {
             return;
         }
-        player.closeInventory();
+        closeMenu(player);
         requestText(player, "mode-input", text -> {
             String value = text.trim();
             if (value.isEmpty()) {
@@ -2019,7 +2076,7 @@ public final class GuiManager implements GuildModule, Listener {
         if (guild == null) {
             return;
         }
-        player.closeInventory();
+        closeMenu(player);
         requestText(player, "guild-input", text -> {
             String value = text.trim();
             switch (key.toLowerCase(java.util.Locale.ROOT)) {
@@ -2041,7 +2098,7 @@ public final class GuiManager implements GuildModule, Listener {
         if (guild == null) {
             return;
         }
-        player.closeInventory();
+        closeMenu(player);
         requestText(player, "rename-input-name", name -> {
             if (name.isBlank()) {
                 openGuildEditor(player, guildId);
@@ -2066,6 +2123,7 @@ public final class GuiManager implements GuildModule, Listener {
     private Inventory simpleInventory(Player viewer, Holder holder, int rows, String title, Map<String, String> ph) {
         Inventory inv = Bukkit.createInventory(holder, rows * 9, Text.fmt(title, flatten(ph)));
         holder.inv = inv;
+        holder.title = Text.fmt(title, flatten(ph));
         ItemStack filler = GuiUtil.build(viewer, "GRAY_STAINED_GLASS_PANE", "GRAY_STAINED_GLASS_PANE",
                 " ", List.of(), Map.of(), null);
         for (int i = 0; i < inv.getSize(); i++) {
@@ -2097,7 +2155,7 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(i, "arena_edit:" + id);
         }
         addPageControls(player, holder, inv, "arenas", page, (ids.size() - 1) / perPage, "工会列表", "admin:guilds", "admin:open");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openArenaEditor(Player player, String arenaId) {
@@ -2158,7 +2216,7 @@ public final class GuiManager implements GuildModule, Listener {
         int backSlot = 53;
         inv.setItem(backSlot, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回列表", List.of(), Map.of(), null));
         holder.actions.put(backSlot, "admin:arenas");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openGuildList(Player player, int page) {
@@ -2179,7 +2237,7 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(i, "guild_edit:" + g.id());
         }
         addPageControls(player, holder, inv, "guilds", page, (guilds.size() - 1) / perPage, "竞技场列表", "admin:arenas", "admin:open");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     public void openGuildEditor(Player player, String guildId) {
@@ -2211,7 +2269,7 @@ public final class GuiManager implements GuildModule, Listener {
         int backSlot = 53;
         inv.setItem(backSlot, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回列表", List.of(), Map.of(), null));
         holder.actions.put(backSlot, "admin:guilds");
-        player.openInventory(inv);
+        show(player, holder, inv);
     }
 
     /** 依次放置管理按钮并登记动作。 */
@@ -2309,7 +2367,7 @@ public final class GuiManager implements GuildModule, Listener {
                     put(inv, holder, 15, player, "GOLD_INGOT", "<yellow>工会金币：" + plugin.economy().format(g.bank()),
                             List.of("<gray>Vault 金币，与建设资金完全独立", "<gray>来自金币存入和商店销售", "<gray>银行入口：左键存入 / 右键取出"), "bank");
                     put(inv, holder, 22, player, "ARROW", "<white>返回工会主页", List.of(), "back:main");
-                    player.openInventory(inv);
+                    show(player, holder, inv);
                 });
             } catch (java.sql.SQLException e) {
                 plugin.getLogger().warning("查询个人资金失败: " + e.getMessage());
@@ -2389,7 +2447,7 @@ public final class GuiManager implements GuildModule, Listener {
 
     /** 无工会引导菜单的「如何加入工会」：把可行路径逐条说清楚。 */
     private void sendJoinHelp(Player player) {
-        player.closeInventory();
+        closeMenu(player);
         plugin.messages().sendRaw(player, "join-help-header");
         plugin.messages().sendRaw(player, "join-help-line1");
         plugin.messages().sendRaw(player, "join-help-line2");
@@ -2464,6 +2522,7 @@ public final class GuiManager implements GuildModule, Listener {
         Inventory inv = Bukkit.createInventory(holder, def.rows * 9,
                 Text.fmt(def.title, flatten(ph)));
         holder.inv = inv;
+        holder.title = Text.fmt(def.title, flatten(ph));
         if (plugin.settings().gui.filler != null) {
             ItemStack filler = GuiUtil.fromButton(viewer, plugin.settings().gui.filler, ph);
             for (int i = 0; i < inv.getSize(); i++) {

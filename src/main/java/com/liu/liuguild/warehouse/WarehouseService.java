@@ -336,6 +336,8 @@ public final class WarehouseService implements GuildModule, Listener {
                 Open o = new Open(g.id(), uuid, inv, holder, contents, loaded.version());
                 open.put(uuid, o);
                 render(player, o);
+                // 真实仓库库存需要玩家自由存取物品，必须关闭 Sparrow 菜单会话后再打开。
+                plugin.gui().closeMenu(player);
                 player.openInventory(inv);
             });
         });
@@ -450,6 +452,11 @@ public final class WarehouseService implements GuildModule, Listener {
 
         actions.put(26, "back");
         inv.setItem(26, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回工会主页", List.of(), Map.of(), null));
+        com.liu.liuguild.hook.SparrowUiHook sparrow = plugin.sparrowUi();
+        if (sparrow != null && sparrow.openWindow(player, Text.mm(title), inv, holder::action,
+                (slot, click) -> plugin.sync(() -> handleMenuAction(player, holder, holder.action(slot))))) {
+            return;
+        }
         player.closeInventory();
         player.openInventory(inv);
     }
@@ -467,13 +474,17 @@ public final class WarehouseService implements GuildModule, Listener {
         if (event.getRawSlot() < 0 || event.getRawSlot() >= MENU_SIZE) {
             return;
         }
-        String action = holder.action(event.getRawSlot());
+        handleMenuAction(player, holder, holder.action(event.getRawSlot()));
+    }
+
+    /** 仓库管理菜单动作处理（内置点击与 Sparrow 点击共用）。 */
+    private void handleMenuAction(Player player, MenuHolder holder, String action) {
         if (action == null) {
             return;
         }
         Guild g = plugin.guilds().guild(holder.guildId());
         if (g == null) {
-            player.closeInventory();
+            plugin.gui().closeMenu(player);
             plugin.messages().send(player, "not-in-guild");
             return;
         }
@@ -482,6 +493,7 @@ public final class WarehouseService implements GuildModule, Listener {
         } else if (action.equals("upgrade")) {
             upgrade(player, g);
         } else if (action.equals("back")) {
+            plugin.gui().closeMenu(player);
             plugin.gui().openMain(player);
         } else if (action.equals("open")) {
             open(player, g);

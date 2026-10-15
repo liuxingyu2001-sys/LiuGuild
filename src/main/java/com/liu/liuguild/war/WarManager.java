@@ -12,6 +12,7 @@ import com.liu.liuguild.config.WarMode;
 import com.liu.liuguild.config.WarSettings;
 import com.liu.liuguild.util.NumberUtil;
 import com.liu.liuguild.util.TimeUtil;
+import com.liu.liuguild.util.WorldResolver;
 import com.liu.liuguild.crossserver.CrossServerBus;
 import com.liu.liuguild.crossserver.ServerTransfer;
 import com.liu.liudungeon.api.CreateOptions.ChunkPosition;
@@ -1092,7 +1093,7 @@ public final class WarManager implements GuildModule {
                         });
                     });
         } else {
-            World world = def.world != null && !def.world.isBlank() ? Bukkit.getWorld(def.world) : null;
+            World world = def.world != null && !def.world.isBlank() ? WorldResolver.resolve(def.world) : null;
             if (world == null && (def.world == null || def.world.isBlank()) && !Bukkit.getWorlds().isEmpty()) {
                 world = Bukkit.getWorlds().get(0);
             }
@@ -1123,7 +1124,7 @@ public final class WarManager implements GuildModule {
             if (name.length() > 48) {
                 name = name.substring(0, 48);
             }
-            World existing = Bukkit.getWorld(name);
+            World existing = WorldResolver.resolve(name);
             if (existing != null) {
                 // 世界已存在（可能是服主自建的同名世界）：只复用，不纳入赛后销毁范围，
                 // 否则会误删服主的永久世界。
@@ -1196,13 +1197,10 @@ public final class WarManager implements GuildModule {
             return null;
         }
         String target = name.trim();
-        String path = target.toLowerCase(java.util.Locale.ROOT);
-        if (path.startsWith("minecraft:")) {
-            path = path.substring("minecraft:".length());
-        }
+        String path = ruleKey(target);
         try {
             for (org.bukkit.GameRule<?> rule : org.bukkit.GameRule.values()) {
-                if (rule.getName().equalsIgnoreCase(path)) {
+                if (ruleKey(rule.getName()).equals(path)) {
                     return rule;
                 }
             }
@@ -1213,6 +1211,18 @@ public final class WarManager implements GuildModule {
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    /** 归一化 gamerule 名：绕过 camelCase / snake_case / 命名空间差异（如 doDaylightCycle）。 */
+    private static String ruleKey(String s) {
+        if (s == null) {
+            return "";
+        }
+        String v = s.trim().toLowerCase(java.util.Locale.ROOT);
+        if (v.startsWith("minecraft:")) {
+            v = v.substring("minecraft:".length());
+        }
+        return v.replace("_", "").replace("-", "").replace(" ", "");
     }
 
     /** 应用竞技场世界设置（gamerule / 时间 / 天气 / 难度），全部可自定义。 */
@@ -1871,7 +1881,7 @@ public final class WarManager implements GuildModule {
         ArenaDef def = war != null ? plugin.settings().arena(modeOf(war).arena) : currentArena();
         World world = arenaWorld();
         if (world == null) {
-            world = def.world != null && !def.world.isBlank() ? Bukkit.getWorld(def.world)
+            world = def.world != null && !def.world.isBlank() ? WorldResolver.resolve(def.world)
                     : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
         }
         if (world == null) {
@@ -2099,7 +2109,7 @@ public final class WarManager implements GuildModule {
             return;
         }
         ArenaDef def = plugin.settings().arena(arenaId);
-        World world = def.world != null && !def.world.isBlank() ? Bukkit.getWorld(def.world)
+        World world = def.world != null && !def.world.isBlank() ? WorldResolver.resolve(def.world)
                 : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
         if (world == null) {
             plugin.messages().send(player, "arena-tp-world-missing", "arena", arenaId,
@@ -2150,7 +2160,7 @@ public final class WarManager implements GuildModule {
         returnLoc.put(player.getUniqueId(), player.getLocation().clone());
         livesRemaining.putIfAbsent(player.getUniqueId(), mode.livesPerPlayer);
         // 入场前先关闭所有打开的菜单/仓库，防止战中操作外部容器
-        player.closeInventory();
+        plugin.gui().closeMenu(player);
         captureSnapshot(player, war, () -> {
             if (!player.isOnline() || current != war || !roster.contains(player.getUniqueId())) {
                 return;
@@ -2193,7 +2203,7 @@ public final class WarManager implements GuildModule {
         if (world == null) return false;
         spectators.add(player.getUniqueId());
         returnLoc.putIfAbsent(player.getUniqueId(), player.getLocation().clone());
-        player.closeInventory();
+        plugin.gui().closeMenu(player);
         ArenaDef def = plugin.settings().arena(modeOf(war).arena);
         Location target = def.spawnSpectator.toLocation(world);
         // 旁观者同样需要快照：旁观会改写游戏模式与坐标，崩溃/掉线时必须能兜底还原，
@@ -2261,7 +2271,7 @@ public final class WarManager implements GuildModule {
         Location destination = null;
         if (aw.endSpawnEnabled) {
             World world = aw.endSpawnWorld != null && !aw.endSpawnWorld.isBlank()
-                    ? Bukkit.getWorld(aw.endSpawnWorld)
+                    ? WorldResolver.resolve(aw.endSpawnWorld)
                     : arenaWorld();
             if (world == null) {
                 world = arenaWorld();
@@ -2343,7 +2353,7 @@ public final class WarManager implements GuildModule {
     private void captureSnapshot(Player player, GuildWar war, Runnable afterCaptured) {
         UUID uuid = player.getUniqueId();
         String playerName = player.getName();
-        player.closeInventory();
+        plugin.gui().closeMenu(player);
         capturing.add(uuid);
         KitService.Snapshot snap = plugin.kits().snapshot(player);
         localSnap.put(uuid, snap);

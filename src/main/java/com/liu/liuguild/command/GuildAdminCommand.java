@@ -7,6 +7,7 @@ import com.liu.liuguild.model.Guild;
 import com.liu.liuguild.model.GuildWar;
 import com.liu.liuguild.util.NumberUtil;
 import com.liu.liuguild.util.Text;
+import com.liu.liuguild.util.WorldResolver;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -178,6 +179,15 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                                 + " &7世界=&f" + (a.world.isBlank() ? "主世界" : a.world)
                                 + " &7模板=&f" + (a.hasTemplate() ? a.template : "固定坐标"))));
             }
+            case "listworlds", "worlds" -> {
+                java.util.List<String> names = WorldResolver.knownNames();
+                sender.sendMessage(cn("&6识别到的世界（&f" + names.size() + "&6）："));
+                for (String name : names) {
+                    org.bukkit.World w = WorldResolver.resolve(name);
+                    sender.sendMessage(cn("&7- &f" + name
+                            + (w != null ? " &a[已加载]" : " &e[仅在磁盘，未加载]")));
+                }
+            }
             case "info" -> {
                 if (args.length < 3) {
                     plugin.messages().sendRaw(sender, "arena-usage");
@@ -326,7 +336,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     }
                     return;
                 }
-                org.bukkit.World world = a.world != null && !a.world.isBlank() ? Bukkit.getWorld(a.world)
+                org.bukkit.World world = a.world != null && !a.world.isBlank() ? WorldResolver.resolve(a.world)
                         : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
                 if (world == null) {
                     sender.sendMessage(cn("&c世界未加载，无法传送。"));
@@ -887,7 +897,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 } else if (!a.tempWorld.builtin) {
                     org.bukkit.World w = a.world.isBlank()
                             ? (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0))
-                            : Bukkit.getWorld(a.world);
+                            : WorldResolver.resolve(a.world);
                     if (w == null) {
                         bad.add("场地 " + a.id + " 世界不存在: " + a.world);
                     } else {

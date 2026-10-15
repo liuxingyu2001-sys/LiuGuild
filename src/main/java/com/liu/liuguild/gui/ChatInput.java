@@ -34,7 +34,7 @@ public final class ChatInput implements Listener {
 
     public void request(Player player, Component prompt, Consumer<String> callback) {
         pending.put(player.getUniqueId(), callback);
-        player.closeInventory();
+        plugin.gui().closeMenu(player);
         player.sendMessage(prompt);
         player.sendMessage(plugin.messages().component("input-cancel-hint"));
     }

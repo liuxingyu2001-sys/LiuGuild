@@ -10,6 +10,8 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.momirealms.sparrow.ui.SparrowUI;
 import net.momirealms.sparrow.ui.item.Item;
+import net.momirealms.sparrow.ui.item.ItemBuilder;
+import net.momirealms.sparrow.ui.item.click.ItemClick;
 import net.momirealms.sparrow.ui.pane.Element;
 import net.momirealms.sparrow.ui.pane.NormalPane;
 import net.momirealms.sparrow.ui.pane.Pane;
@@ -17,13 +19,17 @@ import net.momirealms.sparrow.ui.pane.PaneSize;
 import net.momirealms.sparrow.ui.window.AnvilWindow;
 import net.momirealms.sparrow.ui.window.NormalWindow;
 import net.momirealms.sparrow.ui.window.Window;
+import net.momirealms.sparrow.ui.window.WindowSession;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -38,6 +44,9 @@ public final class SparrowUiHook {
     private final LiuGuild plugin;
     private boolean available;
     private boolean failed;
+
+    /** 每名玩家当前所在会话窗口，用于把子菜单压栈（ESC 回到上一页）。 */
+    private final Map<UUID, Window> sessionWindows = new ConcurrentHashMap<>();
 
     public SparrowUiHook(LiuGuild plugin) {
         this.plugin = plugin;
@@ -181,12 +190,113 @@ public final class SparrowUiHook {
                     .setTextFieldAlwaysEnabled(true)
                     .addRenameHandler(text::set)
                     .build(player);
+            // 铁砧输入是独立弹窗：先结束当前菜单会话，避免两个窗口/会话互相顶替。
+            reset(player);
             window.open();
+            sessionWindows.put(player.getUniqueId(), window);
             return true;
         } catch (Throwable t) {
             plugin.getLogger().warning("Sparrow 铁砧输入不可用，回退聊天输入: " + t.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 用 Sparrow UI 渲染一个已由内置 GUI 构建好的库存，并接入会话：
+     * 子菜单通过 {@code navigate} 压栈，玩家按 ESC（主动关窗）时退回上一页；
+     * 根菜单按 ESC 才真正关闭。
+     *
+     * @param actionAt 某个槽位绑定的动作；返回非 null 的槽位可点击
+     * @param onClick  点击回调（槽位, 点击上下文），由调用方切回主线程处理
+     * @return true 表示已用 Sparrow 打开；false 表示调用方应回退到内置库存 GUI
+     */
+    public boolean openWindow(Player player, Component title, Inventory inv,
+                              java.util.function.IntFunction<String> actionAt,
+                              java.util.function.BiConsumer<Integer, ItemClick> onClick) {
+        if (!available() || !enabled() || player == null || inv == null) {
+            return false;
+        }
+        int rows = Math.max(1, Math.min(6, inv.getSize() / 9));
+        try {
+            NormalPane pane = NormalPane.empty(new PaneSize(9, rows));
+            int slots = Math.min(inv.getSize(), rows * 9);
+            for (int slot = 0; slot < slots; slot++) {
+                ItemStack stack = inv.getItem(slot);
+                if (stack == null || stack.getType().isAir()) {
+                    continue;
+                }
+                final int clickedSlot = slot;
+                ItemBuilder builder = Item.builder().setItemProviderConstant(stack);
+                if (actionAt != null && actionAt.apply(slot) != null && onClick != null) {
+                    builder.addClickHandler(click -> onClick.accept(clickedSlot, click));
+                }
+                pane.setElement(slot, Element.item(builder.build()));
+            }
+            Component windowTitle = title == null ? Component.text("菜单") : title;
+            NormalWindow window = NormalWindow.builder()
+                    .setTitle(windowTitle)
+                    .setUpperPane(pane)
+                    .setSessionKind(WindowSession.Kind.RETAINED_STACK)
+                    .setBackOnPlayerClose(true)
+                    .build(player);
+            if (window == null) {
+                return false;
+            }
+            UUID id = player.getUniqueId();
+            Window current = sessionWindows.get(id);
+            WindowSession live = current == null ? null : current.session();
+            if (live != null && live.active() && current != null && current.isOpen()) {
+                current.navigate(window).thenAccept(next -> sessionWindows.put(id, next));
+            } else {
+                window.open();
+                sessionWindows.put(id, window);
+            }
+            return true;
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Sparrow UI 渲染菜单失败，本次回退内置 GUI：" + t);
+            sessionWindows.remove(player.getUniqueId());
+            return false;
+        }
+    }
+
+    /** 兼容旧调用：从 {@link GuiManager.Holder} 取标题与动作。 */
+    public boolean openWindow(Player player, GuiManager.Holder holder, Inventory inv) {
+        if (holder == null) {
+            return false;
+        }
+        return openWindow(player, holder.title(), inv, holder::actionAt,
+                (slot, click) -> plugin.sync(() -> plugin.gui().dispatch(player, holder, slot,
+                        click.clickType().isRightClick(), click.clickType().isShiftClick())));
+    }
+
+    /** 结束该玩家当前 Sparrow 会话（不打开新窗口）。 */
+    public void reset(Player player) {
+        if (player == null) {
+            return;
+        }
+        Window w = sessionWindows.remove(player.getUniqueId());
+        if (w != null) {
+            try {
+                w.close();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 关闭该玩家当前由 Sparrow 打开的菜单；未使用 Sparrow 菜单时返回 false。 */
+    public boolean closeWindow(Player player) {
+        if (player == null) {
+            return false;
+        }
+        Window w = sessionWindows.remove(player.getUniqueId());
+        if (w == null) {
+            return false;
+        }
+        try {
+            w.close();
+        } catch (Throwable ignored) {
+        }
+        return true;
     }
 
     private void applyInfoMeta(Player player, Guild guild, ButtonDef button, Map<String, String> ph, ItemStack stack) {
