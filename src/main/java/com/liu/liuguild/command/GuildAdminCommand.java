@@ -461,7 +461,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage(cn("&7队伍上限: &f" + m.teamSize + " &7最低人数: &f" + m.minMembers
                             + " &7最低等级: &f" + m.minLevel));
                     sender.sendMessage(cn("&7准备/战斗/结算: &f" + m.prepareSeconds + "/" + m.durationSeconds + "/" + m.settleSeconds));
-                    sender.sendMessage(cn("&7计分: &f击杀" + m.scoreKill + " 死亡" + m.scoreDeath + " 目标" + m.scoreObjective));
+                    sender.sendMessage(cn("&7计分: &f击杀" + m.scoreKill + " 死亡" + m.scoreDeath
+                            + " &7（目标分 objective 为预留，当前未启用）"));
                     sender.sendMessage(cn("&7生命: &f每人 " + m.livesPerPlayer + " 次 &7人数均衡=" + m.balanceTeamLives
                             + " &7复活等待=" + m.respawnDelaySeconds + " 秒"));
                     sender.sendMessage(cn("&7奖励: &f胜个人金币 " + m.winPlayerMoney + " / 工会资金 " + m.winGuildFunds
@@ -473,8 +474,11 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             }
             case "start" -> {
                 if (require(sender, args, 3)) {
-                    plugin.war().forceSeason(args[2]);
-                    plugin.messages().sendRaw(sender, "season-started", "mode", args[2]);
+                    if (plugin.war().forceSeason(args[2])) {
+                        plugin.messages().sendRaw(sender, "season-started", "mode", args[2]);
+                    } else {
+                        plugin.messages().sendRaw(sender, "war-mode-unknown", "mode", args[2]);
+                    }
                 }
             }
             default -> plugin.messages().sendRaw(sender, "mode-usage");

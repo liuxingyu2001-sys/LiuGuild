@@ -249,14 +249,10 @@ public final class WarMode {
         m.winTitleId = Math.max(0, sec.getInt("rewards.win-title-id", m.winTitleId));
         m.extraRewards = readExtraRewards(sec);
         m.broadcastQueue = sec.getBoolean("broadcast-queue", m.broadcastQueue);
-        if (sec.isList("schedule")) {
-            m.schedule = new ArrayList<>(sec.getStringList("schedule"));
-        } else if (sec.isString("schedule")) {
-            m.schedule = new ArrayList<>(List.of(sec.getString("schedule", "")));
-        }
+        m.schedule = readStringList(sec, "schedule", m.schedule);
         m.seasonWindowMinutes = Math.max(1, sec.getInt("season.window-minutes", m.seasonWindowMinutes));
         m.autoEnqueue = sec.getBoolean("season.auto-enqueue", m.autoEnqueue);
-        m.seasonPointsMultiplier = sec.getDouble("season.points-multiplier", m.seasonPointsMultiplier);
+        m.seasonPointsMultiplier = Math.max(1.0, sec.getDouble("season.points-multiplier", m.seasonPointsMultiplier));
         return m;
     }
 

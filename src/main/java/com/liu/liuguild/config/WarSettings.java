@@ -49,7 +49,7 @@ public final class WarSettings {
         s.dedicatedServer = c.getString("war.dedicated-server", s.dedicatedServer);
         s.queueIntervalSeconds = Math.max(1, Math.min(60, c.getInt("war.queue-interval-seconds", s.queueIntervalSeconds)));
         s.matchTimeoutSeconds = Math.max(0, c.getInt("war.match-timeout-seconds", s.matchTimeoutSeconds));
-        s.defaultMode = c.getString("war.default-mode", s.defaultMode);
+        s.defaultMode = String.valueOf(c.getString("war.default-mode", s.defaultMode)).toLowerCase(Locale.ROOT);
         s.broadcastQueue = c.getBoolean("war.broadcast-queue", s.broadcastQueue);
         s.bossBarEnabled = c.getBoolean("war.bossbar", s.bossBarEnabled);
         s.settleBatchPerTick = Math.max(1, Math.min(200, c.getInt("war.settle-batch-per-tick", s.settleBatchPerTick)));

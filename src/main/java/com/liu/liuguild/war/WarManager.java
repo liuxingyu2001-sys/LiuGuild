@@ -658,22 +658,41 @@ public final class WarManager implements GuildModule {
         }
         plugin.guilds().broadcastAll(plugin.messages().component("war-season-open",
                 "mode", mode.display, "minutes", mode.seasonWindowMinutes).append(queueJoinButton(mode)));
-        if (mode.autoEnqueue) {
-            for (Guild g : plugin.guilds().all()) {
-                if (g.level() < mode.minLevel || warOf(g.id()) != null || isQueued(g.id())) {
-                    continue;
-                }
-                if (plugin.guilds().onlineMembers(g).size() < mode.minMembers) {
+        if (!mode.autoEnqueue) {
+            return;
+        }
+        // 主线程只做内存筛选，Redis 入队（isQueued/enqueue）放到异步，避免卡主线程。
+        List<Guild> candidates = new ArrayList<>();
+        for (Guild g : plugin.guilds().all()) {
+            if (g.level() < mode.minLevel || warOf(g.id()) != null) {
+                continue;
+            }
+            if (plugin.guilds().onlineMembers(g).size() < mode.minMembers) {
+                continue;
+            }
+            candidates.add(g);
+        }
+        if (candidates.isEmpty()) {
+            return;
+        }
+        plugin.async(() -> {
+            for (Guild g : candidates) {
+                if (warOf(g.id()) != null || isQueued(g.id())) {
                     continue;
                 }
                 enqueue(g.id(), g.name(), g.tag(), mode.key);
             }
-        }
+        });
     }
 
-    /** 管理员强制开启赛季。 */
-    public void forceSeason(String modeKey) {
+    /** 管理员强制开启赛季；模式不存在时返回 false。 */
+    public boolean forceSeason(String modeKey) {
+        if (modeKey == null || modeKey.isBlank()
+                || !conf().modes.containsKey(modeKey.toLowerCase(java.util.Locale.ROOT))) {
+            return false;
+        }
         startSeason(mode(modeKey));
+        return true;
     }
 
     private void enqueue(String guildId, String name, String tag, String modeKey) {
