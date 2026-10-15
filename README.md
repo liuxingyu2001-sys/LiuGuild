@@ -20,6 +20,10 @@
 
 `liudungeon` · `LiuChat` · `liupass` · `CraftEngine` · `Sparrow Sync` · `LuckyPeaches` · `PlayerTitle` · `NotBounties` · `mcMMO` · `HuskHomes` · `Vault` · `PlaceholderAPI`
 
+## 构建记录
+
+- `0.2.0`：包含独立工会空间配置、逐级收费与数据保留策略，以及资金、商店和装备托管修复；178 项单元测试通过。跨服返程与崩溃恢复的限制见 [工会战文档](docs/war.md) 和 [空间文档](docs/warehouse.md)。
+
 ## 快速开始
 
 1. 安装 `Liu-LiuGuild-<version>.jar`，启动生成配置。
