@@ -456,6 +456,24 @@ public final class CrossServerBus {
         });
     }
 
+    /** 跨服竞技场传送：出发服写标记，承办服入职后消费并传送到场地。 */
+    public void setPendingArena(UUID uuid, String arenaId) {
+        bridge.withJedis(jedis -> {
+            jedis.setex(bridge.keyArenaPending(uuid), 180, arenaId);
+            return null;
+        });
+    }
+
+    public String consumePendingArena(UUID uuid) {
+        return bridge.withJedis(jedis -> {
+            String v = jedis.get(bridge.keyArenaPending(uuid));
+            if (v != null) {
+                jedis.del(bridge.keyArenaPending(uuid));
+            }
+            return v;
+        });
+    }
+
     // =====================================================================
     // 编码
     // =====================================================================

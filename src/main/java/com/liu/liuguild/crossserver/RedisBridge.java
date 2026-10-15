@@ -173,6 +173,10 @@ public final class RedisBridge {
         return prefix + "war:pending:" + player;
     }
 
+    public String keyArenaPending(java.util.UUID player) {
+        return prefix + "arena:pending:" + player;
+    }
+
     public String keyMatchLock() {
         return prefix + "war:matchlock";
     }

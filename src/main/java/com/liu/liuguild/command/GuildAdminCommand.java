@@ -311,6 +311,21 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     return;
                 }
                 ArenaDef a = plugin.settings().arena(args[2]);
+                // 承办服在别的子服时：先代理传送到承办服，抵达后再由承办服送到场地。
+                String host = a.server != null && !a.server.isBlank()
+                        ? a.server : plugin.settings().war.dedicatedServer;
+                boolean remote = host != null && !host.isBlank() && !plugin.war().isHostServer(host);
+                if (remote) {
+                    if (!plugin.bus().isReady() || !plugin.bus().transfer().available()) {
+                        sender.sendMessage(cn("&c跨服传送不可用，无法传送到承办服 &f" + host + "&c。"));
+                        return;
+                    }
+                    sender.sendMessage(cn("&a正在把你传送到承办服 &f" + host + " &a的竞技场 &f" + a.id + "&a…"));
+                    if (!plugin.war().transferToArena(p, host, a.id)) {
+                        sender.sendMessage(cn("&c传送失败，请稍后再试。"));
+                    }
+                    return;
+                }
                 org.bukkit.World world = a.world != null && !a.world.isBlank() ? Bukkit.getWorld(a.world)
                         : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
                 if (world == null) {

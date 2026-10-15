@@ -72,7 +72,7 @@
 | `/guildadmin arena create <id>` | 新建竞技场 |
 | `/guildadmin arena remove <id>` | 删除竞技场 |
 | `/guildadmin arena setradius <id> <半径>` | 设置动态世界预热半径 |
-| `/guildadmin arena tp <id>` | 传送到竞技场 A 点 |
+| `/guildadmin arena tp <id>` | 传送到竞技场 A 点（若竞技场在别的子服承办，自动先跨服传送到承办服再送到场地） |
 | `/guildadmin arena settempworld <id> <项> <值>` | 设置临时世界（environment / keep-on-end / time / weather / difficulty / name-format） |
 | `/guildadmin arena setgamerule <id> <规则> <true\|false>` | 设置临时世界 gamerule |
 | `/guildadmin arena setafter <id> <项> <值>` | 设置战后行为（auto-return / return-delay-seconds / end-spawn.enabled） |
@@ -80,7 +80,7 @@
 | `/guildadmin war list` | 进行中的工会战与队列 |
 | `/guildadmin war start <模式> <工会A> <工会B>` | **强制开启一场工会战** |
 | `/guildadmin war stop [id]` | 停止工会战（等同 forceend） |
-| `/guildadmin war tp` | 传送到当前竞技场 |
+| `/guildadmin war tp` | 传送到当前竞技场（非承办服会自动先传送到承办服） |
 | `/guildadmin war score <id> <a\|b> <分>` | 修改比分 |
 | `/guildadmin guilds [页码]` | 分页列出全部工会 |
 | `/guildadmin player <玩家>` | 查看玩家所属工会 |

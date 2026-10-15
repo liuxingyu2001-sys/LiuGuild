@@ -1860,6 +1860,14 @@ public final class WarManager implements GuildModule {
     /** 把管理员传送到当前竞技场（旁观点）；无进行中战斗时传到默认场地 A 点。 */
     public boolean teleportToArena(Player player) {
         GuildWar war = current;
+        if (war == null) {
+            // 非承办服：观察到一场进行中、由其它子服承办的战斗时，先传送到承办服。
+            GuildWar live = liveObserved();
+            if (live != null && !isHostServer(live.hostServer())) {
+                ArenaDef def = plugin.settings().arena(modeOf(live).arena);
+                return transferToArena(player, live.hostServer(), def.id);
+            }
+        }
         ArenaDef def = war != null ? plugin.settings().arena(modeOf(war).arena) : currentArena();
         World world = arenaWorld();
         if (world == null) {
@@ -1872,6 +1880,39 @@ public final class WarManager implements GuildModule {
         Location target = war != null ? def.spawnSpectator.toLocation(world) : def.spawnA.toLocation(world);
         player.teleport(target);
         return true;
+    }
+
+    /**
+     * 跨服传送到承办服的竞技场：先写待传送标记（Redis），再代理传送到承办服，
+     * 抵达后由 {@link #teleportToArena(Player, String)} 送到场地。
+     */
+    public boolean transferToArena(Player player, String host, String arenaId) {
+        if (player == null || host == null || host.isBlank() || arenaId == null || arenaId.isBlank()) {
+            return false;
+        }
+        if (!plugin.bus().isReady() || !plugin.bus().transfer().available()) {
+            return false;
+        }
+        final UUID uuid = player.getUniqueId();
+        plugin.async(() -> {
+            plugin.bus().setPendingArena(uuid, arenaId);
+            plugin.sync(() -> {
+                if (player.isOnline()) {
+                    plugin.bus().transfer().connect(player, host);
+                }
+            });
+        });
+        return true;
+    }
+
+    /** 跨服镜像里任意一场仍在进行的工会战（用于非承办服的管理员传送）。 */
+    private GuildWar liveObserved() {
+        for (GuildWar w : observed.values()) {
+            if (w != null && w.state().isLive()) {
+                return w;
+            }
+        }
+        return null;
     }
 
     /** 工会被解散时：若其正在进行工会战，则取消该场战斗。 */
@@ -2026,25 +2067,48 @@ public final class WarManager implements GuildModule {
         }
     }
 
-    /** 玩家进入承办服后由监听器调用，消费待处理工会战。 */
+    /** 玩家进入承办服后由监听器调用，消费待处理工会战 / 跨服竞技场传送。 */
     public void onPlayerJoinServer(Player player) {
         final UUID uuid = player.getUniqueId();
-        // 消费标记是 Redis IO，放异步；拿到后再回主线程入队，避免卡主线程。
+        // 消费标记是 Redis IO，放异步；拿到后再回主线程入队/传送，避免卡主线程。
         plugin.async(() -> {
             String warId = plugin.bus().consumePendingWar(uuid);
-            if (warId == null) {
-                return;
-            }
+            String arenaId = plugin.bus().consumePendingArena(uuid);
             plugin.sync(() -> {
                 if (!player.isOnline()) {
                     return;
                 }
                 GuildWar war = current;
-                if (war != null && war.id().equals(warId)) {
+                if (warId != null && war != null && war.id().equals(warId)) {
                     joinLocal(player, war);
+                    return;
+                }
+                if (arenaId != null) {
+                    teleportToArena(player, arenaId);
                 }
             });
         });
+    }
+
+    /**
+     * 管理员跨服传送抵达承办服后调用：把玩家送到竞技场 A 点。
+     * 出发服由 {@code /guildadmin arena tp} 写入待传送标记。
+     */
+    public void teleportToArena(Player player, String arenaId) {
+        if (player == null || arenaId == null || arenaId.isBlank()) {
+            return;
+        }
+        ArenaDef def = plugin.settings().arena(arenaId);
+        World world = def.world != null && !def.world.isBlank() ? Bukkit.getWorld(def.world)
+                : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
+        if (world == null) {
+            plugin.messages().send(player, "arena-tp-world-missing", "arena", arenaId,
+                    "world", def.world == null ? "" : def.world);
+            return;
+        }
+        if (warTeleport(player, def.spawnA.toLocation(world))) {
+            plugin.messages().send(player, "arena-tp-done", "arena", arenaId);
+        }
     }
 
     private void joinLocal(Player player, GuildWar war) {

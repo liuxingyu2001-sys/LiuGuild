@@ -407,6 +407,8 @@ zh_CN:
   arena-set: "<green>竞技场 <white>{arena}</white> 已更新为 <white>{value}</white>。"
   arena-created: "<green>已新建竞技场 <white>{arena}</white>（固定坐标模式）。"
   arena-spawn-set: "<green>竞技场 <white>{arena}</white> 的 <white>{point}</white> 点已设为当前坐标（世界 <white>{world}</white>）。"
+  arena-tp-done: "<green>已传送到竞技场 <white>{arena}</white>。"
+  arena-tp-world-missing: "<red>竞技场 <white>{arena}</white> 的世界 <white>{world}</white> 未加载，无法传送。请在承办服上确认该世界存在。"
   kit-usage: "<red>用法：<white>/guildadmin kit <list|save|delete|info> [key]</white>"
   kit-saved: "<green>已把当前身上装备保存为套装 <white>{key}</white>。"
   kit-deleted: "<green>已删除套装 <white>{key}</white>。"
