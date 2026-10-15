@@ -532,8 +532,12 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     plugin.messages().send(sender, "war-not-in-war");
                     return;
                 }
-                plugin.war().forceEnd(w.id());
-                plugin.messages().send(sender, "admin-forceend", "war", w.id());
+                boolean ended = plugin.war().forceEnd(w.id());
+                if (ended) {
+                    plugin.messages().send(sender, "admin-forceend", "war", w.id());
+                } else {
+                    plugin.messages().send(sender, "admin-war-not-hosted", "host", w.hostServer());
+                }
             }
             case "score" -> {
                 if (!require(sender, args, 5)) {

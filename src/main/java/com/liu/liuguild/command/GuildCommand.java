@@ -865,38 +865,44 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         }
         switch (action) {
             case "queue" -> {
-                if (g != null) {
-                    String modeKey = args.length >= 3 ? args[2]
-                            : (plugin.war().queuedMode(g.id()) != null ? plugin.war().queuedMode(g.id()) : plugin.settings().war.defaultMode);
-                    plugin.war().queue(player, g, modeKey);
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    break;
                 }
+                // 不复用跨服队列里的旧模式（那是阻塞 Redis 调用，且下面 queue() 会拒绝重复入队）。
+                String modeKey = args.length >= 3 ? args[2] : plugin.settings().war.defaultMode;
+                plugin.war().queue(player, g, modeKey);
             }
             case "leave" -> {
-                if (g != null) {
-                    plugin.war().leaveQueue(player, g);
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    break;
                 }
+                plugin.war().leaveQueue(player, g);
             }
             case "join" -> plugin.war().join(player);
             case "spectate" -> plugin.war().spectate(player);
             case "history" -> {
-                if (g != null) {
-                    plugin.war().historyAsync(g.id(), 10, list -> {
-                        if (list.isEmpty()) {
-                            plugin.messages().send(player, "war-history-empty");
-                            return;
-                        }
-                        plugin.messages().sendRaw(player, "war-history-header");
-                        for (GuildWar w : list) {
-                            boolean home = w.guildA().equals(g.id());
-                            plugin.messages().sendRaw(player, "war-history-line",
-                                    "enemy", home ? w.nameB() : w.nameA(),
-                                    "self", home ? w.scoreA() : w.scoreB(),
-                                    "opp", home ? w.scoreB() : w.scoreA(),
-                                    "result", w.winner() == null || w.winner().isBlank() ? "平局"
-                                            : (w.winner().equals(g.id()) ? "胜利" : "失败"));
-                        }
-                    });
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    break;
                 }
+                plugin.war().historyAsync(g.id(), 10, list -> {
+                    if (list.isEmpty()) {
+                        plugin.messages().send(player, "war-history-empty");
+                        return;
+                    }
+                    plugin.messages().sendRaw(player, "war-history-header");
+                    for (GuildWar w : list) {
+                        boolean home = w.guildA().equals(g.id());
+                        plugin.messages().sendRaw(player, "war-history-line",
+                                "enemy", home ? w.nameB() : w.nameA(),
+                                "self", home ? w.scoreA() : w.scoreB(),
+                                "opp", home ? w.scoreB() : w.scoreA(),
+                                "result", w.winner() == null || w.winner().isBlank() ? "平局"
+                                        : (w.winner().equals(g.id()) ? "胜利" : "失败"));
+                    }
+                });
             }
             default -> {
                 GuildWar w = g == null ? null : plugin.war().warOf(g.id());

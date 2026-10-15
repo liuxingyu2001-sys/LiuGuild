@@ -455,6 +455,10 @@ public final class WarManager implements GuildModule {
             return;
         }
         WarMode mode = mode(modeKey);
+        if (modeKey != null && !modeKey.isBlank() && !conf().modes.containsKey(modeKey.toLowerCase(java.util.Locale.ROOT))) {
+            plugin.messages().send(player, "war-mode-unknown", "mode", modeKey);
+            return;
+        }
         if (!conf().enabled) {
             plugin.messages().send(player, "war-disabled");
             return;
@@ -1752,6 +1756,9 @@ public final class WarManager implements GuildModule {
             return "war-in-progress";
         }
         WarMode mode = mode(modeKey);
+        if (modeKey != null && !modeKey.isBlank() && !conf().modes.containsKey(modeKey.toLowerCase(java.util.Locale.ROOT))) {
+            return "war-mode-unknown";
+        }
         if (!mode.enabled) {
             return "war-mode-disabled";
         }
