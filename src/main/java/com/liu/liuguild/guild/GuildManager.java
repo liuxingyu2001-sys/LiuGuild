@@ -694,6 +694,29 @@ public final class GuildManager {
         plugin.messages().send(player, "deny-success", "guild", g == null ? guildName : g.name());
     }
 
+    /** 玩家当前待处理的入会邀请（一玩家最多一条，供 GUI 展示）。 */
+    public record PendingInvite(String guildId, String guildName, long expiresAt) { }
+
+    /**
+     * 列出玩家当前仍有效的入会邀请。
+     *
+     * <p>邀请只存于内存且按玩家去重，这里是 GUI 唯一可读取的入口，
+     * 避免玩家只能对着聊天里的 {@code /guild accept <工会>} 手动输入。</p>
+     */
+    public List<PendingInvite> pendingInvites(UUID uuid) {
+        List<PendingInvite> out = new ArrayList<>();
+        if (uuid == null) {
+            return out;
+        }
+        Invite inv = invites.get(uuid);
+        if (inv == null || inv.expiresAt <= System.currentTimeMillis()) {
+            return out;
+        }
+        Guild g = guilds.get(inv.guildId);
+        out.add(new PendingInvite(inv.guildId, g == null ? inv.guildId : g.name(), inv.expiresAt));
+        return out;
+    }
+
     // =====================================================================
     // 退出 / 踢人 / 职位
     // =====================================================================

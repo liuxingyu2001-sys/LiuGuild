@@ -131,8 +131,8 @@ public final class GuildSettings {
     // ---- 工会商店 ----
     /** 是否启用工会商店。 */
     public boolean shopEnabled = true;
-    /** 每个工会最多上架多少条。 */
-    public int shopMaxListings = 45;
+    /** 每个工会最多上架多少条（各工会单独计算）。 */
+    public int shopMaxListings = 10;
     /** 单条上架最多多少件（防止一条 listing 塞几万件）。 */
     public int shopMaxStackPerListing = 2304;
     /** 单次购买上限。 */

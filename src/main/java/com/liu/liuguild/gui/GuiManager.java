@@ -133,6 +133,9 @@ public final class GuiManager implements GuildModule, Listener {
         Holder holder = new Holder("main", g.id(), 0);
         Inventory inv = create(holder, def, ph, player);
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
+            if (!buttonVisible(e.getKey())) {
+                continue;
+            }
             ButtonDef b = e.getValue();
             ItemStack item = "info".equals(e.getKey())
                     ? GuiUtil.guildIcon(plugin, player, g, b.fallback())
@@ -151,6 +154,23 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
         }
         player.openInventory(inv);
+    }
+
+    /**
+     * 主菜单按钮是否应展示：依赖的可选功能缺失时直接隐藏，避免出现点了只弹“不可用”的死按钮。
+     */
+    public boolean buttonVisible(String buttonId) {
+        if (buttonId == null) {
+            return true;
+        }
+        return switch (buttonId) {
+            case "home", "homes" -> plugin.guildHome() != null && plugin.guildHome().available();
+            case "residences" -> plugin.residence() != null && plugin.residence().available()
+                    && plugin.settings().guild.residenceEnabled;
+            case "chat" -> plugin.guildChat() != null && plugin.guildChat().available();
+            case "warehouse_manage" -> plugin.warehouse() != null;
+            default -> true;
+        };
     }
 
     public void openMembers(Player player, Guild g, int page) {
@@ -186,6 +206,10 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(slot, "member:" + m.uuid());
         }
         addBack(inv, holder, def, ph, player, "back:main", page, "members", members.size(), perPage);
+        // 邀请入口：权限与冷却由 GuildManager.invite 统一校验，这里只负责收集名字。
+        inv.setItem(51, GuiUtil.build(player, "NAME_TAG", "NAME_TAG", "<green>邀请玩家",
+                List.of("<gray>输入在线玩家名字发出入会邀请"), Map.of(), null));
+        holder.actions.put(51, "invite_player");
         player.openInventory(inv);
     }
 
@@ -197,9 +221,13 @@ public final class GuiManager implements GuildModule, Listener {
             return;
         }
         Map<String, String> ph = placeholders(null);
+        ph.put("invite_count", String.valueOf(plugin.guilds().pendingInvites(player.getUniqueId()).size()));
         Holder holder = new Holder("noguild", "", 0);
         Inventory inv = create(holder, def, ph, player);
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
+            if (!buttonVisible(e.getKey())) {
+                continue;
+            }
             ButtonDef b = e.getValue();
             inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
             holder.actions.put(clamp(b.slot), actionId(e.getKey()));
@@ -595,6 +623,227 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     // =====================================================================
+    // 工会驻地（HuskHomes）
+    // =====================================================================
+
+    /** 打开工会驻地菜单：逐槽传送 / 重设 / 删除（多槽位完整暴露，而非只能操作 1 号）。 */
+    public void openHomes(Player player, Guild g) {
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        var home = plugin.guildHome();
+        if (home == null || !home.available()) {
+            plugin.messages().send(player, "home-unavailable");
+            return;
+        }
+        int slots = home.maxSlots(g);
+        boolean manage = home.manage(player, g);
+        // loadHomes 是阻塞 IO，放异步读取后再回主线程渲染。
+        plugin.async(() -> {
+            java.util.List<com.liu.liuguild.hook.GuildHomeHook.HomeSlot> set = home.homeSlots(g);
+            plugin.sync(() -> {
+                if (!player.isOnline()) {
+                    return;
+                }
+                Guild current = plugin.guilds().guildOf(player.getUniqueId());
+                if (current == null || !current.id().equals(g.id())) {
+                    return;
+                }
+                renderHomes(player, current, slots, manage, set);
+            });
+        });
+    }
+
+    private void renderHomes(Player player, Guild g, int slots, boolean manage,
+                             java.util.List<com.liu.liuguild.hook.GuildHomeHook.HomeSlot> set) {
+        Holder holder = new Holder("homes", g.id(), 0);
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("guild", g.name());
+        ph.put("slots", String.valueOf(slots));
+        Inventory inv = simpleInventory(player, holder, 6,
+                "<gold>工会驻地 <dark_gray>· {guild} <gray>({slots} 槽)", ph);
+        Map<Integer, com.liu.liuguild.hook.GuildHomeHook.HomeSlot> bySlot = new LinkedHashMap<>();
+        for (var s : set) {
+            bySlot.put(s.slot(), s);
+        }
+        int slot = 0;
+        for (int i = 1; i <= slots && slot < 45; i++, slot++) {
+            var s = bySlot.get(i);
+            List<String> lore = new ArrayList<>();
+            if (s == null) {
+                lore.add("<gray>状态：<dark_gray>未设置");
+                if (manage) {
+                    lore.add("<yellow>左键把当前位置设为该驻地");
+                }
+                inv.setItem(slot, GuiUtil.build(player, "LIGHT_GRAY_DYE", "LIGHT_GRAY_DYE",
+                        "<gray>驻地 #" + i, lore, Map.of(), null));
+                if (manage) {
+                    holder.actions.put(slot, "home_set:" + i);
+                }
+            } else {
+                lore.add("<gray>状态：<green>已设置");
+                lore.add("<gray>服务器：<white>" + (s.server() == null || s.server().isBlank() ? "-" : s.server()));
+                lore.add("<gray>世界：<white>" + (s.world() == null || s.world().isBlank() ? "-" : s.world()));
+                lore.add(String.format("<gray>坐标：<white>%.1f, %.1f, %.1f", s.x(), s.y(), s.z()));
+                lore.add("");
+                lore.add("<yellow>左键传送");
+                if (manage) {
+                    lore.add("<yellow>右键重设为当前位置");
+                    lore.add("<red>Shift+右键删除");
+                }
+                inv.setItem(slot, GuiUtil.build(player, "COMPASS", "COMPASS",
+                        "<white>驻地 #" + i, lore, Map.of(), null));
+                holder.actions.put(slot, "home_tp:" + i);
+            }
+        }
+        player.openInventory(inv);
+    }
+
+    /** 驻地设为位置 / 删除后需要等异步写库回写，再延迟刷新菜单。 */
+    private void reopenHomesLater(Player player, Guild g) {
+        plugin.syncDelayed(() -> {
+            if (player.isOnline() && plugin.guilds().guildOf(player.getUniqueId()) != null) {
+                openHomes(player, g);
+            }
+        }, 20L);
+    }
+
+    // =====================================================================
+    // 排行榜 / 领地共享 / 入会邀请
+    // =====================================================================
+
+    /** 工会排行榜：主界面原本没有入口，只能靠 /guild top 指令。 */
+    public void openTop(Player player, String category) {
+        String column = switch (category == null ? "points" : category.toLowerCase(java.util.Locale.ROOT)) {
+            case "bank" -> "bank";
+            case "level" -> "level";
+            case "wins" -> "wins";
+            case "losses" -> "losses";
+            case "members" -> "members";
+            default -> "points";
+        };
+        Holder holder = new Holder("top", "", 0);
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("category", column);
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>工会排行榜 <dark_gray>· {category}", ph);
+        List<Guild> list = plugin.guilds().top(column, 10);
+        int slot = 10;
+        int rank = 1;
+        for (Guild g : list) {
+            String value = switch (column) {
+                case "bank" -> plugin.economy().format(g.bank());
+                case "level" -> String.valueOf(g.level());
+                case "wins" -> String.valueOf(g.wins());
+                case "losses" -> String.valueOf(g.losses());
+                case "members" -> String.valueOf(g.memberCount());
+                default -> String.valueOf(g.points());
+            };
+            inv.setItem(slot, GuiUtil.build(player, "CE:liuguild:emblem_default", "SHIELD",
+                    "<white>#" + rank + " " + g.name() + " <dark_gray>[" + g.tag() + "]",
+                    List.of("<gray>等级：<white>" + g.level(),
+                            "<gray>成员：<white>" + g.memberCount(),
+                            "<gray>资金：<white>" + g.points(),
+                            "<gray>排行值：<white>" + value,
+                            "",
+                            "<yellow>左键查看详情"),
+                    Map.of(), null));
+            holder.actions.put(slot, "info_view:" + g.id());
+            rank++;
+            slot++;
+            if (rank > 10) {
+                break;
+            }
+        }
+        String[] categories = {"points", "bank", "level", "members", "wins", "losses"};
+        int[] catSlots = {45, 46, 47, 48, 49, 50};
+        for (int i = 0; i < categories.length; i++) {
+            String c = categories[i];
+            boolean active = c.equals(column);
+            String material = active ? "LIME_DYE" : "GRAY_DYE";
+            inv.setItem(catSlots[i], GuiUtil.build(player, material, material,
+                    (active ? "<green>" : "<gray>") + c,
+                    List.of("<gray>点击切换该排行"), Map.of(), null));
+            holder.actions.put(catSlots[i], "top_cat:" + c);
+        }
+        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回主页", List.of(), Map.of(), null));
+        holder.actions.put(53, "back:main");
+        player.openInventory(inv);
+    }
+
+    /** 领地共享：把 Residence 名下领地共享给全工会 / 取消共享。 */
+    public void openResidences(Player player, Guild g) {
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        var res = plugin.residence();
+        if (res == null || !res.available()) {
+            plugin.messages().send(player, "res-unavailable");
+            return;
+        }
+        if (!plugin.settings().guild.residenceEnabled) {
+            plugin.messages().send(player, "res-disabled");
+            return;
+        }
+        List<String> owned = res.residencesOf(player);
+        Holder holder = new Holder("residences", g.id(), 0);
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("guild", g.name());
+        Inventory inv = simpleInventory(player, holder, 6, "<gold>领地共享 <dark_gray>· {guild}", ph);
+        if (owned.isEmpty()) {
+            inv.setItem(22, GuiUtil.build(player, "BARRIER", "BARRIER",
+                    "<gray>你名下还没有任何领地",
+                    List.of("<gray>请先在 Residence 里创建领地"), Map.of(), null));
+        }
+        int slot = 0;
+        for (String name : owned) {
+            if (slot >= 45) {
+                break;
+            }
+            Object claim = res.residence(name);
+            boolean owner = claim != null && res.isOwner(claim, player);
+            List<String> lore = new ArrayList<>();
+            lore.add("<gray>领地：<white>" + name);
+            if (!owner) {
+                lore.add("<red>你不是该领地主人，无法共享");
+            } else {
+                lore.add("");
+                lore.add("<yellow>左键共享给全工会");
+                lore.add("<yellow>右键取消共享");
+            }
+            String material = owner ? "GRASS_BLOCK" : "DIRT";
+            inv.setItem(slot, GuiUtil.build(player, material, material, "<white>" + name, lore, Map.of(), null));
+            holder.actions.put(slot, "res_claim:" + name);
+            slot++;
+        }
+        player.openInventory(inv);
+    }
+
+    /** 待处理入会邀请：无工会玩家过去只能手输 /guild accept <工会>。 */
+    public void openInvites(Player player) {
+        java.util.List<com.liu.liuguild.guild.GuildManager.PendingInvite> invites =
+                plugin.guilds().pendingInvites(player.getUniqueId());
+        if (invites.isEmpty()) {
+            plugin.messages().send(player, "invite-none");
+            return;
+        }
+        Holder holder = new Holder("invites", "", 0);
+        Inventory inv = simpleInventory(player, holder, 3, "<gold>入会邀请", Map.of());
+        int slot = 10;
+        for (var inv0 : invites) {
+            long left = Math.max(0, inv0.expiresAt() - System.currentTimeMillis()) / 1000L;
+            inv.setItem(slot, GuiUtil.build(player, "PAPER", "PAPER", "<white>" + inv0.guildName(),
+                    List.of("<gray>剩余时间：<white>" + left + " 秒", "",
+                            "<green>左键接受", "<red>右键拒绝"),
+                    Map.of(), null));
+            holder.actions.put(slot, "invite_pick:" + inv0.guildId());
+            slot++;
+        }
+        player.openInventory(inv);
+    }
+
+    // =====================================================================
     // 工会商店
     // =====================================================================
 
@@ -615,37 +864,17 @@ public final class GuiManager implements GuildModule, Listener {
             plugin.messages().send(player, "shop-disabled");
             return;
         }
-        openShopPage(player, g, plugin.shop().listingsOf(g.id()), "shop", true);
+        openShopPage(player, g, plugin.shop().listingsOf(g.id()), 0);
     }
 
-    /** 全服工会商店：浏览所有工会的上架（只能买，不能管）。 */
-    public void openShopAll(Player player) {
-        if (plugin.shop() == null) {
-            plugin.messages().send(player, "shop-disabled");
-            return;
-        }
-        if (!plugin.settings().guild.shopEnabled) {
-            plugin.messages().send(player, "shop-disabled");
-            return;
-        }
-        openShopPage(player, plugin.guilds().guildOf(player.getUniqueId()),
-                plugin.shop().all(), "shop_all", false);
-    }
-
-    private void openShopPage(Player player, Guild own, List<ShopListing> listings,
-                              String holderId, boolean ownShop) {
-        openShopPage(player, own, listings, holderId, ownShop, 0);
-    }
-
-    private void openShopPage(Player player, Guild own, List<ShopListing> listings,
-                              String holderId, boolean ownShop, int page) {
+    private void openShopPage(Player player, Guild own, List<ShopListing> listings, int page) {
         int maxPage = Math.max(0, (listings.size() - 1) / 28);
         page = Math.max(0, Math.min(page, maxPage));
-        Holder holder = new Holder(holderId, own == null ? "" : own.id(), page);
+        Holder holder = new Holder("shop", own == null ? "" : own.id(), page);
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("guild", own == null ? "" : own.name());
         Inventory inv = simpleInventory(player, holder, 6,
-                ownShop ? "<gold>工会商店 <dark_gray>· {guild}" : "<gold>全服工会商店", ph);
+                "<gold>工会商店 <dark_gray>· {guild}", ph);
 
         if (listings.isEmpty()) {
             inv.setItem(22, GuiUtil.build(player, "CHEST", "CHEST",
@@ -660,17 +889,13 @@ public final class GuiManager implements GuildModule, Listener {
                 continue;
             }
             Guild owner = plugin.guilds().guild(l.guildId());
-            boolean mine = own != null && l.guildId().equals(own.id());
             List<String> lore = new ArrayList<>();
             lore.add("<gray>售价：<white>" + plugin.economy().format(l.price()) + " <gray>/件");
             lore.add("<gray>库存：<white>" + l.stock() + " <gray>件");
-            if (!ownShop && owner != null) {
-                lore.add("<gray>出售方：<white>" + owner.name());
-            }
             lore.add("<gray>上架者：<white>" + (l.sellerName() == null ? "?" : l.sellerName()));
             lore.add("");
             lore.add("<yellow>左键购买");
-            if (mine && ownShop && plugin.shop().canManage(own, player)) {
+            if (owner != null && own != null && plugin.shop().canManage(own, player)) {
                 lore.add("<yellow>Shift+左键改价");
                 lore.add("<red>Shift+右键下架");
             }
@@ -681,25 +906,16 @@ public final class GuiManager implements GuildModule, Listener {
         }
 
         // 底排
-        if (ownShop && own != null && plugin.shop().canManage(own, player)) {
+        if (own != null && plugin.shop().canManage(own, player)) {
             inv.setItem(48, GuiUtil.build(player, "EMERALD", "EMERALD", "<green>上架手持物品",
                     List.of("<gray>先把物品拿在主手", "<gray>然后点击这里输入售价"), Map.of(), null));
             holder.actions.put(48, "shop:add");
         }
-        if (ownShop) {
-            inv.setItem(49, GuiUtil.build(player, "ENDER_CHEST", "ENDER_CHEST", "<gold>全服商店",
-                    List.of("<gray>看看其他工会在卖什么"), Map.of(), null));
-            holder.actions.put(49, "shop:all");
-        } else {
-            inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回本会商店",
-                    List.of(), Map.of(), null));
-            holder.actions.put(49, own == null ? "back:main" : "shop:open");
-        }
         inv.setItem(50, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回主页", List.of(), Map.of(), null));
         holder.actions.put(50, "back:main");
         put(inv, holder, 51, player, "PAPER", "<white>第 " + (page + 1) + " / " + (maxPage + 1) + " 页", List.of(), "none");
-        if (page > 0) put(inv, holder, 45, player, "ARROW", "<white>上一页", List.of(), "page_" + holderId + ":" + (page - 1));
-        if (page < maxPage) put(inv, holder, 53, player, "ARROW", "<white>下一页", List.of(), "page_" + holderId + ":" + (page + 1));
+        if (page > 0) put(inv, holder, 45, player, "ARROW", "<white>上一页", List.of(), "page_shop:" + (page - 1));
+        if (page < maxPage) put(inv, holder, 53, player, "ARROW", "<white>下一页", List.of(), "page_shop:" + (page + 1));
         player.openInventory(inv);
     }
 
@@ -752,11 +968,7 @@ public final class GuiManager implements GuildModule, Listener {
         }
         // 左键购买：输入数量
         final Guild shopGuild = g;
-        final boolean ownShop = g != null && g.id().equals(l.guildId());
-        Runnable refresh = () -> {
-            if (ownShop) openShop(player, shopGuild);
-            else openShopAll(player);
-        };
+        Runnable refresh = () -> openShop(player, shopGuild);
         requestText(player, "shop-prompt-amount", amtStr -> {
             int amount = NumberUtil.toInt(amtStr.trim(), -1);
             if (amount <= 0) {
@@ -863,19 +1075,20 @@ public final class GuiManager implements GuildModule, Listener {
                 }
                 plugin.warehouse().open(player, g);
             }
-            case "home" -> {
-                if (g == null) {
-                    plugin.messages().send(player, "not-in-guild");
-                    return;
+            case "home" -> openHomes(player, require(g, player));
+            case "top:open" -> openTop(player, "points");
+            case "res:open" -> openResidences(player, g);
+            case "invites:open" -> openInvites(player);
+            case "warehouse:manage" -> {
+                if (g != null && plugin.warehouse() != null) {
+                    plugin.warehouse().openMenu(player, g);
                 }
-                player.closeInventory();
-                if (plugin.guildHome() == null) {
-                    plugin.messages().send(player, "home-unavailable");
-                    return;
+            }
+            case "chat:toggle" -> {
+                if (g != null && plugin.guildChat() != null) {
+                    plugin.guildChat().chat(player, "");
+                    openMain(player);
                 }
-                plugin.guildHome().command(player, clickRight
-                        ? new String[]{"home", "set"}
-                        : new String[]{"home"});
             }
             case "leave" -> {
                 if (g != null) {
@@ -1210,21 +1423,91 @@ public final class GuiManager implements GuildModule, Listener {
                         openShop(player, shopGuild);
                     });
                 }
-                case "all" -> openShopAll(player);
                 case "open" -> openShop(player, g);
                 default -> {
                 }
             }
+        } else if (action.startsWith("home_tp:")) {
+            int slot = NumberUtil.toInt(action.substring("home_tp:".length()), -1);
+            var home = plugin.guildHome();
+            if (g != null && home != null && home.available() && slot >= 1) {
+                if (isShiftClick() && isRightClick()) {
+                    if (home.manage(player, g)) {
+                        home.deleteSlot(player, slot);
+                        reopenHomesLater(player, g);
+                    }
+                } else if (isRightClick()) {
+                    if (home.manage(player, g)) {
+                        home.setSlot(player, slot);
+                        reopenHomesLater(player, g);
+                    }
+                } else {
+                    home.openSlot(player, slot);
+                    player.closeInventory();
+                }
+            }
+        } else if (action.startsWith("home_set:")) {
+            int slot = NumberUtil.toInt(action.substring("home_set:".length()), -1);
+            var home = plugin.guildHome();
+            if (g != null && home != null && home.available() && slot >= 1 && home.manage(player, g)) {
+                home.setSlot(player, slot);
+                reopenHomesLater(player, g);
+            }
+        } else if (action.startsWith("top_cat:")) {
+            openTop(player, action.substring("top_cat:".length()));
+        } else if (action.startsWith("res_claim:")) {
+            String name = action.substring("res_claim:".length());
+            var res = plugin.residence();
+            if (g != null && res != null && res.available()) {
+                Object claim = res.residence(name);
+                if (claim == null) {
+                    plugin.messages().send(player, "res-not-found", "name", name);
+                } else if (!res.isOwner(claim, player)) {
+                    plugin.messages().send(player, "res-not-owner", "name", name);
+                } else if (isRightClick()) {
+                    int n = res.revoke(claim, g);
+                    plugin.messages().send(player, "res-unshared", "name", name, "count", n, "guild", g.name());
+                } else {
+                    int n = res.share(claim, g);
+                    if (n <= 0) {
+                        plugin.messages().send(player, "res-failed");
+                    } else {
+                        plugin.messages().send(player, "res-shared", "name", name, "count", n, "guild", g.name());
+                    }
+                }
+                openResidences(player, g);
+            }
+        } else if (action.startsWith("invite_pick:")) {
+            Guild target = plugin.guilds().guild(action.substring("invite_pick:".length()));
+            if (target == null) {
+                plugin.messages().send(player, "invite-none");
+                return;
+            }
+            if (isRightClick()) {
+                plugin.guilds().deny(player, target.name());
+            } else {
+                plugin.guilds().accept(player, target.name());
+            }
+            player.closeInventory();
+        } else if (action.equals("invite_player")) {
+            if (g == null) {
+                return;
+            }
+            player.closeInventory();
+            requestText(player, "invite-prompt", text -> {
+                String name = text == null ? "" : text.trim();
+                if (!name.isEmpty()) {
+                    plugin.guilds().invite(player, g, name);
+                }
+                openMembers(player, g, 0);
+            });
         } else if (action.startsWith("war_queue:")) {
             if (g != null) {
                 plugin.war().queue(player, g, action.substring("war_queue:".length()));
                 openWar(player, g);
             }
-        } else if (action.startsWith("page_shop_all:")) {
-            openShopPage(player, g, plugin.shop().all(), "shop_all", false,
-                    Integer.parseInt(action.substring("page_shop_all:".length())));
         } else if (action.startsWith("page_shop:")) {
-            if (g != null) openShopPage(player, g, plugin.shop().listingsOf(g.id()), "shop", true,
+            if (g != null) openShopPage(player, g, plugin.shop().listingsOf(g.id()),
                     Integer.parseInt(action.substring("page_shop:".length())));
         } else if (action.startsWith("page_members:")) {
             openMembers(player, g, Integer.parseInt(action.substring("page_members:".length())));
@@ -2313,6 +2596,8 @@ public final class GuiManager implements GuildModule, Listener {
             cost.append(checkinGuildCost).append(" 工会资金");
         }
         ph.put("checkin_cost", cost.length() == 0 ? "免费" : cost.toString());
+        ph.put("chat_state", plugin.guildChat() == null || !plugin.guildChat().available() ? "不可用"
+                : (plugin.guildChat().inGuildChannel(player) ? "已开启" : "已关闭"));
         return ph;
     }
 
@@ -2345,6 +2630,11 @@ public final class GuiManager implements GuildModule, Listener {
             case "info_back" -> "info:back";
             case "leave" -> "leave";
             case "warehouse" -> "guild:warehouse";
+            case "warehouse_manage" -> "warehouse:manage";
+            case "top" -> "top:open";
+            case "residences" -> "res:open";
+            case "invites" -> "invites:open";
+            case "chat" -> "chat:toggle";
             case "titles" -> "title:open";
             case "shop" -> "shop:open";
             case "toggle_open" -> "set:open";

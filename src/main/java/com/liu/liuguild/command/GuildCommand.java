@@ -69,6 +69,14 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             case "promote" -> promote(player, args, true);
             case "demote" -> promote(player, args, false);
             case "transfer" -> transfer(player, args);
+            case "members" -> {
+                Guild g = plugin.guilds().guildOf(player.getUniqueId());
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                } else {
+                    plugin.gui().openMembers(player, g, 0);
+                }
+            }
             case "seticon", "icon" -> setIcon(player, args);
             case "set" -> set(player, args);
             case "bank" -> bank(player, args);
@@ -665,7 +673,6 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         String action = args.length >= 2 ? args[1].toLowerCase(java.util.Locale.ROOT) : "gui";
         switch (action) {
             case "gui", "menu" -> plugin.gui().openShop(player, plugin.guilds().guildOf(player.getUniqueId()));
-            case "all", "global", "quanfu" -> plugin.gui().openShopAll(player);
             case "list" -> shopList(player);
             case "add", "sell", "shangjia" -> shopAdd(player, args);
             case "remove", "del", "xiajia" -> shopRemove(player, args);

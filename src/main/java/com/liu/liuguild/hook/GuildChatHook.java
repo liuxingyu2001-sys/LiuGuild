@@ -244,6 +244,28 @@ public final class GuildChatHook implements Listener {
         };
     }
 
+    /** 玩家当前是否处于本工会频道（供 GUI 展示开关状态）。 */
+    public boolean inGuildChannel(Player player) {
+        if (!available() || player == null) {
+            return false;
+        }
+        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+        if (guild == null) {
+            return false;
+        }
+        String channel = id(guild);
+        if (!owned.contains(channel)) {
+            return false;
+        }
+        try {
+            Object current = call("current", new Class<?>[]{UUID.class}, player.getUniqueId());
+            String selected = (String) channelType.getMethod("id").invoke(current);
+            return channel.equals(selected);
+        } catch (ReflectiveOperationException e) {
+            return false;
+        }
+    }
+
     public void forget(Player player) {
         PermissionAttachment attachment = attachments.remove(player.getUniqueId());
         if (attachment != null) player.removeAttachment(attachment);

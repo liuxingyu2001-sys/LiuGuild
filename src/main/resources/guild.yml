@@ -107,10 +107,11 @@ guild:
     # 谁能创建/删除头衔（MEMBER / OFFICER / LEADER）
     manage-rank: OFFICER
   # 工会商店：仅出售库存商品，Vault 收入进工会金币银行，不提供收购
+  # 商店严格按工会隔离：每个工会的商店物品独立，工会之间互不可见/不可购买
   shop:
     enabled: true
-    # 每个工会最多上架几条
-    max-listings: 45
+    # 每个工会最多上架几条（各工会单独计算，默认 10）
+    max-listings: 10
     # 单条上架最多多少件
     max-stack-per-listing: 2304
     # 单次购买上限

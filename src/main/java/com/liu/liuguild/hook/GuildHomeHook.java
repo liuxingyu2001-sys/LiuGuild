@@ -66,6 +66,70 @@ public final class GuildHomeHook {
     }
 
     // =====================================================================
+    // GUI 入口
+    // =====================================================================
+
+    /** 驻地槽位快照，供 GUI 展示（带坐标/服务器）。 */
+    public record HomeSlot(int slot, String server, String world, double x, double y, double z) { }
+
+    /** 当前工会等级可用槽位数。 */
+    public int maxSlots(Guild guild) {
+        return guild == null ? 0 : plugin.settings().guild.homeSlots(guild.level());
+    }
+
+    /** 玩家是否有权设置/删除驻地（会长或拥有权限的官员）。 */
+    public boolean manage(Player player, Guild guild) {
+        return canManage(player, guild);
+    }
+
+    /**
+     * 读取已设置的驻地槽位（阻塞 IO，调用方必须在异步线程执行）。
+     *
+     * <p>解析失败的槽位会被跳过，而不是让整个驻地菜单打不开。</p>
+     */
+    public List<HomeSlot> homeSlots(Guild guild) {
+        List<HomeSlot> out = new ArrayList<>();
+        if (guild == null) {
+            return out;
+        }
+        Map<Integer, String> raw;
+        try {
+            raw = plugin.repo().loadHomes(guild.id());
+        } catch (Exception e) {
+            plugin.getLogger().warning("读取工会驻地失败: " + e.getMessage());
+            return out;
+        }
+        for (Map.Entry<Integer, String> e : raw.entrySet()) {
+            try {
+                Home home = gson.fromJson(e.getValue(), Home.class);
+                if (home != null) {
+                    out.add(new HomeSlot(e.getKey(), home.server(), home.world(),
+                            home.x(), home.y(), home.z()));
+                }
+            } catch (RuntimeException ignored) {
+                // 单个槽位损坏时跳过，其余槽位仍可正常展示
+            }
+        }
+        out.sort(java.util.Comparator.comparingInt(HomeSlot::slot));
+        return out;
+    }
+
+    /** GUI：传送到指定驻地槽位。 */
+    public void openSlot(Player player, int slot) {
+        teleport(player, String.valueOf(slot));
+    }
+
+    /** GUI：把当前位置设为指定驻地槽位。 */
+    public void setSlot(Player player, int slot) {
+        setHome(player, String.valueOf(slot));
+    }
+
+    /** GUI：删除指定驻地槽位。 */
+    public void deleteSlot(Player player, int slot) {
+        deleteHome(player, String.valueOf(slot));
+    }
+
+    // =====================================================================
     // 命令入口
     // =====================================================================
 

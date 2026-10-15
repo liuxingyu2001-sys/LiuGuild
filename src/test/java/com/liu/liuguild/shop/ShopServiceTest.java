@@ -94,4 +94,13 @@ class ShopServiceTest {
         long net = ShopService.taxOf(1, 5);
         assertTrue(net == 0 || net == 1, "1 元抽 5% 结果应为 0 或 1，实际=" + net);
     }
+
+    @Test
+    void shopIsVisibleOnlyWithinTheSameGuild() {
+        // 工会隔离：同会可见，跨会 / 空值一律不可见
+        assertTrue(ShopService.shopVisibleTo("guild-a", "guild-a"));
+        assertTrue(!ShopService.shopVisibleTo("guild-a", "guild-b"));
+        assertTrue(!ShopService.shopVisibleTo(null, "guild-a"));
+        assertTrue(!ShopService.shopVisibleTo("guild-a", null));
+    }
 }

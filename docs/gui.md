@@ -73,14 +73,25 @@ gui:
 
 | key | 说明 | 点击操作 |
 |---|---|---|
-| `main` | 工会主菜单（已入会） | 成员 / 工会战 / 银行 / 签到 / 设置 / 列表 / 退出 |
-| `noguild` | **未入会引导菜单**（`/guild gui` 自动进入） | 创建工会 / 浏览列表 / 如何加入 / 关闭 |
-| `members` | 成员列表（分页） | 左键晋升 / 右键降级 / Shift+左键踢出 |
+| `main` | 工会主菜单（已入会） | 成员 / 工会战 / 银行 / 签到 / 设置 / 列表 / 排行榜 / 驻地 / 领地 / 仓库 / 商店 / 头衔 / 资金 / 关闭 |
+| `noguild` | **未入会引导菜单**（`/guild gui` 自动进入） | 创建工会 / 浏览列表 / 待处理邀请 / 如何加入 / 关闭 |
+| `members` | 成员列表（分页） | 左键晋升 / 右键降级 / Shift+左键转让 / Shift+右键踢出 / 底部邀请玩家 |
 | `list` | 工会列表（分页，未入会时含“创建工会”） | 左键申请加入 |
 | `war` | 工会战（动态列出各模式） | 点击某模式参与匹配；含退出/战况/历史/返回 |
 | `settings` | 工会设置 | 图标 / 加入方式 / 公告 / 简介 |
 | `icons` | 图标选择（分页，按权限过滤） | 点击使用 |
 | `admin` | 管理面板 | 状态 / 模式 / 场地 / 装备 / 重载 |
+
+### 代码动态构建的子菜单
+
+以下菜单不写在 `gui.yml` 里，由代码按数据动态生成（与工会战 / 商店同风格）：
+
+| 菜单 | 入口 | 操作 |
+|---|---|---|
+| 工会驻地 `homes` | 主菜单「工会驻地」/ `/guild home` | 逐槽位：左键传送 / 右键重设 / Shift+右键删除；多槽位完整暴露 |
+| 排行榜 `top` | 主菜单「工会排行榜」 | 切换 points / bank / level / members / wins / losses，条目左键看详情 |
+| 领地共享 `residences` | 主菜单「领地共享」（需 Residence） | 左键共享自有领地给全工会，右键取消共享 |
+| 入会邀请 `invites` | 无工会菜单「待处理邀请」 | 左键接受，右键拒绝 |
 
 ## 主菜单点击操作表
 
@@ -89,6 +100,11 @@ gui:
 | `info` | 仅展示（使用工会自定义图标） |
 | `members` | 打开成员菜单 |
 | `war` | 打开工会战菜单 |
+| `home` | 打开工会驻地菜单（多槽位传送 / 设置 / 删除） |
+| `top` | 打开工会排行榜 |
+| `residences` | 打开领地共享菜单（需 Residence，未安装时自动隐藏） |
+| `warehouse_manage` | 打开仓库管理菜单（购买时长 / 升级容量） |
+| `chat` | 切换自己的工会频道（需 LiuChat，未安装时自动隐藏） |
 | `bank` | 左键存入 / 右键取出（聊天栏输入金额） |
 | `checkin` | 每日签到（连续奖励） |
 | `settings` | 打开设置菜单 |
@@ -114,7 +130,7 @@ gui:
 `{mode_fair}` `{mode_health}` `{mode_arena}` `{mode_schedule}` `{mode_duration}`。
 
 其它：`{count}` `{state}` `{enemy}` `{score}` `{enemy_score}` `{icon_name}` `{icon_cost}`
-`{history_count}`；签到：`{checkin_streak}` `{checkin_state}`；
+`{history_count}` `{home_slots}` `{chat_state}` `{invite_count}`；签到：`{checkin_streak}` `{checkin_state}`；
 管理面板：`{server}` `{storage}` `{cross}` `{guild_count}` `{queue}` `{live_wars}`。
 
 ## 扩展
@@ -128,7 +144,8 @@ gui:
 | 入口 | 菜单 | 操作 |
 |---|---|---|
 | 主菜单「工会仓库」/ `/guild warehouse` | 共享仓库 | 直接存取物品（同一时间仅一人可开） |
+| 主菜单「仓库管理」/ `/guild warehouse info` | 仓库管理 | 购买使用时长 / 升级容量 / 进入仓库 |
 | 主菜单「工会头衔」/ `/guild title` | 头衔面板 | 左键装备/卸下，右键删除，底部创建 |
-| 主菜单「工会商店」/ `/guild shop` | 工会商店 | 左键购买，右键供货，Shift+左键改价，Shift+右键下架 |
+| 主菜单「工会商店」/ `/guild shop` | 工会商店（每会独立） | 左键购买，Shift+左键改价，Shift+右键下架；仅展示本会上架，无跨工会商店 |
 
 > 三个入口都在主菜单第二排（槽位 28 / 29 / 30），与管理类按钮分开，避免误点。

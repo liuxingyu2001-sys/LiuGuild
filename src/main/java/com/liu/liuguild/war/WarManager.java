@@ -139,6 +139,8 @@ public final class WarManager implements GuildModule {
 
     /** 所有服务器共享的「进行中工会战」镜像，用于战况展示。 */
     private final Map<String, GuildWar> observed = new ConcurrentHashMap<>();
+    /** 上次清理过期跨服镜像的时间戳（节流用）。 */
+    private volatile long lastMirrorPruneAt;
     /** 无 Redis 时的本服匹配队列。 */
     private final List<String> localQueue = new CopyOnWriteArrayList<>();
     private final Map<String, Long> localQueuedAt = new ConcurrentHashMap<>();
@@ -207,9 +209,45 @@ public final class WarManager implements GuildModule {
                 20L * interval, 20L * interval);
         tickTask = Bukkit.getScheduler().runTaskTimer(plugin, this::warTick, 20L, 20L);
         seasonTask = Bukkit.getScheduler().runTaskTimer(plugin, this::seasonTick, 40L, 20L);
+        recoverInterruptedWars();
         plugin.getLogger().info("工会战模块已启用（server-mode=" + conf().serverMode
                 + "，承办服=" + (conf().dedicated() ? conf().dedicatedServer : "本服")
                 + "，模式=" + conf().modes.keySet() + "）。");
+    }
+
+    /**
+     * 启动时收尾本服中断的工会战。
+     *
+     * <p>承办服崩溃/重启后，内存里的进行中的工会战与跨服镜像都会丢失，但数据库里仍可能
+     * 留着非终态记录。不处理的话，这些记录会让 {@code /guild war history} 查不到结果（历史只认
+     * ENDED），也会让清理任务一直跳过它们。这里把「承办服就是本服」的中断战斗标记为取消并
+     * 广播终态，让其余子服同步清掉镜像。</p>
+     */
+    private void recoverInterruptedWars() {
+        plugin.async(() -> {
+            try {
+                for (GuildWar w : plugin.repo().loadLiveWars()) {
+                    if (w == null || w.id() == null || !plugin.serverId().equals(w.hostServer())) {
+                        continue;
+                    }
+                    // endedAt 已写入说明已进入/完成结算阶段，按 ENDED 归档（进入历史）；
+                    // 否则是准备/战斗中被打断，按 CANCELLED 处理。
+                    boolean finished = w.endedAt() > 0;
+                    w.state(finished ? WarState.ENDED : WarState.CANCELLED);
+                    if (w.endedAt() <= 0) {
+                        w.endedAt(System.currentTimeMillis());
+                    }
+                    plugin.repo().updateWar(w);
+                    plugin.getLogger().warning("发现中断的工会战 " + w.id() + "（承办服=" + w.hostServer()
+                            + "），已标记为 " + w.state().name() + "。");
+                    if (plugin.bus().isReady()) {
+                        plugin.bus().publishWarState(w.id(), w.state().name(), w.scoreA(), w.scoreB());
+                    }
+                }
+            } catch (Exception e) {
+                plugin.getLogger().warning("工会战崩溃恢复扫描失败: " + e.getMessage());
+            }
+        });
     }
 
     @Override
@@ -224,7 +262,7 @@ public final class WarManager implements GuildModule {
             } catch (Exception e) {
                 plugin.getLogger().warning("取消工会战写库失败: " + e.getMessage());
             }
-            cleanup(war);
+            cleanup(war, false);
         }
     }
 
@@ -262,8 +300,9 @@ public final class WarManager implements GuildModule {
         if (current != null) {
             out.add(current);
         }
+        long now = System.currentTimeMillis();
         for (GuildWar w : observed.values()) {
-            if (w != current && w.state().isLive()) {
+            if (w != current && w.state().isLive() && !isStaleMirror(w, now)) {
                 out.add(w);
             }
         }
@@ -310,12 +349,39 @@ public final class WarManager implements GuildModule {
         if (c != null && c.involves(guildId) && c.state().isLive()) {
             return c;
         }
+        long now = System.currentTimeMillis();
         for (GuildWar w : observed.values()) {
-            if (w.involves(guildId) && w.state().isLive()) {
-                return w;
+            if (!w.involves(guildId)) {
+                continue;
             }
+            // 已是终态或已过期的跨服镜像直接清除，否则本服会一直被误判为「正在工会战中」。
+            if (!w.state().isLive() || isStaleMirror(w, now)) {
+                observed.remove(w.id());
+                continue;
+            }
+            return w;
         }
         return null;
+    }
+
+    /**
+     * 判定跨服镜像是否已过期。
+     *
+     * <p>承办服正常收尾时会广播终态，镜像随即移除；但承办服崩溃、
+     * 消息丢失或 Redis 抖动时镜像会残留，导致本服玩家一直被判定为
+     * 「正在工会战中」而无法匹配。这里按该模式的最长时长加安全余量
+     * 兜底判定，超时即视为无效镜像并清除。</p>
+     */
+    private boolean isStaleMirror(GuildWar war, long now) {
+        return now - war.createdAt() > maxMirrorAgeMillis(war);
+    }
+
+    private long maxMirrorAgeMillis(GuildWar war) {
+        WarMode mode = modeOf(war);
+        int prepare = mode == null ? 0 : Math.max(0, mode.prepareSeconds);
+        int duration = mode == null ? 0 : Math.max(0, mode.durationSeconds);
+        int settle = mode == null ? 0 : Math.max(0, mode.settleSeconds);
+        return WarMath.mirrorMaxAgeMillis(prepare, duration, settle, WarMath.MIRROR_SAFETY_MARGIN_MILLIS);
     }
 
     public boolean isInWar(UUID uuid) {
@@ -1308,11 +1374,12 @@ public final class WarManager implements GuildModule {
 
     /** 每秒主线程 tick：倒计时、结束判定、比分播报。 */
     private void warTick() {
+        long now = System.currentTimeMillis();
+        pruneStaleMirrors(now);
         GuildWar war = current;
         if (war == null) {
             return;
         }
-        long now = System.currentTimeMillis();
         long remain = Math.max(0, phaseUntil - now);
         long sec = (remain + 999) / 1000;
         if (warBar != null) {
@@ -1353,6 +1420,15 @@ public final class WarManager implements GuildModule {
             default -> {
             }
         }
+    }
+
+    /** 周期性清理跨服镜像，避免承办服崩溃/消息丢失后本服一直被判定为进行中。 */
+    private void pruneStaleMirrors(long now) {
+        if (observed.isEmpty() || now - lastMirrorPruneAt < 30_000L) {
+            return;
+        }
+        lastMirrorPruneAt = now;
+        observed.values().removeIf(w -> w != current && (!w.state().isLive() || isStaleMirror(w, now)));
     }
 
     private void endWar(GuildWar war) {
@@ -1628,6 +1704,10 @@ public final class WarManager implements GuildModule {
     }
 
     private void cleanup(GuildWar war) {
+        cleanup(war, true);
+    }
+
+    private void cleanup(GuildWar war, boolean publishTerminal) {
         // 传送所有参赛者/旁观者回原位并还原数据
         for (UUID u : new ArrayList<>(war.rosterA())) {
             leaveLocal(u);
@@ -1666,7 +1746,23 @@ public final class WarManager implements GuildModule {
         settleQueue.clear();
         clearWarBar();
         observed.remove(war.id());
+        // 正常结束记为 ENDED（写入库并进入历史记录/清理）；取消保持 CANCELLED。
+        if (war.state() != WarState.CANCELLED && war.state() != WarState.ENDED) {
+            war.state(WarState.ENDED);
+        }
+        if (war.endedAt() <= 0) {
+            war.endedAt(System.currentTimeMillis());
+        }
+        try {
+            plugin.repo().updateWar(war);
+        } catch (Exception e) {
+            plugin.getLogger().warning("工会战收尾写库失败: " + e.getMessage());
+        }
         current = null;
+        // 广播终态，让其它子服移除镜像；否则跨服玩家会一直被判定为「正在工会战中」。
+        if (publishTerminal) {
+            publishState(war, true);
+        }
         plugin.getLogger().info("工会战 " + war.id() + " 已结束并回收竞技场。");
     }
 

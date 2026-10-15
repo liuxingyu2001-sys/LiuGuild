@@ -19,8 +19,13 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 工会商店：工会把自己的物品明码标价挂出来卖，任何人（含非本会玩家）都能买；
- * 收入进工会金币银行（按配置抽税）。不再提供收购；建设资金不参与商店交易。
+ * 工会商店：工会把自己的物品明码标价挂出来，<b>只供本会成员购买</b>，
+ * 收入进工会金币银行（按配置抽税）。
+ *
+ * <p><b>工会隔离</b>：上架记录以 {@code guild_id} 为准，每个工会的商店物品完全独立，
+ * 工会之间不能互相看到或购买对方的商品（因此也不存在“全服共享商店”）。</p>
+ *
+ * <p>不再提供收购；建设资金不参与商店交易。</p>
  *
  * <h3>钱与物的顺序</h3>
  * <p>买卖最怕「扣了钱没给货」或「给了货没扣钱」。这里的规则是：
@@ -107,7 +112,7 @@ public final class ShopService implements GuildModule {
         return id == null ? null : cache.get(id);
     }
 
-    /** 某工会的全部上架（按创建时间）。 */
+    /** 某工会的全部上架（按创建时间）。这是商店唯一的可见范围，工会之间互不可见。 */
     public List<ShopListing> listingsOf(String guildId) {
         List<ShopListing> out = new ArrayList<>();
         for (ShopListing l : cache.values()) {
@@ -115,13 +120,6 @@ public final class ShopService implements GuildModule {
                 out.add(l);
             }
         }
-        out.sort(java.util.Comparator.comparingLong(ShopListing::createdAt));
-        return out;
-    }
-
-    /** 全服所有上架（跨工会浏览用）。 */
-    public List<ShopListing> all() {
-        List<ShopListing> out = new ArrayList<>(cache.values());
         out.sort(java.util.Comparator.comparingLong(ShopListing::createdAt));
         return out;
     }
@@ -312,6 +310,10 @@ public final class ShopService implements GuildModule {
         if (l == null) {
             return "shop-not-found";
         }
+        // 商店严格按工会隔离：只能购买本会自己的上架，工会之间不共享商品。
+        if (!shopVisibleTo(g == null ? null : g.id(), l.guildId())) {
+            return "shop-not-found";
+        }
         if (amount <= 0) {
             return "shop-amount-invalid";
         }
@@ -320,10 +322,6 @@ public final class ShopService implements GuildModule {
         }
         if (l.stock() < amount) {
             return "shop-out-of-stock";
-        }
-        if (g != null && g.id().equals(l.guildId())) {
-            // 本会成员买本会的东西：允许，但至少要有货
-            return null;
         }
         return null;
     }
@@ -421,6 +419,14 @@ public final class ShopService implements GuildModule {
                 if (onDone != null) onDone.run();
             });
         });
+    }
+
+    /**
+     * 商店隔离判定：只有查看者工会与上架工会一致时商品才可见 / 可买。
+     * 任一为空（未入会 / 脏数据）一律视为不可见，避免跨工会或幽灵条目泄露。
+     */
+    public static boolean shopVisibleTo(String viewerGuildId, String listingGuildId) {
+        return viewerGuildId != null && viewerGuildId.equals(listingGuildId);
     }
 
     /** 交易税：按配置比例从货款里扣掉。 */

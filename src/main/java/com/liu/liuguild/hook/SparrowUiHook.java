@@ -91,6 +91,9 @@ public final class SparrowUiHook {
             }
 
             for (Map.Entry<String, ButtonDef> entry : def.buttons.entrySet()) {
+                if (!plugin.gui().buttonVisible(entry.getKey())) {
+                    continue;
+                }
                 ButtonDef button = entry.getValue();
                 int slot = Math.max(0, Math.min(def.rows * 9 - 1, button.slot));
                 ItemStack stack = "info".equals(entry.getKey())

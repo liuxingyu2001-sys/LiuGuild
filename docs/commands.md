@@ -13,6 +13,7 @@
 | `/guild accept <工会>` | 接受邀请 |
 | `/guild deny <工会>` | 拒绝邀请 |
 | `/guild kick <玩家>` | 踢出成员（会长/官员） |
+| `/guild members` | 查看成员列表（打开成员 GUI） |
 | `/guild promote <玩家>` | 提升职位（左键同效） |
 | `/guild demote <玩家>` | 降低职位（右键同效） |
 | `/guild transfer <玩家>` | 转让会长 |
@@ -50,7 +51,7 @@
 | `/guild title create <标识> <显示> [职位]` | 创建/更新头衔（管理） |
 | `/guild title delete <标识>` | 删除头衔（管理） |
 | `/guild shop` | 打开本会商店（别名 `shangdian` / `store`） |
-| `/guild shop all` | 浏览全服工会商店 |
+| `/guild shop all` | ~~浏览全服工会商店~~（已移除：商店按工会隔离） |
 | `/guild shop add <售价> [收购价]` | 上架手持物品（管理） |
 | `/guild shop remove <编号前8位>` | 下架并退回剩余（管理） |
 

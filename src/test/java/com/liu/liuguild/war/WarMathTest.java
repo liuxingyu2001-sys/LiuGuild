@@ -84,4 +84,26 @@ class WarMathTest {
     void emptyTeamProducesEmptyDistribution() {
         assertTrue(WarMath.distributeLives(List.of(), 5).isEmpty());
     }
+
+    @Test
+    void mirrorMaxAgeSumsPhasesPlusMargin() {
+        long age = WarMath.mirrorMaxAgeMillis(15, 600, 10, WarMath.MIRROR_SAFETY_MARGIN_MILLIS);
+        assertEquals((15 + 600 + 10) * 1000L + WarMath.MIRROR_SAFETY_MARGIN_MILLIS, age);
+    }
+
+    @Test
+    void mirrorMaxAgeFallsBackToTwoHoursWhenPhasesUnknown() {
+        long age = WarMath.mirrorMaxAgeMillis(0, 0, 0, WarMath.MIRROR_SAFETY_MARGIN_MILLIS);
+        assertEquals(2L * 60L * 60L * 1000L + WarMath.MIRROR_SAFETY_MARGIN_MILLIS, age);
+    }
+
+    @Test
+    void mirrorIsAliveWithinLifetimeAndExpiredBeyondIt() {
+        long created = 1_000_000L;
+        long limit = WarMath.mirrorMaxAgeMillis(15, 600, 10, WarMath.MIRROR_SAFETY_MARGIN_MILLIS);
+        // 仍在有效期内：不应被视为过期
+        assertTrue(!WarMath.mirrorExpired(created, created + limit, 15, 600, 10, WarMath.MIRROR_SAFETY_MARGIN_MILLIS));
+        // 超过一个毫秒：过期
+        assertTrue(WarMath.mirrorExpired(created, created + limit + 1, 15, 600, 10, WarMath.MIRROR_SAFETY_MARGIN_MILLIS));
+    }
 }
