@@ -13,6 +13,7 @@ import com.liu.liuguild.config.WarSettings;
 import com.liu.liuguild.util.NumberUtil;
 import com.liu.liuguild.util.TimeUtil;
 import com.liu.liuguild.crossserver.CrossServerBus;
+import com.liu.liuguild.crossserver.ServerTransfer;
 import com.liu.liudungeon.api.CreateOptions.ChunkPosition;
 import com.liu.liuguild.hook.ArenaWorld;
 import com.liu.liuguild.model.Guild;
@@ -236,7 +237,7 @@ public final class WarManager implements GuildModule {
         plugin.async(() -> {
             try {
                 for (GuildWar w : plugin.repo().loadLiveWars()) {
-                    if (w == null || w.id() == null || !plugin.serverId().equals(w.hostServer())) {
+                    if (w == null || w.id() == null || !isHostServer(w.hostServer())) {
                         continue;
                     }
                     // 内存里正跑着的战斗不算「中断」，否则热重载/误触发会把进行中的战在库里结掉。
@@ -348,6 +349,45 @@ public final class WarManager implements GuildModule {
 
     public boolean isWarServer() {
         return conf().serverMode;
+    }
+
+    /**
+     * 代理登记名探测到后回调：补领「早于探测到达、但本服就是承办服」的已匹配工会战。
+     * 否则承办服没有先在线玩家时会错过 WAR_MATCHED，导致战争永远不开始。
+     */
+    public void onProxyNameDetected(String proxyName) {
+        plugin.sync(() -> {
+            if (current != null) {
+                return;
+            }
+            for (GuildWar w : new ArrayList<>(observed.values())) {
+                if (w != null && w.state() == WarState.MATCHED && isHostServer(w.hostServer())) {
+                    plugin.getLogger().info("代理名 " + proxyName + " 确认承办服身份，补领工会战 " + w.id());
+                    adoptWar(w);
+                    return;
+                }
+            }
+        });
+    }
+
+    /**
+     * 判断某个承办服标识是否就是本服。
+     *
+     * <p>{@code arena.server} / {@code war.dedicated-server} 填的是代理（BungeeCord / Velocity）
+     * 登记的<b>子服名</b>（例如 {@code zy}），而 {@code server-id} 是插件内部标识，历史配置里
+     * 两者可能不一致（server.yml 留空时会被自动生成）。因此这里同时接受：
+     * 内部 {@code server-id} 与代理登记名。代理名在玩家加入时通过 {@code GetServer} 探测。</p>
+     */
+    public boolean isHostServer(String host) {
+        if (host == null || host.isBlank()) {
+            return false;
+        }
+        if (host.equalsIgnoreCase(plugin.serverId())) {
+            return true;
+        }
+        ServerTransfer transfer = plugin.bus() == null ? null : plugin.bus().transfer();
+        String proxy = transfer == null ? null : transfer.proxyName();
+        return proxy != null && !proxy.isBlank() && host.equalsIgnoreCase(proxy);
     }
 
     // =====================================================================
@@ -861,7 +901,17 @@ public final class WarManager implements GuildModule {
         }
         WarMode mode = mode(modeKey);
         ArenaDef arenaDef = plugin.settings().arena(mode.arena);
-        String host = mode.hostServer(arenaDef.server, conf().dedicatedServer, plugin.serverId());
+        String local = plugin.serverId();
+        ServerTransfer transfer = plugin.bus() == null ? null : plugin.bus().transfer();
+        if (transfer != null && transfer.proxyName() != null && !transfer.proxyName().isBlank()) {
+            local = transfer.proxyName();
+        }
+        String host = mode.hostServer(arenaDef.server, conf().dedicatedServer, local);
+        if (transfer != null && !transfer.knowsServer(host) && !isHostServer(host)) {
+            plugin.getLogger().warning("工会战承办服 \"" + host
+                    + "\" 不在代理登记的子服列表中，跨服玩家将无法传送过去；"
+                    + "请核对 arena.yml 的 server / server.yml 的 dedicated-server 与代理 [servers] 名称。");
+        }
         GuildWar war = new GuildWar(UUID.randomUUID().toString(), ga.id(), gb.id());
         war.mode(mode.key);
         war.nameA(ga.name());
@@ -919,7 +969,7 @@ public final class WarManager implements GuildModule {
             case "WAR_STATE" -> handleWarState(data);
             case "WAR_AUTOJOIN" -> {
                 GuildWar w = data.get("war") == null ? null : observed.get(data.get("war"));
-                if (w != null && !w.hostServer().equals(plugin.serverId())) {
+                if (w != null && !isHostServer(w.hostServer())) {
                     plugin.sync(() -> autoEnterLocal(w));
                 }
             }
@@ -961,7 +1011,7 @@ public final class WarManager implements GuildModule {
         war.hostServer(host);
         observed.put(warId, war);
         plugin.sync(() -> {
-            if (host.equals(plugin.serverId())) {
+            if (isHostServer(host)) {
                 adoptWar(war);
             }
             // 非承办服不再本地通知：承办服 prepare 后会广播「匹配成功」，避免重复。
@@ -1274,7 +1324,7 @@ public final class WarManager implements GuildModule {
         }
         Set<UUID> roster = "A".equals(side) ? war.rosterA() : war.rosterB();
         WarMode mode = modeOf(war);
-        boolean host = war.hostServer().equals(plugin.serverId());
+        boolean host = isHostServer(war.hostServer());
         for (Player p : plugin.guilds().onlineMembers(guild)) {
             if (p == null || !p.isOnline()) {
                 continue;
@@ -1949,7 +1999,7 @@ public final class WarManager implements GuildModule {
             plugin.messages().send(player, "war-not-in-war");
             return;
         }
-        if (war.hostServer().equals(plugin.serverId())) {
+        if (isHostServer(war.hostServer())) {
             joinLocal(player, war);
         } else {
             if (!plugin.bus().isReady() || !plugin.bus().transfer().available()) {
@@ -2060,7 +2110,7 @@ public final class WarManager implements GuildModule {
     public void spectate(Player player) {
         Guild guild = plugin.guilds().guildOf(player.getUniqueId());
         GuildWar war = guild == null ? current : warOf(guild.id());
-        if (war == null || !war.hostServer().equals(plugin.serverId())) {
+        if (war == null || !isHostServer(war.hostServer())) {
             plugin.messages().send(player, "war-not-in-war");
             return;
         }

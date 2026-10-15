@@ -53,12 +53,18 @@ war:
 
 ```yaml
 # server.yml（每服独立，不共享）
+server-id: "zy"   # 必填：必须与代理 [servers] 登记名一致（不是随便起的名字）
 war:
   # true = 本服为工会战专属承办服（竞技场服）
   server-mode: false
   # 本服默认承办的 server-id（留空 = 由发起匹配的服务器承办）
   dedicated-server: ""
 ```
+
+> **承办服为什么总是对不上？** 工会战承办服用「代理登记名」判断：`arena.yml` 的
+> `server`、`war.dedicated-server` 都填代理名（如 `zy`），插件拿它和本服 `server-id`
+> 比较。若 `server-id` 是留空后自动生成的 `server-xxxxxxxx`，承办服就不会认领战斗，
+> 玩家也传不过去。详见 [configuration.md](configuration.md#共享配置目录)。
 
 ```yaml
 # war-modes.yml

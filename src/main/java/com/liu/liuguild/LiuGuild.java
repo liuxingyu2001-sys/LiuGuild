@@ -158,6 +158,7 @@ public final class LiuGuild extends JavaPlugin {
         ServerTransfer transfer = new ServerTransfer(this, settings().main);
         transfer.register();
         bus = new CrossServerBus(this, settings().main, bridge, transfer);
+        transfer.onDetected(name -> war.onProxyNameDetected(name));
 
         // 模块注册（按 order 启停）
         modules = new ModuleRegistry(this);

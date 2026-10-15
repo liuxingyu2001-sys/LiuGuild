@@ -42,6 +42,8 @@ public final class GuildListener implements GuildModule, Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        // 探测本服在代理里的登记名（用于工会战承办服判断与跨服传送）。
+        plugin.bus().transfer().detect(player);
         plugin.bus().presence(player.getUniqueId(), player.getName());
         plugin.syncDelayed(() -> {
             plugin.war().onPlayerJoinServer(player);

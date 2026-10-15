@@ -22,6 +22,8 @@
 
 ## 构建记录
 
+- `0.2.3`：修复跨服工会战「A 服传不到承办服」——承办服判定兼容插件 `server-id` 与代理（BungeeCord/Velocity）登记名，新增 `GetServer`/`GetServers` 子通道探测、代理名不一致警告与承办服补领；明确 `server-id` 必须等于代理 `[servers]` 名称。197 项单元测试通过。
+- `0.2.2`：工会战 10 轮深度审查（匹配重入队、热重载不误结束战斗、Redis IO 异步、淘汰/观战守卫、平局不计负、结算期不回退、跨服托管恢复、世界销毁疏散、未知模式拒绝）以及工会商店改用工会资金（个人资金支付、税后点数入工会）。197 项单元测试通过。
 - `0.2.1`：完善 liupass 战令对接——注册 `liuguild:join/create/war/war-win/war-kill/checkin/donate/bank-deposit` 扩展任务类型，新增 `GuildCheckinEvent` / `GuildFundsEvent`，`config.yml` 的 `hooks.liupass.*` 控制开关，保留旧版 `tasks.yml` 任务 ID 绑定；189 项单元测试通过。详见 [docs/tasks.md](docs/tasks.md)。
 - `0.2.0`：包含独立工会空间配置、逐级收费与数据保留策略，以及资金、商店和装备托管修复；178 项单元测试通过。跨服返程与崩溃恢复的限制见 [工会战文档](docs/war.md) 和 [空间文档](docs/warehouse.md)。
 
