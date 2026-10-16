@@ -174,7 +174,6 @@ public final class ServerTransfer implements PluginMessageListener {
                     }
                     if (!list.isEmpty()) {
                         proxyServers = list;
-                        plugin.getLogger().info("代理登记的子服: " + String.join(", ", list));
                     }
                 }
                 default -> {
