@@ -16,8 +16,7 @@
 # war.yml（共享）
 war:
   enabled: true
-  # 注意：server-mode / dedicated-server 是【每服独立】设置，已移至 server.yml，
-  #       不再写在共享 war.yml 里，避免多台子服互相冲突。
+  # 承办服在 arena.yml 的 server 设置，无需每服开关。
   queue-interval-seconds: 5
   match-timeout-seconds: 180
   default-mode: match
@@ -54,15 +53,10 @@ war:
 ```yaml
 # server.yml（每服独立，不共享）
 server-id: "zy"   # 必填：必须与代理 [servers] 登记名一致（不是随便起的名字）
-war:
-  # true = 本服为工会战专属承办服（竞技场服）
-  server-mode: false
-  # 本服默认承办的 server-id（留空 = 由发起匹配的服务器承办）
-  dedicated-server: ""
 ```
 
 > **承办服为什么总是对不上？** 工会战承办服用「代理登记名」判断：`arena.yml` 的
-> `server`、`war.dedicated-server` 都填代理名（如 `zy`），插件拿它和本服 `server-id`
+> `server` 填代理名（如 `zy`），插件拿它和本服 `server-id`
 > 比较。若 `server-id` 是留空后自动生成的 `server-xxxxxxxx`，承办服就不会认领战斗，
 > 玩家也传不过去。详见 [configuration.md](configuration.md#共享配置目录)。
 
@@ -139,7 +133,7 @@ modes:
 
 ## 跨服和竞技场
 
-- 承办服优先级：模式 `dedicated-server` → 场地 `server` → 全局 `dedicated-server` → 发起匹配的服务器。
+- 承办服由场地 `server` 决定；留空则由发起匹配的服务器承办。
 - **匹配即自动参战（`war.auto-enter`，默认 `true`）**：匹配成功、竞技场就绪后，系统会自动把双方**在线成员强制传送**到各自出生点并加入名单（承办服直接进入，其余服自动转移到承办服），然后倒计时开战——无需手动执行 `/guild war join`。
   - 不具备 `liuguild.war` 权限的成员视为自愿不参战，不会被强制传送（可用权限作为退出开关）。
   - 关闭 `war.auto-enter` 后恢复手动模式，「匹配成功」消息会附带 `[点击进入竞技场]` 按钮。

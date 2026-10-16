@@ -65,8 +65,6 @@ public final class WarMode {
     public boolean preparePlatform = true;
     /** 引用 arena.yml 中的竞技场 id。 */
     public String arena = "main";
-    /** 覆盖竞技场/全局的承办服；留空 = 使用竞技场或全局设置。 */
-    public String dedicatedServer = "";
 
     // ---- 奖励：个人金币、工会资金、通行证经验、胜方称号 ----
     public double winPlayerMoney = 500.0;
@@ -235,7 +233,6 @@ public final class WarMode {
         m.allowJumpOnPrepare = sec.getBoolean("allow-jump-on-prepare", m.allowJumpOnPrepare);
         m.preparePlatform = sec.getBoolean("prepare-platform", m.preparePlatform);
         m.arena = sec.getString("arena", m.arena);
-        m.dedicatedServer = sec.getString("dedicated-server", m.dedicatedServer);
         m.winPlayerMoney = Math.max(0, sec.getDouble("rewards.win-player-money", m.winPlayerMoney));
         m.losePlayerMoney = Math.max(0, sec.getDouble("rewards.lose-player-money", m.losePlayerMoney));
         m.winGuildFunds = Math.max(0, sec.getLong("rewards.win-guild-funds",
@@ -283,7 +280,6 @@ public final class WarMode {
         c.allowJumpOnPrepare = allowJumpOnPrepare;
         c.preparePlatform = preparePlatform;
         c.arena = arena;
-        c.dedicatedServer = dedicatedServer;
         c.winPlayerMoney = winPlayerMoney;
         c.losePlayerMoney = losePlayerMoney;
         c.winGuildFunds = winGuildFunds;
@@ -308,20 +304,6 @@ public final class WarMode {
     /** 是否按时间表开启（赛季类模式）。 */
     public boolean scheduled() {
         return schedule != null && !schedule.isEmpty();
-    }
-
-    /** 该模式使用的承办服（模式级 > 竞技场级 > 全局 > 本服）。 */
-    public String hostServer(String arenaDedicated, String globalDedicated, String localServer) {
-        if (dedicatedServer != null && !dedicatedServer.isBlank()) {
-            return dedicatedServer;
-        }
-        if (arenaDedicated != null && !arenaDedicated.isBlank()) {
-            return arenaDedicated;
-        }
-        if (globalDedicated != null && !globalDedicated.isBlank()) {
-            return globalDedicated;
-        }
-        return localServer;
     }
 
     public boolean hasSchedule(String entry) {

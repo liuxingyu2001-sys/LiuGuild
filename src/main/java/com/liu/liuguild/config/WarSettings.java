@@ -18,10 +18,6 @@ public final class WarSettings {
 
     // ---- 全局 ----
     public boolean enabled = true;
-    /** true = 本服为工会战专属承办服（竞技场服）。 */
-    public boolean serverMode = false;
-    /** 全局默认承办服 server-id；留空 = 由发起匹配的服务器承办。 */
-    public String dedicatedServer = "";
     public int queueIntervalSeconds = 5;
     public int matchTimeoutSeconds = 180;
     /** 默认模式（未指定模式时使用）。 */
@@ -45,8 +41,6 @@ public final class WarSettings {
     public static WarSettings parse(FileConfiguration c) {
         WarSettings s = new WarSettings();
         s.enabled = c.getBoolean("war.enabled", s.enabled);
-        s.serverMode = c.getBoolean("war.server-mode", s.serverMode);
-        s.dedicatedServer = c.getString("war.dedicated-server", s.dedicatedServer);
         s.queueIntervalSeconds = Math.max(1, Math.min(60, c.getInt("war.queue-interval-seconds", s.queueIntervalSeconds)));
         s.matchTimeoutSeconds = Math.max(0, c.getInt("war.match-timeout-seconds", s.matchTimeoutSeconds));
         s.defaultMode = String.valueOf(c.getString("war.default-mode", s.defaultMode)).toLowerCase(Locale.ROOT);
@@ -116,7 +110,5 @@ public final class WarSettings {
         return out;
     }
 
-    public boolean dedicated() {
-        return dedicatedServer != null && !dedicatedServer.isBlank();
-    }
+
 }

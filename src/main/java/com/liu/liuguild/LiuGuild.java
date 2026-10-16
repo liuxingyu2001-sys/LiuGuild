@@ -608,7 +608,6 @@ public final class LiuGuild extends JavaPlugin {
                 + " &7Redis: &f" + s.main.redisHost + ":" + s.main.redisPort + " &7频道: &f" + s.main.redisChannel);
         // 工会战
         out.add("&7工会战: &f" + (s.war.enabled ? "启用" : "关闭")
-                + " &7承办模式: &f" + s.war.serverMode
                 + " &7赛事: &f" + s.war.modes.keySet());
         out.add("&7匹配队列: &f" + war.queueSize() + " &7进行中: &f" + war.liveWars().size()
                 + " &7本服承办: &f" + (war.currentWar() == null ? "无" : war.currentWar().id())

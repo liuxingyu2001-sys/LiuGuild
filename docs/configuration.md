@@ -17,7 +17,7 @@
 | `gui.yml` | GUI 菜单布局 |
 | `icons.yml` | 工会图标定义 |
 | `messages.yml` | 多语言消息 |
-| `server.yml` | **每服独立**，设置唯一 `server-id`、工会战承办服 `war.server-mode` / `war.dedicated-server`，并可覆盖 `language` / `debug` / `auto-reload-config` / 任意键（`overrides`）（不随共享配置同步） |
+| `server.yml` | **每服独立**，设置唯一 `server-id`，并可覆盖 `language` / `debug` / `auto-reload-config` / 任意键（`overrides`）（不随共享配置同步） |
 
 ## 共享配置目录
 
@@ -37,7 +37,7 @@ settings:
 > 都以此为标识。若留空，插件会**自动生成**一个 `server-xxxxxxxx` 随机 id，它与代理名
 > 不一致，会导致「A 服无法传送去承办服 B」「承办服不认领工会战」等问题。
 > 插件会在玩家进入时通过 `GetServer` 子通道探测代理名并在日志中给出警告，但仍建议
-> 手动把 `server-id` 写成代理登记名。`arena.yml` 的 `server` 与 `war.dedicated-server`
+> 手动把 `server-id` 写成代理登记名。`arena.yml` 的 `server`
 > 填的同样是**代理登记名**。
 
 > 共享目录下哪些文件共享、哪些必须每服独立，以及多服定时任务如何避免重复执行、

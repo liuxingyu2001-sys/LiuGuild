@@ -1,18 +1,12 @@
 # 竞技场
 
-`arena.yml` 中每个竞技场**自描述**：直接写「承办服 + 世界 + 坐标」，因此自定义程度最高，
-既不依赖 liudungeon 也能用固定世界，需要动态开世界时再填 `template`。
+固定场地只需承办服、世界和出生点。动态世界、预热和战后行为均为可选设置，不填写时使用默认值。
 
 ```yaml
-pregenerate: true            # 使用动态模板时是否预热区块
-create-timeout-seconds: 60   # 动态世界创建超时
-
 arenas:
   main:
     server: ""               # 承办服 server-id；留空 = 全局 / 发起匹配的服务器
     world: ""                # 固定世界名；留空 = 主世界
-    template: ""             # 可选 liudungeon 模板；填写且存在时优先动态开世界
-    radius: 48               # 预热半径（方块），0=不预热
     spawn-a:         { x: 0.5,  y: 70.0, z: 0.5,  yaw: 0.0,   pitch: 0.0 }
     spawn-b:         { x: 20.5, y: 70.0, z: 0.5,  yaw: 180.0, pitch: 0.0 }
     spawn-spectator: { x: 10.5, y: 80.0, z: 10.5, yaw: 0.0,   pitch: 30.0 }
@@ -28,7 +22,10 @@ arenas:
 | `radius` | 动态开世界时的区块预热半径。 |
 | `spawn-<名>` | 任意数量的命名出生点（`spawn-a` / `spawn-b` / `spawn-c` / `spawn-d`…），坐标为 `x/y/z/yaw/pitch`。 |
 | `spawn-spectator` | 旁观出生坐标（名固定为 `spectator`）。 |
-| `team-a-spawn` / `team-b-spawn` | A / B 队分别使用哪个命名出生点（默认 `a` / `b`），因此可配 3 个以上并自由指定。 |
+
+出生点按点名排序，前半组给 A 队，后半组给 B 队；队内按参赛名单稳定排序循环分配，准备冻结和复活使用同一规则。a～f 六点时，A 队使用 a/b/c，B 队使用 d/e/f。奇数点时前半组多一个。至少设置两个战斗点，旁观点不参与分配。
+
+旧配置中的 `team-a-spawn` / `team-b-spawn` 不再生效，可以直接删除；不需要再绑定队伍。升级会改变原有手动绑定的落点，请提前检查点位布局。
 
 ## 现场设置坐标
 
@@ -40,13 +37,11 @@ arenas:
 /guildadmin arena setspawn main c      # 设为出生点 c（可任意命名）
 /guildadmin arena setspawn main d
 /guildadmin arena setspawn main spec   # 设为旁观点（spec = spectator）
-/guildadmin arena setteampoint main a c   # A 队使用出生点 c
-/guildadmin arena setteampoint main b d   # B 队使用出生点 d
 ```
 
-会立即写入 `arena.yml` 并热重载。也可在 GUI（竞技场编辑器）里点击「设置命名出生点…」用铁砧输入点名。
+会立即写入 `arena.yml` 并热重载，同时记录当前世界。命令顺序为 `/guildadmin arena setspawn <竞技场> <点名>`，例如 `/liuguild:guildadmin arena setspawn 第一个竞技场 a`。也可在 GUI（竞技场编辑器）里点击「设置命名出生点…」用铁砧输入点名。
 
-> 注意：`setspawn` 才是设出生点；`setworld <id> <世界名>` 设的是**世界**，`setspawn <id> <点名> c/d` 才能保存新的点位。
+> `setworld <id> <世界名>` 用于单独修改世界；新增点位请用 `setspawn <id> c`、`setspawn <id> d`。
 
 其它设置：
 
@@ -54,7 +49,6 @@ arenas:
 /guildadmin arena setworld main world_arena
 /guildadmin arena setserver main arena-1
 /guildadmin arena settemplate main guild_arena
-/guildadmin arena setteampoint main a c   # 指定 A 队使用出生点 c
 /guildadmin arena create pvp           # 新建固定坐标场地
 /guildadmin arena info main            # 查看详情（含全部出生点）
 ```

@@ -62,7 +62,7 @@ public final class ServerTransfer implements PluginMessageListener {
 
     /**
      * 有玩家在线时向代理查询本服的登记名。未探测到之前每次玩家加入都会重试，
-     * 直到拿到结果（用于把 {@code arena.server}/{@code war.dedicated-server} 的代理名
+     * 直到拿到结果（用于把 {@code arena.server} 的代理名
      * 与本服对应起来）。
      */
     public void detect(Player player) {

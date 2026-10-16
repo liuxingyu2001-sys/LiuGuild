@@ -1,96 +1,21 @@
-# ==========================================================
-#  LiuGuild · 竞技场模块（arena.yml）
-#  每个竞技场自描述：直接写「承办服 server + 世界 world + 坐标」，
-#  可在 war-modes.yml 里通过 arena: <id> 引用，自定义程度最高。
-#
-#  server  : 承办该场工会战的服务器 server-id；留空 = war.yml 的 dedicated-server / 发起匹配的服务器
-#  world   : 世界名；留空 = 主世界（固定场地直接写世界名即可）
-#  template: 可选，liudungeon 动态世界模板；填写且模板存在时优先动态开世界，
-#            留空则使用 world + 下方坐标的固定场地
-#  spawn-* : 精确坐标与朝向（x / y / z / yaw / pitch）
-#            出生点数量不限：spawn-a / spawn-b / spawn-c / spawn-d / spawn-spectator…
-#            team-a-spawn / team-b-spawn 指定 A / B 队分别用哪个命名点（默认 a / b），
-#            所以可配置 3 个以上出生点并自由选择。
-#  管理员：/guildadmin arena <id> setspawn <点名> 现场设置当前坐标；
-#          /guildadmin arena <id> setteampoint <a|b> <点名> 指定队伍出生点。
-#
-#  临时世界（temporary-world）：environment / keep-on-end / name-format /
-#    gamerules / time / weather / difficulty 均可自定义。
-#  战后（after-war）：auto-return / return-delay-seconds / end-spawn（可指定世界）。
-# ==========================================================
-
-# 动态创建竞技场世界前是否预热区块
-pregenerate: true
-# 使用 liudungeon 动态模板时的创建超时（秒）
-create-timeout-seconds: 60
-
+# LiuGuild · 竞技场（arena.yml）
+# 固定场地只需：承办服、世界、出生点。
+# 点名按字母排序，前半组给A队，后半组给B队，队内循环分配。
+# 例如 a～f：A队用a/b/c，B队用d/e/f。spectator为旁观点，不参与分配。
+# /guildadmin arena setspawn main a  在当前位置设置点a，并保存世界名。
+# /guildadmin arena setspawn main b  设置点b；继续用c/d/e/f可添加更多点。
+# /guildadmin arena setspawn main spec  设置旁观点。
+# war-modes.yml 中用 arena: main 引用场地；点位至少配置两个。
 arenas:
-
-  # -------------------- 固定场地：世界 + 坐标 --------------------
   main:
-    # 承办服 server-id（跨服时玩家会被传送到该服）
     server: ""
-    # 世界名（固定场地直接写，例如 world / arena_world）
     world: ""
-    # 可选动态模板；留空 = 只用固定世界坐标
-    template: ""
-    radius: 48
-    spawn-a:         { x: 0.5,  y: 70.0, z: 0.5,  yaw: 0.0,   pitch: 0.0 }
-    spawn-b:         { x: 20.5, y: 70.0, z: 0.5,  yaw: 180.0, pitch: 0.0 }
-    spawn-spectator: { x: 10.5, y: 80.0, z: 10.5, yaw: 0.0,   pitch: 30.0 }
-    # 可继续添加任意出生点，例如：
-    # spawn-c:       { x: 0.5,  y: 70.0, z: 20.5, yaw: 0.0,   pitch: 0.0 }
-    # spawn-d:       { x: 20.5, y: 70.0, z: 20.5, yaw: 180.0, pitch: 0.0 }
-    # 队伍使用哪个命名出生点（默认 a / b）
-    team-a-spawn: a
-    team-b-spawn: b
+    spawn-a: { x: 0.5, y: 70.0, z: 0.5, yaw: 0.0, pitch: 0.0 }
+    spawn-b: { x: 20.5, y: 70.0, z: 0.5, yaw: 180.0, pitch: 0.0 }
+    spawn-spectator: { x: 10.5, y: 80.0, z: 10.5, yaw: 0.0, pitch: 30.0 }
 
-    # 临时（动态）世界设置：仅在 template 生效且安装 liudungeon 时使用
-    temporary-world:
-      # 结束后是否保留世界（false = 销毁）
-      keep-on-end: false
-      # 开启后由 LiuGuild 自建临时世界（无需 liudungeon 模板），
-      # 此时 environment / name-format / world-type 均生效，战斗结束后自动卸载并删除目录。
-      builtin: false
-      # 内置临时世界类型：flat / normal
-      world-type: flat
-      # 环境：NORMAL / NETHER / THE_END
-      environment: NORMAL
-      # 世界名格式，{id} 替换为竞技场 id，{time} 替换为时间戳
-      name-format: "guild_arena_{id}"
-      # 未开启 builtin 且使用 liudungeon 模板时，地形由模板决定；以下为可选附加设置
-      time: -1                 # 固定世界时间（-1 = 不修改）
-      weather: ""              # clear / rain / thunder（空 = 不修改）
-      difficulty: ""           # PEACEFUL / EASY / NORMAL / HARD（空 = 不修改）
-      gamerules:               # 战斗期间应用的 gamerule
-        doDaylightCycle: false
-        doWeatherCycle: false
-        doMobSpawning: false
-        keepInventory: true
-        fallDamage: false
-
-    # 战斗结束后的返回 / 集合行为
-    after-war:
-      # 自动把玩家送回参赛前位置
-      auto-return: true
-      # 返回前延迟（秒）；仅固定世界生效（动态世界销毁前会立即返回）
-      return-delay-seconds: 0
-      # 统一集合点（优先级高于 auto-return）
-      end-spawn:
-        enabled: false
-        world: ""              # 留空 = 使用竞技场世界
-        x: 0.5
-        y: 70.0
-        z: 0.5
-        yaw: 0.0
-        pitch: 0.0
-
-  # -------------------- 动态场地：liudungeon 模板 --------------------
-  # dungeon:
-  #   server: ""
-  #   world: arena_dungeon
-  #   template: guild_arena
-  #   radius: 64
-  #   spawn-a:         { x: 0.5,  y: 64.0, z: 0.5,  yaw: 0.0,   pitch: 0.0 }
-  #   spawn-b:         { x: 40.5, y: 64.0, z: 0.5,  yaw: 180.0, pitch: 0.0 }
-  #   spawn-spectator: { x: 20.5, y: 80.0, z: 20.5, yaw: 0.0,   pitch: 45.0 }
+# 可选高级设置不需要时省略，详细配置见 docs/arena.md：
+# 全局 pregenerate（默认true）、create-timeout-seconds（默认60）。
+# 场地可加 template（liudungeon模板）、radius（预热半径，默认48）。
+# temporary-world 用于临时世界；固定世界不需填写。
+# after-war 默认 auto-return: true、return-delay-seconds: 0，无需填写。

@@ -30,7 +30,7 @@
 2. **所有**子服配置相同的 `cross-server.yml`（同一 Redis、同一 `channel`）。
 3. 每台子服在 `server.yml` 设**唯一** `server-id`（如 `lobby`、`survival`、`arena1`）。
 4. 选择承办模式：
-   - **专属承办服**：某台服 `war.server-mode: true`，竞技场 `server` 填它的 `server-id`；玩家会被自动传送过去。
+   - **指定承办服**：竞技场 `server` 填目标服的代理登记名；玩家会被自动传送过去，无需每服承办开关。
    - **动态承办**：留空，由发起匹配的服务器承办。
 5. 在承办服（或所有服）用 `/guildadmin arena ...` 配置场地与出生点。
 

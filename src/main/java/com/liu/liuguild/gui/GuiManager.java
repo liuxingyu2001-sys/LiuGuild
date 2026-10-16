@@ -1442,9 +1442,7 @@ public final class GuiManager implements GuildModule, Listener {
         } else if (action.startsWith("arena_setpoint:")) {
             String[] parts = action.substring("arena_setpoint:".length()).split(":", 2);
             promptArenaPoint(player, parts[0], parts.length > 1 ? parts[1] : "a");
-        } else if (action.startsWith("arena_teampoint:")) {
-            String[] parts = action.substring("arena_teampoint:".length()).split(":", 2);
-            promptArenaInput(player, parts[0], parts.length > 1 ? parts[1] : "team-a-spawn");
+
         } else if (action.startsWith("arena_endspawn:")) {
             setArenaEndSpawn(player, action.substring("arena_endspawn:".length()));
         } else if (action.startsWith("arena_input:")) {
@@ -1754,6 +1752,7 @@ public final class GuiManager implements GuildModule, Listener {
         plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
         plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
         plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
+        plugin.configs().set("arena.yml", "arenas." + arenaId + ".world", loc.getWorld().getName());
         plugin.reloadSettings();
         plugin.messages().sendRaw(player, "arena-spawn-set", "arena", arenaId,
                 "point", name.toUpperCase(java.util.Locale.ROOT), "world", loc.getWorld().getName());
@@ -1792,14 +1791,7 @@ public final class GuiManager implements GuildModule, Listener {
                 plugin.configs().set("arena.yml", "arenas." + arenaId + ".radius", NumberUtil.toInt(value, 48));
             } else if (key.equalsIgnoreCase("environment")) {
                 plugin.configs().set("arena.yml", "arenas." + arenaId + ".temporary-world.environment", value);
-            } else if (key.equalsIgnoreCase("team-a-spawn") || key.equalsIgnoreCase("team-b-spawn")) {
-                ArenaDef arena = plugin.settings().arena(arenaId);
-                String v = value.toLowerCase(java.util.Locale.ROOT);
-                if (arena == null || arena.spawn(v) == null) {
-                    plugin.messages().send(player, "arena-usage");
-                } else {
-                    plugin.configs().set("arena.yml", "arenas." + arenaId + "." + key.toLowerCase(java.util.Locale.ROOT), v);
-                }
+
             } else {
                 plugin.configs().set("arena.yml", "arenas." + arenaId + "." + key, value);
             }
@@ -2004,7 +1996,7 @@ public final class GuiManager implements GuildModule, Listener {
                             "<gray>世界：<white>" + (a.world.isBlank() ? "主世界" : a.world),
                             "<gray>模板：<white>" + (a.hasTemplate() ? a.template : "固定坐标"),
                             "<gray>出生点：<white>" + String.join(", ", a.spawnPointNames()),
-                            "<gray>A→<white>" + a.teamASpawn + " <gray>B→<white>" + a.teamBSpawn,
+                            "<gray>点位自动分组，队内循环分配",
                             "",
                             "<yellow>点击编辑"), Map.of(), null));
             holder.actions.put(i, "arena_edit:" + id);
@@ -2024,20 +2016,17 @@ public final class GuiManager implements GuildModule, Listener {
         int slot = 0;
         slot = put(inv, holder, slot, player, "COMPASS", "<white>传送到 A 点",
                 List.of("<gray>直接传送过去查看"), "arena_tp:" + a.id);
-        slot = put(inv, holder, slot, player, "RED_BED", "<white>设置 A 出生点",
-                List.of("<gray>使用当前位置", fmtSpawn(a.spawnA)), "arena_setspawn:" + a.id + ":a");
-        slot = put(inv, holder, slot, player, "BLUE_BED", "<white>设置 B 出生点",
-                List.of("<gray>使用当前位置", fmtSpawn(a.spawnB)), "arena_setspawn:" + a.id + ":b");
+        slot = put(inv, holder, slot, player, "RED_BED", "<white>设置点 a",
+                List.of("<gray>使用当前位置", fmtSpawn(a.spawn("a"))), "arena_setspawn:" + a.id + ":a");
+        slot = put(inv, holder, slot, player, "BLUE_BED", "<white>设置点 b",
+                List.of("<gray>使用当前位置", fmtSpawn(a.spawn("b"))), "arena_setspawn:" + a.id + ":b");
         slot = put(inv, holder, slot, player, "ENDER_EYE", "<white>设置旁观点",
                 List.of("<gray>使用当前位置", fmtSpawn(a.spawnSpectator)), "arena_setspawn:" + a.id + ":spec");
         slot = put(inv, holder, slot, player, "LIME_BED", "<white>设置命名出生点…",
                 List.of("<gray>点击输入点名（a/b/c/d/任意）", "<gray>使用当前位置保存",
                         "<gray>已配置：<white>" + String.join(", ", a.spawnPointNames())),
                 "arena_setpoint:" + a.id + ":c");
-        slot = put(inv, holder, slot, player, "OAK_SIGN", "<white>A 队出生点：<yellow>" + a.teamASpawn,
-                List.of("<gray>点击输入使用哪个命名点（默认 a）"), "arena_teampoint:" + a.id + ":team-a-spawn");
-        slot = put(inv, holder, slot, player, "SPRUCE_SIGN", "<white>B 队出生点：<yellow>" + a.teamBSpawn,
-                List.of("<gray>点击输入使用哪个命名点（默认 b）"), "arena_teampoint:" + a.id + ":team-b-spawn");
+
         slot = put(inv, holder, slot, player, "WHITE_BED", "<white>设置集合点",
                 List.of("<gray>战斗结束后统一传送点", "<gray>当前：" + (a.afterWar.endSpawnEnabled ? "已启用" : "未启用")),
                 "arena_endspawn:" + a.id);
@@ -2163,6 +2152,7 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private static String fmtSpawn(ArenaDef.Spawn s) {
+        if (s == null) return "未设置";
         return String.format(java.util.Locale.ROOT, "%.1f, %.1f, %.1f", s.x(), s.y(), s.z());
     }
 

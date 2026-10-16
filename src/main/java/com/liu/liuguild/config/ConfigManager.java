@@ -297,8 +297,6 @@ public final class ConfigManager {
     /**
      * 应用 server.yml 的「每服独立覆盖」：
      * <ul>
-     *   <li>{@code war.server-mode} / {@code war.dedicated-server}：本服是否专属承办服、本服默认承办服 server-id
-     *       （这些不属于共享配置，已从 war.yml 移出）；</li>
      *   <li>{@code overrides.<模块>: { 配置路径: 值 }}：任意模块的任意键，例如
      *       {@code overrides: {cross-server.yml: {transfer.enabled: false}}}。</li>
      * </ul>
@@ -309,16 +307,6 @@ public final class ConfigManager {
             return;
         }
         YamlConfiguration yml = YamlConfiguration.loadConfiguration(serverFile);
-        // 工会战承办服设置（每服不同，不共享）
-        FileConfiguration warCfg = loaded.get("war.yml");
-        if (warCfg != null) {
-            if (yml.isSet("war.server-mode")) {
-                warCfg.set("war.server-mode", yml.getBoolean("war.server-mode"));
-            }
-            if (yml.isSet("war.dedicated-server")) {
-                warCfg.set("war.dedicated-server", yml.getString("war.dedicated-server", ""));
-            }
-        }
         // 通用每服覆盖（任意模块 / 任意键）
         org.bukkit.configuration.ConfigurationSection ov = yml.getConfigurationSection("overrides");
         if (ov == null) {

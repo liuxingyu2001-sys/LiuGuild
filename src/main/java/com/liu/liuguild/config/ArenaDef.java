@@ -14,7 +14,7 @@ import java.util.Map;
  * 单个竞技场场地定义（arena.yml 中的一项）。
  * <p>直接写清楚「承办服 + 世界 + 坐标」，因此每条竞技场都是自描述、可完全自定义的：
  * <ul>
- *   <li>{@link #server} 承办服 server-id（配合 {@code war.server-mode}，跨服时玩家会被传送到该服）</li>
+ *   <li>{@link #server} 承办服 server-id（跨服时玩家会被传送到该服）</li>
  *   <li>{@link #world} 世界名（可直接用固定世界，无需 liudungeon）</li>
  *   <li>{@link #spawnA}/{@link #spawnB}/{@link #spawnSpectator} 精确坐标与朝向</li>
  *   <li>{@link #template} 可选的 liudungeon 动态模板（填了且存在则动态开世界，否则用固定世界坐标）</li>
@@ -23,7 +23,7 @@ import java.util.Map;
 public final class ArenaDef {
 
     public String id = "main";
-    /** 承办服 server-id；留空 = 全局 war.dedicated-server / 发起匹配的服务器。 */
+    /** 承办服代理登记名；留空 = 发起匹配的服务器。 */
     public String server = "";
     /** 固定世界名；留空 = 主世界。 */
     public String world = "";
@@ -36,15 +36,9 @@ public final class ArenaDef {
     public Spawn spawnB = new Spawn(20.5, 70, 0.5, 180, 0);
     public Spawn spawnSpectator = new Spawn(10.5, 80, 10.5, 0, 30);
     /**
-     * **任意数量的命名出生点**（arena.yml 里 {@code spawn-<名>}，例如 {@code spawn-a} / {@code spawn-b} /
-     * {@code spawn-c} / {@code spawn-d} / {@code spawn-spectator}）。战争按 {@link #teamASpawn} /
-     * {@link #teamBSpawn} 选择 A/B 队的出生点，所以可以配置 3 个以上并自由指定队伍用哪个。
+     * 任意数量的命名出生点，按点名排序后自动分为两组；旁观点不参加分配。
      */
     public final Map<String, Spawn> spawns = new LinkedHashMap<>();
-    /** A 队使用的出生点名（默认 a）。 */
-    public String teamASpawn = "a";
-    /** B 队使用的出生点名（默认 b）。 */
-    public String teamBSpawn = "b";
 
     /** 临时（动态）世界设置，仅在 template 生效且有 liudungeon 时使用。 */
     public final TempWorld tempWorld = new TempWorld();
@@ -93,16 +87,13 @@ public final class ArenaDef {
         if (sec == null) {
             return a;
         }
-        // 兼容旧的 dedicated-server 写法
-        a.server = sec.getString("server", sec.getString("dedicated-server", a.server));
+        a.server = sec.getString("server", a.server);
         a.world = sec.getString("world", a.world);
         a.template = sec.getString("template", a.template);
         a.radius = Math.max(0, Math.min(4096, sec.getInt("radius", a.radius)));
         a.spawnA = readSpawn(sec.getConfigurationSection("spawn-a"), a.spawnA);
         a.spawnB = readSpawn(sec.getConfigurationSection("spawn-b"), a.spawnB);
         a.spawnSpectator = readSpawn(sec.getConfigurationSection("spawn-spectator"), a.spawnSpectator);
-        a.teamASpawn = sec.getString("team-a-spawn", a.teamASpawn);
-        a.teamBSpawn = sec.getString("team-b-spawn", a.teamBSpawn);
         loadSpawns(sec, a);
         readTempWorld(sec.getConfigurationSection("temporary-world"), a.tempWorld);
         readAfterWar(sec.getConfigurationSection("after-war"), a.afterWar);
@@ -119,11 +110,13 @@ public final class ArenaDef {
             String name = key.substring("spawn-".length()).toLowerCase(Locale.ROOT);
             a.spawns.put(name, readSpawn(sec.getConfigurationSection(key), defaultSpawn(name)));
         }
-        for (String base : List.of("a", "b", "spectator")) {
-            a.spawns.putIfAbsent(base, defaultSpawn(base));
+        if (a.spawnPointNames().isEmpty()) {
+            a.spawns.put("a", defaultSpawn("a"));
+            a.spawns.put("b", defaultSpawn("b"));
         }
-        a.spawnA = a.spawns.get("a");
-        a.spawnB = a.spawns.get("b");
+        a.spawns.putIfAbsent("spectator", defaultSpawn("spectator"));
+        a.spawnA = a.teamSpawn("A");
+        a.spawnB = a.teamSpawn("B");
         a.spawnSpectator = a.spawns.get("spectator");
     }
 
@@ -148,13 +141,18 @@ public final class ArenaDef {
         return spawns.get(key);
     }
 
-    /** 按队伍（A / B）取出生点，使用 {@link #teamASpawn} / {@link #teamBSpawn}。 */
+    /** 自动分组，旧配置中的 team-*-spawn 不再参与分配。 */
     public Spawn teamSpawn(String side) {
-        Spawn s = spawn("A".equalsIgnoreCase(side) ? teamASpawn : teamBSpawn);
-        if (s != null) {
-            return s;
-        }
-        return "A".equalsIgnoreCase(side) ? spawnA : spawnB;
+        return teamSpawn(side, 0);
+    }
+
+    public Spawn teamSpawn(String side, int memberIndex) {
+        List<String> names = spawnPointNames();
+        if (names.isEmpty()) return "A".equalsIgnoreCase(side) ? spawnA : spawnB;
+        int split = (names.size() + 1) / 2;
+        int start = "A".equalsIgnoreCase(side) || names.size() == 1 ? 0 : split;
+        int count = start == 0 ? split : names.size() - split;
+        return spawns.get(names.get(start + Math.floorMod(memberIndex, count)));
     }
 
     /** 全部非旁观的命名出生点（用于展示 / 管理）。 */
@@ -165,6 +163,7 @@ public final class ArenaDef {
                 out.add(k);
             }
         }
+        out.sort(String::compareTo);
         return out;
     }
 

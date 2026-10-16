@@ -123,7 +123,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "gui", "打开管理面板");
         adminLine(sender, "import <sql文件> [force]", "导入 PlayerGuild 数据，force 覆盖同名工会");
         adminLine(sender, "arena setspawn <id> <点名>", "设出生点（点名任意：a/b/c/d/spec…）");
-        adminLine(sender, "arena setteampoint <id> <a|b> <点名>", "指定 A/B 队用哪个出生点");
         adminLine(sender, "arena setworld|setserver|settemplate", "设置世界/承办服/模板");
         adminLine(sender, "arena list|info <id>|create <id>", "竞技场管理");
         adminLine(sender, "arena setendspawn|setradius|settempworld|setgamerule|setafter|tp|remove <id>", "竞技场进阶设置");
@@ -195,8 +194,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(cn("&7承办服: &f" + (a.server.isBlank() ? "-" : a.server)));
                 sender.sendMessage(cn("&7世界: &f" + (a.world.isBlank() ? "主世界" : a.world)));
                 sender.sendMessage(cn("&7模板: &f" + (a.hasTemplate() ? a.template : "无（固定坐标）")));
-                sender.sendMessage(cn("&7A点: &f" + fmt(a.spawnA) + " &8(队伍A→&f" + a.teamASpawn + "&8)"));
-                sender.sendMessage(cn("&7B点: &f" + fmt(a.spawnB) + " &8(队伍B→&f" + a.teamBSpawn + "&8)"));
+                sender.sendMessage(cn("&7自动分配点位: &f" + String.join(", ", a.spawnPointNames())));
+                sender.sendMessage(cn("&7首个落点 A/B: &f" + fmt(a.spawnA) + " / " + fmt(a.spawnB)));
                 sender.sendMessage(cn("&7旁观点: &f" + fmt(a.spawnSpectator)));
                 for (String name : a.spawnPointNames()) {
                     if (name.equals("a") || name.equals("b")) {
@@ -206,7 +205,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "setspawn" -> setSpawn(sender, args);
-            case "setteampoint" -> setTeamPoint(sender, args);
             case "setworld" -> {
                 if (require(sender, args, 4)) {
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".world", args[3]);
@@ -319,8 +317,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 }
                 ArenaDef a = plugin.settings().arena(args[2]);
                 // 承办服在别的子服时：先代理传送到承办服，抵达后再由承办服送到场地。
-                String host = a.server != null && !a.server.isBlank()
-                        ? a.server : plugin.settings().war.dedicatedServer;
+                String host = a.server;
                 boolean remote = host != null && !host.isBlank() && !plugin.war().isHostServer(host);
                 if (remote) {
                     if (!plugin.bus().isReady() || !plugin.bus().transfer().available()) {
@@ -369,35 +366,10 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
         plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
         plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
+        plugin.configs().set("arena.yml", "arenas." + arenaId + ".world", loc.getWorld().getName());
         plugin.reloadSettings();
         plugin.messages().sendRaw(sender, "arena-spawn-set", "arena", arenaId,
                 "point", name.toUpperCase(Locale.ROOT), "world", loc.getWorld().getName());
-    }
-
-    /** 指定 A/B 队使用哪个命名出生点。 */
-    private void setTeamPoint(CommandSender sender, String[] args) {
-        if (!require(sender, args, 5)) {
-            return;
-        }
-        String arenaId = args[2];
-        ArenaDef arena = plugin.settings().arena(arenaId);
-        if (arena == null) {
-            sender.sendMessage(cn("&c竞技场不存在：" + arenaId));
-            return;
-        }
-        String side = args[3].toLowerCase(Locale.ROOT);
-        if (!side.equals("a") && !side.equals("b")) {
-            sender.sendMessage(cn("&c队伍只能是 a 或 b"));
-            return;
-        }
-        String point = args[4].toLowerCase(Locale.ROOT);
-        if (arena.spawn(point) == null) {
-            sender.sendMessage(cn("&c出生点不存在：" + point + "（先用 arena setspawn " + arenaId + " " + point + " 设置）"));
-            return;
-        }
-        plugin.configs().set("arena.yml", "arenas." + arenaId + ".team-" + side + "-spawn", point);
-        plugin.reloadSettings();
-        plugin.messages().sendRaw(sender, "arena-set", "arena", arenaId, "value", "队伍" + side.toUpperCase(Locale.ROOT) + "→" + point);
     }
 
     // =====================================================================
@@ -478,7 +450,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     WarMode m = plugin.settings().mode(args[2]);
                     sender.sendMessage(cn("&6模式 &f" + m.key + " &7(" + m.display + ")"));
                     sender.sendMessage(cn("&7启用: &f" + m.enabled + " &7场地: &f" + m.arena
-                            + " &7承办服: &f" + (m.dedicatedServer.isBlank() ? "-" : m.dedicatedServer)));
+                            + " &7场地: &f" + m.arena));
                     sender.sendMessage(cn("&7公平装备: &f" + m.fairEquipment + " &7套装: &f" + m.kit));
                     sender.sendMessage(cn("&7队伍上限: &f" + m.teamSize + " &7最低人数: &f" + m.minMembers
                             + " &7最低等级: &f" + m.minLevel));
@@ -986,7 +958,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2) {
             return switch (args[0].toLowerCase(Locale.ROOT)) {
-                case "arena" -> startsWith(List.of("list", "info", "setspawn", "setteampoint", "setworld", "setserver", "settemplate",
+                case "arena" -> startsWith(List.of("list", "info", "setspawn", "setworld", "setserver", "settemplate",
                         "create", "remove", "setradius", "settempworld", "setgamerule", "setafter", "setendspawn", "tp"), args[1]);
                 case "kit" -> startsWith(List.of("list", "save", "delete", "info"), args[1]);
                 case "mode" -> startsWith(List.of("list", "info", "start"), args[1]);

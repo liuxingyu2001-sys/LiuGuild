@@ -105,8 +105,25 @@ class ArenaDefTest {
         assertEquals(4.0, a.spawn("d").x());
         assertEquals(9.0, a.spawn("spec").x(), "spec 应映射到 spectator");
         assertEquals(java.util.List.of("a", "b", "c", "d"), a.spawnPointNames());
-        assertEquals(3.0, a.teamSpawn("A").x(), "A 队应使用 team-a-spawn=c");
-        assertEquals(4.0, a.teamSpawn("B").x(), "B 队应使用 team-b-spawn=d");
+        assertEquals(1.0, a.teamSpawn("A").x());
+        assertEquals(3.0, a.teamSpawn("B").x());
+        assertEquals(2.0, a.teamSpawn("A", 1).x());
+        assertEquals(4.0, a.teamSpawn("B", 1).x());
+        assertEquals(1.0, a.teamSpawn("A", 2).x());
+    }
+
+    @Test
+    void customNamesAreSortedWithoutAddingPhantomAandB() {
+        ArenaDef a = parse("""
+                spawn-z: { x: 6, y: 65, z: 0 }
+                spawn-x: { x: 4, y: 65, z: 0 }
+                spawn-y: { x: 5, y: 65, z: 0 }
+                """);
+        assertEquals(java.util.List.of("x", "y", "z"), a.spawnPointNames());
+        assertEquals(4, a.teamSpawn("A", 0).x());
+        assertEquals(5, a.teamSpawn("A", 1).x());
+        assertEquals(6, a.teamSpawn("B", 10).x());
+        assertEquals(null, a.spawn("a"));
     }
 
     @Test
@@ -115,8 +132,6 @@ class ArenaDefTest {
                 spawn-a: { x: 1.0, y: 65.0, z: 1.0 }
                 spawn-b: { x: 2.0, y: 65.0, z: 2.0 }
                 """);
-        assertEquals("a", a.teamASpawn);
-        assertEquals("b", a.teamBSpawn);
         assertEquals(1.0, a.teamSpawn("A").x());
         assertEquals(2.0, a.teamSpawn("B").x());
         assertEquals(null, a.spawn("zzz"));

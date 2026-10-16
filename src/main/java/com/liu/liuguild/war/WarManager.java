@@ -125,7 +125,7 @@ public final class WarManager implements GuildModule {
         if (def == null || world == null) {
             return null;
         }
-        ArenaDef.Spawn spawn = def.teamSpawn(side);
+        ArenaDef.Spawn spawn = assignedSpawn(def, war, side, uuid);
         return spawn == null ? null : spawn.toLocation(world);
     }
 
@@ -212,9 +212,7 @@ public final class WarManager implements GuildModule {
         scheduleTasks();
         // 只在插件启动时做中断恢复；热重载不能碰本服正在进行的战斗。
         recoverInterruptedWars();
-        plugin.getLogger().info("工会战模块已启用（server-mode=" + conf().serverMode
-                + "，承办服=" + (conf().dedicated() ? conf().dedicatedServer : "本服")
-                + "，模式=" + conf().modes.keySet() + "）。");
+        plugin.getLogger().info("工会战模块已启用（模式=" + conf().modes.keySet() + "）。");
     }
 
     /** 启动/重载共用的定时任务装配，不触发崩溃恢复。 */
@@ -348,10 +346,6 @@ public final class WarManager implements GuildModule {
         return currentArena == null ? plugin.settings().arena(mode(conf().defaultMode).arena) : currentArena;
     }
 
-    public boolean isWarServer() {
-        return conf().serverMode;
-    }
-
     /**
      * 代理登记名探测到后回调：补领「早于探测到达、但本服就是承办服」的已匹配工会战。
      * 否则承办服没有先在线玩家时会错过 WAR_MATCHED，导致战争永远不开始。
@@ -374,7 +368,7 @@ public final class WarManager implements GuildModule {
     /**
      * 判断某个承办服标识是否就是本服。
      *
-     * <p>{@code arena.server} / {@code war.dedicated-server} 填的是代理（BungeeCord / Velocity）
+     * <p>{@code arena.server} 填的是代理（BungeeCord / Velocity）
      * 登记的<b>子服名</b>（例如 {@code zy}），而 {@code server-id} 是插件内部标识，历史配置里
      * 两者可能不一致（server.yml 留空时会被自动生成）。因此这里同时接受：
      * 内部 {@code server-id} 与代理登记名。代理名在玩家加入时通过 {@code GetServer} 探测。</p>
@@ -907,11 +901,11 @@ public final class WarManager implements GuildModule {
         if (transfer != null && transfer.proxyName() != null && !transfer.proxyName().isBlank()) {
             local = transfer.proxyName();
         }
-        String host = mode.hostServer(arenaDef.server, conf().dedicatedServer, local);
+        String host = arenaDef.server == null || arenaDef.server.isBlank() ? local : arenaDef.server;
         if (transfer != null && !transfer.knowsServer(host) && !isHostServer(host)) {
             plugin.getLogger().warning("工会战承办服 \"" + host
                     + "\" 不在代理登记的子服列表中，跨服玩家将无法传送过去；"
-                    + "请核对 arena.yml 的 server / server.yml 的 dedicated-server 与代理 [servers] 名称。");
+                    + "请核对 arena.yml 的 server 与代理 [servers] 名称。");
         }
         GuildWar war = new GuildWar(UUID.randomUUID().toString(), ga.id(), gb.id());
         war.mode(mode.key);
@@ -1390,7 +1384,7 @@ public final class WarManager implements GuildModule {
         }
         // 再次盯回出生点，避免传送偏差
         ArenaDef def = plugin.settings().arena(mode.arena);
-        ArenaDef.Spawn spawn = def == null ? null : def.teamSpawn(side);
+        ArenaDef.Spawn spawn = def == null ? null : assignedSpawn(def, war, side, player.getUniqueId());
         if (spawn != null && arenaWorld() != null) {
             warTeleport(player, spawn.toLocation(arenaWorld()));
         }
@@ -1417,7 +1411,7 @@ public final class WarManager implements GuildModule {
         if (mode == null || !mode.preparePlatform || mode.allowJumpOnPrepare) {
             return;
         }
-        ArenaDef.Spawn spawn = def == null ? null : def.teamSpawn(side);
+        ArenaDef.Spawn spawn = def == null ? null : assignedSpawn(def, current, side, player.getUniqueId());
         World world = arenaWorld();
         if (spawn == null || world == null) {
             return;
@@ -1507,7 +1501,7 @@ public final class WarManager implements GuildModule {
             }
             String side = sideOf.get(u);
             ArenaDef def = plugin.settings().arena(mode.arena);
-            ArenaDef.Spawn spawn = def == null || side == null ? null : def.teamSpawn(side);
+            ArenaDef.Spawn spawn = def == null || side == null ? null : assignedSpawn(def, war, side, u);
             World world = arenaWorld();
             Location target = spawn != null && world != null ? spawn.toLocation(world) : null;
             if (target != null) {
@@ -2300,13 +2294,32 @@ public final class WarManager implements GuildModule {
         }
     }
 
+    private String spawnAssignmentWar;
+    private final Map<UUID, Integer> spawnAssignments = new java.util.HashMap<>();
+
+    private ArenaDef.Spawn assignedSpawn(ArenaDef def, GuildWar war, String side, UUID uuid) {
+        if (war == null) return def.teamSpawn(side);
+        if (!war.id().equals(spawnAssignmentWar)) {
+            spawnAssignmentWar = war.id();
+            spawnAssignments.clear();
+        }
+        if (!spawnAssignments.containsKey(uuid)) {
+            for (var team : java.util.List.of(war.rosterA(), war.rosterB())) {
+                var roster = new java.util.ArrayList<>(team);
+                roster.sort(UUID::compareTo);
+                for (int i = 0; i < roster.size(); i++) spawnAssignments.putIfAbsent(roster.get(i), i);
+            }
+        }
+        return def.teamSpawn(side, spawnAssignments.getOrDefault(uuid, 0));
+    }
+
     private void teleportToSpawn(Player player, GuildWar war, String side) {
         World world = arenaWorld();
         if (world == null) {
             return;
         }
         ArenaDef def = plugin.settings().arena(modeOf(war).arena);
-        ArenaDef.Spawn spawn = def.teamSpawn(side);
+        ArenaDef.Spawn spawn = assignedSpawn(def, war, side, player.getUniqueId());
         Location loc = (spawn == null ? ("A".equals(side) ? def.spawnA : def.spawnB) : spawn).toLocation(world);
         warTeleport(player, loc);
     }
