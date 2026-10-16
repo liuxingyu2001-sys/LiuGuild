@@ -18,6 +18,7 @@ package com.liu.liuguild.config;
  */
 public final class Settings {
 
+    public BuffSettings buffs = new BuffSettings();
     public final MainSettings main;
     public final GuildSettings guild;
     public final WarehouseSettings warehouse;

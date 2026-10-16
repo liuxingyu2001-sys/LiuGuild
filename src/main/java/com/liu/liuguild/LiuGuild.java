@@ -63,6 +63,7 @@ public final class LiuGuild extends JavaPlugin {
     private KitService kits;
     private GuiManager gui;
     private PlayerguildImporter importer;
+    private com.liu.liuguild.buff.BuffService buffs;
     private ModuleRegistry modules;
 
     private EconomyHook economy;
@@ -172,6 +173,8 @@ public final class LiuGuild extends JavaPlugin {
         modules.register(titles);
         shop = new com.liu.liuguild.shop.ShopService(this);
         modules.register(shop);
+        buffs = new com.liu.liuguild.buff.BuffService(this);
+        modules.register(buffs);
         modules.register(new com.liu.liuguild.listener.GuildSyncModule(this));
         bus.addListener(modules::dispatchCrossServer);
         modules.enableAll();
@@ -373,6 +376,8 @@ public final class LiuGuild extends JavaPlugin {
     public PlayerguildImporter importer() {
         return importer;
     }
+
+    public com.liu.liuguild.buff.BuffService buffs() { return buffs; }
 
     public ModuleRegistry modules() {
         return modules;

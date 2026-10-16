@@ -51,7 +51,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             Map.entry("cleanup", "liuguild.admin.cleanup"),
             Map.entry("verify", "liuguild.admin.verify"),
             Map.entry("doctor", "liuguild.admin.status"),
-            Map.entry("overrides", "liuguild.admin.reload"),
             Map.entry("guilds", "liuguild.admin.guilds"),
             Map.entry("player", "liuguild.admin.player"),
             Map.entry("broadcast", "liuguild.admin.broadcast"),
@@ -98,7 +97,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "cleanup" -> cleanup(sender, args);
             case "verify" -> verify(sender, args);
             case "doctor" -> doctor(sender);
-            case "overrides" -> overrides(sender, args);
             case "guilds" -> guilds(sender, args);
             case "player" -> player(sender, args);
             case "broadcast" -> broadcast(sender, args);
@@ -141,7 +139,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "cleanup [dry|confirm]", "清理不活跃（僵尸）工会");
         adminLine(sender, "verify [fix]", "校验并修复内存数据一致性");
         adminLine(sender, "doctor", "部署自检：跨服/经济/场地/模板/套装/世界");
-        adminLine(sender, "overrides [list|clear <文件|all>]", "查看 / 清除游戏内编辑覆盖层");
     }
 
     private void adminLine(CommandSender sender, String cmd, String desc) {
@@ -814,26 +811,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                         .format(new java.util.Date(g.createdAt()))));
     }
 
-    private void overrides(CommandSender sender, String[] args) {
-        if (args.length >= 2 && args[1].equalsIgnoreCase("clear")) {
-            String file = args.length >= 3 ? args[2] : "all";
-            int n = plugin.configs().clearOverrides(file);
-            plugin.reloadSettings();
-            plugin.messages().sendRaw(sender, "admin-overrides-cleared", "count", n);
-            return;
-        }
-        java.util.List<String> files = plugin.configs().overrideFiles();
-        sender.sendMessage(cn("&6===== 游戏内编辑覆盖层 ====="));
-        if (files.isEmpty()) {
-            sender.sendMessage(cn("&7无（全部使用基础配置文件）"));
-        } else {
-            for (String f : files) {
-                sender.sendMessage(cn("&7- &foverrides/" + f));
-            }
-        }
-        sender.sendMessage(cn("&7清除：&f/guildadmin overrides clear <文件|all>"));
-    }
-
     private void doctor(CommandSender sender) {
         var s = plugin.settings();
         java.util.List<String> ok = new java.util.ArrayList<>();
@@ -1016,7 +993,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 case "war" -> startsWith(List.of("list", "queue", "start", "stop", "tp", "score"), args[1]);
                 case "reload", "status", "guilds", "cleanup" -> List.of();
                 case "verify" -> startsWith(List.of("fix"), args[1]);
-                case "overrides" -> startsWith(List.of("list", "clear"), args[1]);
                 case "player", "broadcast" -> onlinePlayerNames(args[1]);
                 default -> guildNames(args[1]);
             };
@@ -1038,11 +1014,6 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("import")) {
             return startsWith(List.of("force", "--force"), args[2]);
-        }
-        if (args.length == 3 && args[0].equalsIgnoreCase("overrides") && args[1].equalsIgnoreCase("clear")) {
-            List<String> options = new ArrayList<>(List.of("all"));
-            options.addAll(java.util.Arrays.asList(com.liu.liuguild.config.ConfigManager.MODULES));
-            return startsWith(options, args[2]);
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("setspawn")) {
             return startsWith(List.of("a", "b", "spec"), args[3]);

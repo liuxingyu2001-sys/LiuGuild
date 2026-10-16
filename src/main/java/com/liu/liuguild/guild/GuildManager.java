@@ -780,7 +780,7 @@ public final class GuildManager {
         if (plugin.warehouse() != null) {
             plugin.warehouse().kick(uuid);
         }
-        // 退会/被踢：卸下自定义头衔
+        // 退会/被踢：卸下固定头衔
         if (plugin.titles() != null) {
             plugin.titles().onMemberRemoved(uuid);
         }

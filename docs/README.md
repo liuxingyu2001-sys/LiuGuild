@@ -9,7 +9,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | 文档 | 说明 |
 |---|---|
 | [deployment.md](deployment.md) | **生产部署与运维**（环境、单服/跨服、配置清单、排障、备份） |
-| [shared-config.md](shared-config.md) | **共享配置目录与多服一致性**（共享什么/不共享什么、单写者锁、覆盖层） |
+| [shared-config.md](shared-config.md) | **共享配置目录与多服一致性**（共享什么/不共享什么、单写者锁、直接保存与旧配置迁移） |
 | [threading.md](threading.md) | **线程模型 / 预加载 / 生命周期**（什么在哪个线程跑、结算分帧） |
 | [commands.md](commands.md) | 玩家 / 管理指令、权限、Tab 补全 |
 | [admin.md](admin.md) | 管理工具（完整指令 + 图形化编辑器） |
@@ -24,7 +24,8 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [tasks.md](tasks.md) | 工会任务与 liupass 对接（扩展任务类型 / 通行证经验） |
 | [activity.md](activity.md) | 玩家在线活跃发工会资金（活跃判定 + 每日上限） |
 | [warehouse.md](warehouse.md) | 工会仓库（跨服共享 + 原子锁） |
-| [titles.md](titles.md) | 工会自定义头衔 |
+| [buffs.md](buffs.md) | 工会公共资金购买限时增益 |
+| [titles.md](titles.md) | 固定工会头衔 |
 | [shop.md](shop.md) | 工会商店（按工会隔离；个人工会资金购买，点数入账） |
 | [api.md](api.md) | 开放 API 与 Bukkit 事件 |
 | [placeholders.md](placeholders.md) | PlaceholderAPI 变量 |

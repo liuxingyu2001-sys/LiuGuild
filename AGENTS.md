@@ -49,7 +49,7 @@ mvn clean package
 
 - 改配置需同步默认 YAML、`config/` 解析、相关测试与 `docs/configuration.md` 或功能文档。
 - Maven 仅过滤 `plugin.yml`；其他 YAML 不过滤，以保留运行时占位符。
-- 共享目录仅从本服引导配置读取，`server.yml` 必须保持每服独立。游戏内编辑走 `overrides/` 覆盖层，保留删除标记和原子保存机制，不直接覆盖基础配置。
+- 共享目录仅从本服引导配置读取，`server.yml` 必须保持每服独立。游戏内编辑直接保存同名基础 YAML，保留原子保存及多服文件锁；旧 `overrides/` 仅用于升级迁移，成功备份合并后移除。
 - 共享配置与覆盖优先级详见 `docs/shared-config.md`；不要把全局定时任务变成每服重复执行，保留 Redis 锁与消息防回声语义。
 - 数据库表/迁移及 Redis 消息改动必须考虑已有数据、SQLite/MySQL 差异和多服滚动升级。
 - 命令、权限和软依赖变更同步 `plugin.yml` 与 `docs/commands.md` / `docs/hooks.md`；API、事件及 PAPI 变量变更检查 `docs/api.md` / `docs/placeholders.md`。

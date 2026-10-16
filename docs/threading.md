@@ -105,4 +105,4 @@ plugin.syncDelayed(r, t) // 延迟 t tick 在主线程跑
 - 全部钩子（liudungeon / LiuChat / liupass / CraftEngine / SparrowSync / LuckyPeaches / Vault / PAPI / PlayerTitle / NotBounties / HuskHomes / mcMMO / SparrowUI）；
 - 启动配置告警。
 
-`/guildadmin verify [fix]`：校验内存数据一致性；`/guildadmin overrides`：查看/清除游戏内编辑覆盖层。
+`/guildadmin verify [fix]`：校验内存数据一致性；游戏内配置编辑直接保存共享目录的同名 YAML。

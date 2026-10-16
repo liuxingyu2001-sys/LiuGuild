@@ -246,6 +246,9 @@ public final class Database {
             index(st, t("guild_shop") + "_guild", t("guild_shop"), "`guild_id`");
 
             // 工会头衔定义
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_buffs") + "` ("
+                    + "guild_id VARCHAR(64) NOT NULL, buff_id VARCHAR(32) NOT NULL, expires_at BIGINT NOT NULL,"
+                    + "PRIMARY KEY (guild_id,buff_id))");
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_titles") + "` ("
                     + "`guild_id` VARCHAR(36) NOT NULL,"
                     + "`title_id` VARCHAR(32) NOT NULL,"

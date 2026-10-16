@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  *
  * <h3>模型</h3>
  * <ul>
- *   <li>头衔是<b>工会自定义</b>的：会长/副会长创建，每个头衔有「最低可用职位」。</li>
+ *   <li>头衔由管理员在 guild.yml 配置，全服统一，玩家不能创建或删除。</li>
  *   <li>成员从自己够格的头衔里选一个装备，也可随时卸下（每人同时最多一个）。</li>
  *   <li>显示位置：聊天（工会频道）、PAPI {@code %liuguild_title%}、成员列表。</li>
  * </ul>
@@ -41,8 +41,6 @@ public final class TitleService implements GuildModule {
     private final LiuGuild plugin;
     private final TitleRepository repo;
 
-    /** guildId → (titleId → 头衔)。 */
-    private final Map<String, Map<String, GuildTitle>> titles = new ConcurrentHashMap<>();
     /** playerUuid → titleId（已装备）。 */
     private final Map<UUID, String> equipped = new ConcurrentHashMap<>();
 
@@ -108,10 +106,7 @@ public final class TitleService implements GuildModule {
         }
         plugin.async(() -> {
             try {
-                Map<String, Map<String, GuildTitle>> all = repo.loadAllTitles();
                 Map<UUID, String> eq = repo.loadAllEquipped();
-                titles.clear();
-                titles.putAll(all);
                 equipped.clear();
                 equipped.putAll(eq);
             } catch (Exception e) {
@@ -124,12 +119,7 @@ public final class TitleService implements GuildModule {
     public void reloadGuild(String guildId) {
         plugin.async(() -> {
             try {
-                Map<String, GuildTitle> t = repo.loadTitles(guildId);
-                if (t.isEmpty()) {
-                    titles.remove(guildId);
-                } else {
-                    titles.put(guildId, t);
-                }
+                // 固定头衔只从配置读取，数据库仅同步成员选择。
                 Map<UUID, String> eq = repo.loadEquipped(guildId);
                 equipped.keySet().removeIf(u -> {
                     Guild g = plugin.guilds().guildOf(u);
@@ -146,18 +136,17 @@ public final class TitleService implements GuildModule {
     // 读取（同步，全部走内存）
     // =====================================================================
 
-    /** 某工会的全部头衔（按创建顺序）。 */
+    /** 全服固定头衔（按配置顺序）。 */
     public List<GuildTitle> titlesOf(String guildId) {
-        Map<String, GuildTitle> m = titles.get(guildId);
-        return m == null ? List.of() : List.copyOf(m.values());
+        return plugin.settings().guild.titlesEnabled && guildId != null
+                ? List.copyOf(plugin.settings().guild.fixedTitles.values()) : List.of();
     }
 
     public GuildTitle title(String guildId, String titleId) {
         if (guildId == null || titleId == null) {
             return null;
         }
-        Map<String, GuildTitle> m = titles.get(guildId);
-        return m == null ? null : m.get(titleId);
+        return plugin.settings().guild.titlesEnabled ? plugin.settings().guild.fixedTitles.get(titleId) : null;
     }
 
     /** 玩家当前装备的头衔 id（未装备返回 null）。 */
@@ -167,6 +156,9 @@ public final class TitleService implements GuildModule {
 
     /** 玩家当前装备的头衔对象（未装备 / 头衔已被删返回 null）。 */
     public GuildTitle equipped(UUID player) {
+        if (!plugin.settings().guild.titlesEnabled) {
+            return null;
+        }
         String id = equippedId(player);
         if (id == null) {
             return null;
@@ -189,7 +181,7 @@ public final class TitleService implements GuildModule {
         }
         // 头衔最低职位要求不满足时（例如被降职）不再显示
         GuildMember m = g.member(player);
-        if (m != null && !t.usableBy(m.rank())) {
+        if (m == null || !t.usableBy(m.rank())) {
             return null;
         }
         return t;
@@ -245,77 +237,20 @@ public final class TitleService implements GuildModule {
         return null;
     }
 
-    /**
-     * 清理并保存头衔文本：保留颜色/装饰，去掉点击、悬浮、插入等交互事件。
-     * 玩家可控文本直接进 MiniMessage 会被注入，必须先脱敏。
-     */
-    private static String sanitizeDisplay(String display) {
-        try {
-            return Text.sanitizeToMini(display);
-        } catch (Throwable t) {
-            // 解析失败（例如未闭合标签）就按纯文本处理
-            return Text.esc(display);
-        }
-    }
-
     public static int maxDisplayLength() {
         return MAX_DISPLAY;
     }
 
-    /**
-     * 创建 / 更新头衔。
-     *
-     * @return 错误消息 key，null = 成功
-     */
+    /** 兼容旧调用：固定头衔不允许通过运行时接口创建或更新。 */
+    @Deprecated
     public String create(String guildId, String titleId, String display, GuildRank minRank) {
-        if (guildId == null) {
-            return "not-in-guild";
-        }
-        String err = validateId(titleId);
-        if (err != null) {
-            return err;
-        }
-        err = validateDisplay(display);
-        if (err != null) {
-            return err;
-        }
-        GuildTitle t = new GuildTitle(titleId, sanitizeDisplay(display), minRank);
-        titles.computeIfAbsent(guildId, k -> new ConcurrentHashMap<>()).put(titleId, t);
-        plugin.async(() -> {
-            try {
-                repo.saveTitle(guildId, t);
-            } catch (Exception e) {
-                plugin.getLogger().warning("保存工会头衔失败: " + e.getMessage());
-            }
-        });
-        broadcastCrossServer(guildId);
-        return null;
+        return "title-fixed-only";
     }
 
-    /** 删除头衔（同时卸下所有装备它的成员）。 */
+    /** 兼容旧调用：固定头衔不能通过运行时接口删除。 */
+    @Deprecated
     public boolean delete(String guildId, String titleId) {
-        Map<String, GuildTitle> m = titles.get(guildId);
-        if (m == null || m.remove(titleId) == null) {
-            return false;
-        }
-        // 把装备了这个头衔的成员一起卸下
-        for (Map.Entry<UUID, String> e : equipped.entrySet()) {
-            if (titleId.equals(e.getValue())) {
-                Guild g = plugin.guilds().guildOf(e.getKey());
-                if (g != null && g.id().equals(guildId)) {
-                    equipped.remove(e.getKey());
-                }
-            }
-        }
-        plugin.async(() -> {
-            try {
-                repo.deleteTitle(guildId, titleId);
-            } catch (Exception e) {
-                plugin.getLogger().warning("删除工会头衔失败: " + e.getMessage());
-            }
-        });
-        broadcastCrossServer(guildId);
-        return true;
+        return false;
     }
 
     /**
@@ -326,6 +261,9 @@ public final class TitleService implements GuildModule {
     public String equip(Guild g, GuildMember member, String titleId) {
         if (g == null || member == null) {
             return "not-in-guild";
+        }
+        if (!plugin.settings().guild.titlesEnabled) {
+            return "title-disabled";
         }
         GuildTitle t = title(g.id(), titleId);
         if (t == null) {
@@ -377,7 +315,6 @@ public final class TitleService implements GuildModule {
 
     /** 工会解散：清空该工会的头衔与装备记录。 */
     public void onGuildDisbanded(String guildId) {
-        titles.remove(guildId);
         equipped.keySet().removeIf(u -> {
             Guild g = plugin.guilds().guildOf(u);
             return g == null || g.id().equals(guildId);
@@ -393,7 +330,6 @@ public final class TitleService implements GuildModule {
 
     /** 清空全部内存缓存（测试 / 关闭用）。 */
     public void clearCache() {
-        titles.clear();
         equipped.clear();
     }
 

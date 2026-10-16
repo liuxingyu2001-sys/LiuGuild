@@ -8,8 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 共享配置「覆盖层」合并语义测试：
- * 游戏内编辑只写入 overrides/，并通过本合并覆盖到基础文件之上，基础文件（含注释）不被破坏。
+ * 旧覆盖文件升级迁移的合并语义测试：保留覆盖值并应用历史删除标记。
  */
 class ConfigMergeTest {
 

@@ -23,13 +23,13 @@ public final class ConfigManager {
 
     /** 模块文件清单。 */
     public static final String[] MODULES = {
-            "config.yml", "database.yml", "cross-server.yml", "guild.yml", "warehouse.yml", "war.yml",
+            "config.yml", "database.yml", "cross-server.yml", "guild.yml", "warehouse.yml", "buffs.yml", "war.yml",
             "war-modes.yml", "arena.yml", "kit.yml", "gui.yml", "icons.yml", "messages.yml", "tasks.yml"
     };
 
     private final Plugin plugin;
     private final File configRoot;
-    /** 游戏内编辑（GUI / 指令）写入的覆盖层；不修改带注释的基础文件。 */
+    /** 仅用于迁移旧版本游戏内编辑文件。 */
     private final File overrideRoot;
     private final Map<String, FileConfiguration> files = new LinkedHashMap<>();
     private final Messages messages;
@@ -91,15 +91,13 @@ public final class ConfigManager {
         boolean migrateWarehouse = !new File(configRoot, "warehouse.yml").exists()
                 && new File(configRoot, "guild.yml").exists();
         copyDefaults();
+        migrateLegacyOverrides();
         Map<String, FileConfiguration> loaded = new LinkedHashMap<>();
         for (String name : MODULES) {
             loaded.put(name, loadModule(name));
         }
         // 迁移只读取基础 guild.yml，不能把每服覆盖写进共享文件。
         GuildSettings legacyWarehouse = migrateWarehouse ? GuildSettings.parse(loaded.get("guild.yml")) : null;
-        // 应用游戏内编辑覆盖层：基础文件（带注释、可手改）不被破坏，
-        // 且共享目录下多服编辑不会互相整文件覆盖。
-        applyOverrides(loaded);
         // 应用 server.yml 的「每服独立」设置（如工会战承办服），只影响本服内存配置，
         // 不写回共享目录，避免多台子服因为同一份共享文件而互相冲突。
         applyServerOverrides(loaded, ensureServerFile());
@@ -139,8 +137,7 @@ public final class ConfigManager {
             }
             try { atomicSave((YamlConfiguration) migrated, new File(configRoot, "warehouse.yml")); }
             catch (IOException e) { throw new IllegalStateException("迁移 warehouse.yml 失败", e); }
-            // 对迁移后的文件重新应用覆盖层，只改变本服运行配置。
-            applyOverrides(loaded);
+            // 每服设置只改变本服运行配置。
             applyServerOverrides(loaded, ensureServerFile());
             warehouse = WarehouseSettings.parse(loaded.get("warehouse.yml"), guild);
         }
@@ -154,47 +151,101 @@ public final class ConfigManager {
         guild.warehouseRentMaxDays = warehouse.maxDays;
         files.clear();
         files.putAll(loaded);
-        this.settings = new Settings(main, guild, war, warModes, arenas, kit, gui, icons, warehouse);
+        BuffSettings buffs = BuffSettings.parse(loaded.get("buffs.yml"));
+        Settings next = new Settings(main, guild, war, warModes, arenas, kit, gui, icons, warehouse);
+        next.buffs = buffs;
+        this.settings = next;
 
         messages.copyDefault();
         messages.reload(main.language);
     }
 
-    /**
-     * 写入某个配置覆盖项（用于 /guildadmin arena setspawn 等）。
-     * <p>只写入 {@code overrides/<file>}，不触碰带注释的基础文件；
-     * 重复写同一路径的最后一个值生效，不会覆盖其它子服对其它键的修改。</p>
-     */
+    /** 游戏内编辑直接保存到共享目录中的同名 YAML。 */
     public boolean set(String fileName, String path, Object value) {
-        return writeOverride(fileName, path, value);
-    }
-
-    /** 删除某个配置节点（如删除竞技场）。 */
-    public boolean remove(String fileName, String path) {
-        return writeOverride(fileName, path, DELETED);
-    }
-
-    private boolean writeOverride(String fileName, String path, Object value) {
-        if (!overrideRoot.exists() && !overrideRoot.mkdirs()) {
-            plugin.getLogger().warning("无法创建覆盖配置目录: " + overrideRoot.getAbsolutePath());
+        if (!java.util.Arrays.asList(MODULES).contains(fileName)) {
             return false;
         }
-        File file = new File(overrideRoot, fileName);
-        YamlConfiguration ov = file.exists()
-                ? YamlConfiguration.loadConfiguration(file)
-                : new YamlConfiguration();
-        ov.set(path, value);
         try {
-            atomicSave(ov, file);
+            updateFile(configRoot, fileName, path, value);
             return true;
-        } catch (IOException e) {
-            plugin.getLogger().warning("保存覆盖配置 " + fileName + " 失败: " + e.getMessage());
+        } catch (Exception e) {
+            plugin.getLogger().warning("保存配置 " + fileName + " 失败，原文件保留: " + e.getMessage());
             return false;
         }
+    }
+
+    /** 删除直接从配置文件移除节点。 */
+    public boolean remove(String fileName, String path) {
+        return set(fileName, path, null);
+    }
+
+    /** 从磁盘重新读取，避免用本服内存配置覆盖其它服的修改或写入 server.yml 的本服值。 */
+    static void updateFile(File root, String name, String path, Object value) throws Exception {
+        withConfigLock(root, () -> {
+            YamlConfiguration config = new YamlConfiguration();
+            config.options().parseComments(true);
+            config.load(new File(root, name));
+            config.set(path, value);
+            atomicSave(config, new File(root, name));
+        });
+    }
+
+    @FunctionalInterface
+    private interface FileOperation {
+        void run() throws Exception;
+    }
+
+    /** 多服共同锁住读取—修改—保存，防止同时编辑不同键时相互覆盖。 */
+    private static synchronized void withConfigLock(File root, FileOperation operation) throws Exception {
+        try (var channel = java.nio.channels.FileChannel.open(new File(root, ".config-write.lock").toPath(),
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+             var lock = channel.lock()) {
+            operation.run();
+        }
+    }
+
+    /** 旧覆盖层只迁移一次；成功保存并备份后才删除旧文件。 */
+    private void migrateLegacyOverrides() {
+        for (String name : MODULES) {
+            try {
+                if (migrateLegacyFile(configRoot, name)) {
+                    plugin.getLogger().info("已合并旧 overrides/" + name + " 到 " + name
+                            + "，原覆盖文件备份在 migration-backups/。");
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException("迁移旧 overrides/" + name + " 失败，保留旧文件并停止加载", e);
+            }
+        }
+        // 仅删除空目录，不触碰未知文件。
+        overrideRoot.delete();
+    }
+
+    static boolean migrateLegacyFile(File root, String name) throws Exception {
+        boolean[] migrated = {false};
+        withConfigLock(root, () -> {
+            File legacy = new File(new File(root, "overrides"), name);
+            if (!legacy.isFile()) {
+                return;
+            }
+            YamlConfiguration base = new YamlConfiguration();
+            base.options().parseComments(true);
+            base.load(new File(root, name));
+            YamlConfiguration overlay = new YamlConfiguration();
+            overlay.load(legacy); // 严格解析，损坏时不能静默丢失旧修改。
+            File backups = new File(root, "migration-backups");
+            Files.createDirectories(backups.toPath());
+            File backup = File.createTempFile(name + "-", ".bak", backups);
+            Files.copy(legacy.toPath(), backup.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            mergeOverrides(base, overlay);
+            atomicSave(base, new File(root, name));
+            Files.delete(legacy.toPath());
+            migrated[0] = true;
+        });
+        return migrated[0];
     }
 
     /** 先写临时文件再原子替换，避免其它子服读到写了一半的文件。 */
-    private void atomicSave(YamlConfiguration yml, File target) throws IOException {
+    private static void atomicSave(YamlConfiguration yml, File target) throws IOException {
         File tmp = new File(target.getParentFile(), target.getName() + ".tmp");
         yml.save(tmp);
         try {
@@ -203,22 +254,6 @@ public final class ConfigManager {
                     java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         } catch (java.nio.file.AtomicMoveNotSupportedException e) {
             Files.move(tmp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    /** 把 overrides/<file> 的值合并进基础配置（标记为删除的键会被移除）。 */
-    private void applyOverrides(Map<String, FileConfiguration> loaded) {
-        for (String name : MODULES) {
-            File ov = new File(overrideRoot, name);
-            if (!ov.isFile()) {
-                continue;
-            }
-            FileConfiguration base = loaded.get(name);
-            if (base == null) {
-                continue;
-            }
-            YamlConfiguration o = YamlConfiguration.loadConfiguration(ov);
-            mergeOverrides(base, o);
         }
     }
 
@@ -240,32 +275,6 @@ public final class ConfigManager {
         for (String key : deletions) {
             base.set(key, null);
         }
-    }
-
-    /** 清空某个模块（或全部）的游戏内编辑覆盖层；返回被删除的覆盖文件数。 */
-    public int clearOverrides(String fileName) {
-        if ("all".equalsIgnoreCase(fileName)) {
-            int n = 0;
-            for (String name : MODULES) {
-                if (clearOverrides(name) > 0) {
-                    n++;
-                }
-            }
-            return n;
-        }
-        File file = new File(overrideRoot, fileName);
-        return file.isFile() && file.delete() ? 1 : 0;
-    }
-
-    /** 已存在的覆盖层文件名。 */
-    public java.util.List<String> overrideFiles() {
-        java.util.List<String> out = new java.util.ArrayList<>();
-        for (String name : MODULES) {
-            if (new File(overrideRoot, name).isFile()) {
-                out.add(name);
-            }
-        }
-        return out;
     }
 
     /** 确保 plugins/LiuGuild/server.yml 存在（不存在则从内置默认复制），返回该文件。 */
@@ -387,8 +396,8 @@ public final class ConfigManager {
         try {
             cfg.load(f);
         } catch (Exception e) {
-            if ("warehouse.yml".equals(name)) {
-                throw new IllegalArgumentException("warehouse.yml 解析失败，保留原文件和现有运行配置", e);
+            if ("warehouse.yml".equals(name) || "buffs.yml".equals(name)) {
+                throw new IllegalArgumentException(name + " 解析失败，保留原文件和现有运行配置", e);
             }
             parsed = false;
             plugin.getLogger().warning("配置 " + name + " 解析失败，将用内置默认重建: " + e.getMessage());

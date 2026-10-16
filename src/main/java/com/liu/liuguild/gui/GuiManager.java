@@ -175,6 +175,7 @@ public final class GuiManager implements GuildModule, Listener {
         return switch (buttonId) {
             case "home", "homes" -> plugin.guildHome() != null && plugin.guildHome().available();
             case "chat" -> plugin.guildChat() != null && plugin.guildChat().available();
+            case "buffs" -> plugin.buffs() != null && plugin.settings().buffs.enabled;
             case "warehouse_manage" -> plugin.warehouse() != null;
             default -> true;
         };
@@ -506,7 +507,7 @@ public final class GuiManager implements GuildModule, Listener {
     // =====================================================================
 
     /**
-     * 头衔面板：列出本工会全部头衔，左键装备/卸下，右键删除（需管理权限）。
+     * 头衔面板：列出本工会全部头衔，左键装备/卸下，不提供自定义管理入口。
      *
      * <p>不够格的头衔也会显示但置灰 —— 让成员知道目标是哪些。</p>
      */
@@ -521,28 +522,21 @@ public final class GuiManager implements GuildModule, Listener {
         }
         GuildMember me = g.member(player.getUniqueId());
         GuildRank rank = me == null ? GuildRank.MEMBER : me.rank();
-        boolean canManage = player.hasPermission("liuguild.title.manage")
-                || (me != null && me.rank().atLeast(plugin.settings().guild.titlesManageRank));
         String equippedId = plugin.titles().equippedId(player.getUniqueId());
 
         Holder holder = new Holder("titles", g.id(), 0);
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("count", String.valueOf(plugin.titles().titlesOf(g.id()).size()));
-        ph.put("max", String.valueOf(plugin.settings().guild.titlesMax));
+        ph.put("max", String.valueOf(plugin.settings().guild.fixedTitles.size()));
         Inventory inv = simpleInventory(player, holder, 6,
                 "<gold>工会头衔 <dark_gray>({count}/{max})", ph);
 
         List<GuildTitle> all = plugin.titles().titlesOf(g.id());
         if (all.isEmpty()) {
             inv.setItem(22, GuiUtil.build(player, "NAME_TAG", "NAME_TAG",
-                    "<gray>本工会还没有任何头衔",
-                    canManage
-                            ? List.of("<yellow>点击创建第一个头衔")
-                            : List.of("<gray>请会长/副会长创建"),
+                    "<gray>暂无可用的固定头衔",
+                    List.of("<gray>请联系管理员配置预设头衔"),
                     Map.of(), null));
-            if (canManage) {
-                holder.actions.put(22, "title:create");
-            }
         }
         int slot = 0;
         for (GuildTitle t : all) {
@@ -560,9 +554,6 @@ public final class GuiManager implements GuildModule, Listener {
             } else {
                 lore.add("<red>你的职位不足以使用");
             }
-            if (canManage) {
-                lore.add("<red>右键删除");
-            }
             inv.setItem(slot, GuiUtil.build(player, "NAME_TAG", "NAME_TAG",
                     color + t.display() + " <dark_gray>[" + t.id() + "]", lore, Map.of(), null));
             holder.actions.put(slot, "title_toggle:" + t.id());
@@ -572,40 +563,21 @@ public final class GuiManager implements GuildModule, Listener {
             }
         }
 
-        // 底排：创建 / 清除 / 返回
-        if (canManage) {
-            inv.setItem(47, GuiUtil.build(player, "EMERALD", "EMERALD", "<green>创建头衔",
-                    List.of("<gray>格式：<white>/guild title create <标识> <显示> [职位]",
-                            "<gray>也可直接点这里输入"), Map.of(), null));
-            holder.actions.put(47, "title:create");
-        }
-        inv.setItem(49, GuiUtil.build(player, "BARRIER", "BARRIER", "<yellow>卸下当前头衔",
+        // 底排：返回 / 卸下
+        inv.setItem(50, GuiUtil.build(player, "BARRIER", "BARRIER", "<yellow>卸下当前头衔",
                 List.of("<gray>当前：<white>" + (equippedId == null ? "无" : equippedId)), Map.of(), null));
-        holder.actions.put(49, "title:clear");
-        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
-        holder.actions.put(53, "back:main");
+        holder.actions.put(50, "title:clear");
+        inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
+        holder.actions.put(49, "back:main");
         show(player, holder, inv);
     }
 
-    /** 头衔面板：左键装备/卸下，右键删除。 */
+    /** 头衔面板：左键装备/卸下，右键不执行操作。 */
     private void titleToggle(Player player, Guild g, String titleId, boolean rightClick) {
         if (g == null || plugin.titles() == null) {
             return;
         }
         if (rightClick) {
-            GuildMember me = g.member(player.getUniqueId());
-            boolean canManage = player.hasPermission("liuguild.title.manage")
-                    || (me != null && me.rank().atLeast(plugin.settings().guild.titlesManageRank));
-            if (!canManage) {
-                plugin.messages().send(player, "title-no-permission");
-                return;
-            }
-            if (plugin.titles().delete(g.id(), titleId)) {
-                plugin.messages().send(player, "title-deleted", "id", titleId);
-            } else {
-                plugin.messages().send(player, "title-not-found");
-            }
-            openTitles(player, g);
             return;
         }
         GuildMember me = g.member(player.getUniqueId());
@@ -735,9 +707,10 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("category", column);
         Inventory inv = simpleInventory(player, holder, 6, "<gold>工会排行榜 <dark_gray>· {category}", ph);
         List<Guild> list = plugin.guilds().top(column, 10);
-        int slot = 10;
+        int[] rankSlots = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21};
         int rank = 1;
         for (Guild g : list) {
+            int slot = rankSlots[rank - 1];
             String value = switch (column) {
                 case "bank" -> plugin.economy().format(g.bank());
                 case "level" -> String.valueOf(g.level());
@@ -757,24 +730,24 @@ public final class GuiManager implements GuildModule, Listener {
                     Map.of(), null));
             holder.actions.put(slot, "info_view:" + g.id());
             rank++;
-            slot++;
-            if (rank > 10) {
+            if (rank > rankSlots.length) {
                 break;
             }
         }
         String[] categories = {"points", "bank", "level", "members", "wins", "losses"};
-        int[] catSlots = {45, 46, 47, 48, 49, 50};
+        String[] categoryNames = {"公共资金", "金币银行", "工会等级", "成员人数", "胜场", "负场"};
+        int[] catSlots = {45, 46, 47, 50, 51, 52};
         for (int i = 0; i < categories.length; i++) {
             String c = categories[i];
             boolean active = c.equals(column);
             String material = active ? "LIME_DYE" : "GRAY_DYE";
             inv.setItem(catSlots[i], GuiUtil.build(player, material, material,
-                    (active ? "<green>" : "<gray>") + c,
+                    (active ? "<green>✓ " : "<gray>") + categoryNames[i],
                     List.of("<gray>点击切换该排行"), Map.of(), null));
             holder.actions.put(catSlots[i], "top_cat:" + c);
         }
-        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回主页", List.of(), Map.of(), null));
-        holder.actions.put(53, "back:main");
+        inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回主页", List.of(), Map.of(), null));
+        holder.actions.put(49, "back:main");
         show(player, holder, inv);
     }
 
@@ -869,8 +842,7 @@ public final class GuiManager implements GuildModule, Listener {
                     List.of("<gray>先把物品拿在主手", "<gray>然后点击这里输入售价"), Map.of(), null));
             holder.actions.put(48, "shop:add");
         }
-        inv.setItem(50, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回主页", List.of(), Map.of(), null));
-        holder.actions.put(50, "back:main");
+        put(inv, holder, 49, player, "ARROW", "<white>返回主页", List.of(), "back:main");
         put(inv, holder, 51, player, "PAPER", "<white>第 " + (page + 1) + " / " + (maxPage + 1) + " 页", List.of(), "none");
         if (page > 0) put(inv, holder, 45, player, "ARROW", "<white>上一页", List.of(), "page_shop:" + (page - 1));
         if (page < maxPage) put(inv, holder, 53, player, "ARROW", "<white>下一页", List.of(), "page_shop:" + (page + 1));
@@ -1141,56 +1113,10 @@ public final class GuiManager implements GuildModule, Listener {
                 }
             }
             case "admin:arenas" -> openArenaList(player, 0);
+            case "buffs:open" -> openBuffs(player);
             case "title:open" -> openTitles(player, require(g, player));
             case "shop:open" -> openShop(player, require(g, player));
-            case "title:create" -> {
-                Guild tg = require(g, player);
-                if (tg == null) {
-                    break;
-                }
-                var m = tg.member(player.getUniqueId());
-                boolean canManage = player.hasPermission("liuguild.title.manage")
-                        || (m != null && m.rank().atLeast(plugin.settings().guild.titlesManageRank));
-                if (!canManage) {
-                    plugin.messages().send(player, "title-no-permission");
-                    break;
-                }
-                if (plugin.titles() == null) {
-                    plugin.messages().send(player, "title-disabled");
-                    break;
-                }
-                String max = String.valueOf(plugin.settings().guild.titlesMax);
-                requestText(player, "title-prompt-id", id -> {
-                    String err = com.liu.liuguild.title.TitleService.validateId(id);
-                    if (err != null) {
-                        plugin.messages().send(player, err);
-                        openTitles(player, tg);
-                        return;
-                    }
-                    requestText(player, "title-prompt-display", display -> {
-                        String err2 = com.liu.liuguild.title.TitleService.validateDisplay(display);
-                        if (err2 != null) {
-                            plugin.messages().send(player, err2, "max",
-                                    String.valueOf(com.liu.liuguild.title.TitleService.maxDisplayLength()));
-                            openTitles(player, tg);
-                            return;
-                        }
-                        if (plugin.titles().title(tg.id(), id) == null
-                                && plugin.titles().titlesOf(tg.id()).size() >= plugin.settings().guild.titlesMax) {
-                            plugin.messages().send(player, "title-limit", "max", max);
-                            openTitles(player, tg);
-                            return;
-                        }
-                        String err3 = plugin.titles().create(tg.id(), id, display, GuildRank.MEMBER);
-                        if (err3 != null) {
-                            plugin.messages().send(player, err3, "max", max);
-                        } else {
-                            plugin.messages().send(player, "title-created", "id", id, "display", display);
-                        }
-                        openTitles(player, tg);
-                    });
-                });
-            }
+            case "title:create" -> plugin.messages().send(player, "title-fixed-only");
             case "title:clear" -> {
                 Guild tg = require(g, player);
                 if (tg == null || plugin.titles() == null) {
@@ -1377,6 +1303,10 @@ public final class GuiManager implements GuildModule, Listener {
             if (g != null && plugin.guilds().setIcon(player, g, iconId)) {
                 openSettings(player, g);
             }
+        } else if (action.startsWith("buff_buy:")) {
+            openBuffConfirmation(player, action.substring("buff_buy:".length()));
+        } else if (action.startsWith("buff_confirm:")) {
+            if (g != null && plugin.buffs() != null) plugin.buffs().purchase(player, g, action.substring("buff_confirm:".length()));
         } else if (action.startsWith("title_toggle:")) {
             titleToggle(player, g, action.substring("title_toggle:".length()), clickRight);
         } else if (action.startsWith("shop_buy:")) {
@@ -1622,8 +1552,7 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(slot, "mode_edit:" + m.key);
             slot++;
         }
-        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
-        holder.actions.put(53, "admin:wars_back");
+        put(inv, holder, 49, player, "ARROW", "<white>返回管理面板", List.of(), "admin:wars_back");
         show(player, holder, inv);
     }
 
@@ -1711,11 +1640,10 @@ public final class GuiManager implements GuildModule, Listener {
             holder.actions.put(slot, "kit_edit:" + e.getKey());
             slot++;
         }
-        inv.setItem(49, GuiUtil.build(player, "ANVIL", "ANVIL", "<green>新建套装（使用当前装备）",
+        inv.setItem(47, GuiUtil.build(player, "ANVIL", "ANVIL", "<green>新建套装（使用当前装备）",
                 List.of("<gray>点击后输入名字"), Map.of(), null));
-        holder.actions.put(49, "kit_new");
-        inv.setItem(53, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
-        holder.actions.put(53, "admin:wars_back");
+        holder.actions.put(47, "kit_new");
+        put(inv, holder, 49, player, "ARROW", "<white>返回管理面板", List.of(), "admin:wars_back");
         show(player, holder, inv);
     }
 
@@ -1795,6 +1723,7 @@ public final class GuiManager implements GuildModule, Listener {
         inv.setItem(16, GuiUtil.build(player, "TNT", "TNT", "<red>强制结束比赛",
                 List.of("<gray>将立即结算奖励"), Map.of(), null));
         holder.actions.put(16, "war_stop:" + warId);
+        put(inv, holder, 22, player, "ARROW", "<white>返回比赛列表", List.of(), "admin:wars");
         show(player, holder, inv);
     }
 
@@ -2139,7 +2068,7 @@ public final class GuiManager implements GuildModule, Listener {
                 List.of("<gray>结束后送回参赛前位置"), "arena_toggle:" + a.id + ":auto-return");
         slot = put(inv, holder, slot, player, "BARRIER", "<red>删除竞技场",
                 List.of("<gray>从 arena.yml 移除", "<red>此操作不可恢复"), "arena_delete:" + a.id);
-        int backSlot = 53;
+        int backSlot = 49;
         inv.setItem(backSlot, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回列表", List.of(), Map.of(), null));
         holder.actions.put(backSlot, "admin:arenas");
         show(player, holder, inv);
@@ -2192,7 +2121,7 @@ public final class GuiManager implements GuildModule, Listener {
                 List.of("<gray>点击输入新简介"), "guild_input:" + g.id() + ":desc");
         slot = put(inv, holder, slot, player, "TNT", "<red>强制解散工会",
                 List.of("<red>此操作不可恢复", "<gray>点击后在聊天栏输入 yes 确认"), "guild_disband:" + g.id());
-        int backSlot = 53;
+        int backSlot = 49;
         inv.setItem(backSlot, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回列表", List.of(), Map.of(), null));
         holder.actions.put(backSlot, "admin:guilds");
         show(player, holder, inv);
@@ -2228,9 +2157,9 @@ public final class GuiManager implements GuildModule, Listener {
                     List.of("<gray>点击切换到该列表"), Map.of(), null));
             holder.actions.put(48, switchAction);
         }
-        inv.setItem(50, GuiUtil.build(player, "BARRIER", "BARRIER", "<white>返回管理面板",
+        inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回管理面板",
                 List.of("<gray>回到管理菜单"), Map.of(), null));
-        holder.actions.put(50, backAction == null ? "admin:open" : backAction);
+        holder.actions.put(49, backAction == null ? "admin:open" : backAction);
     }
 
     private static String fmtSpawn(ArenaDef.Spawn s) {
@@ -2274,6 +2203,45 @@ public final class GuiManager implements GuildModule, Listener {
             clickRight = false;
             clickShift = false;
         }
+    }
+
+    /** 工会增益：普通成员可查看，购买权限在数据库事务中再次校验。 */
+    public void openBuffs(Player player) {
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) { plugin.messages().send(player, "not-in-guild"); return; }
+        var config = plugin.settings().buffs;
+        if (!config.enabled || plugin.buffs() == null) { plugin.messages().send(player, "buff-unavailable"); return; }
+        Holder holder = new Holder("buffs", g.id(), 0);
+        Inventory inv = simpleInventory(player, holder, 4, "<gold>工会限时增益", Map.of());
+        put(inv, holder, 4, player, "BEACON", "<gold>全体成员共享",
+                List.of("<gray>公共工会资金：" + g.points(), "<gray>使用槽位：" + plugin.buffs().activeCount(g.id()) + "/" + config.slots(g.level()),
+                        "<gray>离线不暂停；工会战期间停用", "<gray>同类续时，最多累计 " + config.maxSeconds / 3600.0 + " 小时"), "noop");
+        int[] slots = {10,12,14,16}; int i = 0;
+        GuildMember member = g.member(player.getUniqueId());
+        boolean canBuy = member != null && member.rank().atLeast(config.purchaseRank);
+        for (var buff : config.buffs.values()) {
+            long seconds = Math.max(0, (plugin.buffs().expires(g.id(), buff.id()) - System.currentTimeMillis()) / 1000);
+            String effect = buff.effect().equals("EXPERIENCE") ? "原版经验 +" + Math.round(buff.experienceBonus() * 100) + "%" : "等级 " + (buff.amplifier() + 1);
+            put(inv, holder, slots[i++], player, "POTION", "<aqua>" + buff.name(),
+                    List.of("<gray>效果：" + effect, "<gray>剩余：" + seconds / 60 + " 分 " + seconds % 60 + " 秒",
+                            "<gray>单次时长：" + buff.seconds() / 60.0 + " 分钟", "<gray>费用：" + buff.cost() + " 公共工会资金",
+                            canBuy ? "<yellow>点击购买 / 续时（需确认）" : "<gray>需要职位：" + config.purchaseRank.display()),
+                    canBuy ? "buff_buy:" + buff.id() : "noop");
+        }
+        show(player, holder, inv);
+    }
+
+    private void openBuffConfirmation(Player player, String id) {
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        var buff = plugin.settings().buffs.buffs.get(id);
+        if (g == null || buff == null) return;
+        Holder holder = new Holder("buff_confirm", g.id(), 0);
+        Inventory inv = simpleInventory(player, holder, 3, "<gold>确认购买工会增益", Map.of());
+        put(inv, holder, 11, player, "LIME_CONCRETE", "<green>确认购买：" + buff.name(),
+                List.of("<gray>扣除 " + buff.cost() + " 公共工会资金", "<gray>增加 " + buff.seconds() / 60.0 + " 分钟", "<red>购买后不可退款"), "buff_confirm:" + id);
+        put(inv, holder, 15, player, "RED_CONCRETE", "<white>取消", List.of(), "buffs:open");
+        put(inv, holder, 22, player, "ARROW", "<white>返回增益列表", List.of(), "buffs:open");
+        show(player, holder, inv);
     }
 
     public void openFunds(Player player) {
@@ -2460,8 +2428,13 @@ public final class GuiManager implements GuildModule, Listener {
             case "icons" -> "back:settings";
             default -> "back:main";
         };
-        put(inv, holder, inv.getSize() - 5, viewer, "ARROW",
-                "close".equals(target) ? "<white>关闭菜单" : "<white>返回工会主页", List.of(), target);
+        // 静态返回/关闭按钮已配置时，不额外生成第二个导航入口。
+        boolean hasNavigation = def.buttons.keySet().stream()
+                .anyMatch(key -> key.equals("back") || key.equals("info_back") || key.equals("close"));
+        if (!hasNavigation && def.back == null) {
+            put(inv, holder, inv.getSize() - 5, viewer, "ARROW",
+                    "close".equals(target) ? "<white>关闭菜单" : "<white>返回工会主页", List.of(), target);
+        }
         return inv;
     }
 
@@ -2611,6 +2584,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "shop" -> "shop:open";
             case "invites" -> "invites:open";
             case "chat" -> "chat:toggle";
+            case "buffs" -> "buffs:open";
             case "titles" -> "title:open";
             case "toggle_open" -> "set:open";
             case "notice" -> "set:notice";

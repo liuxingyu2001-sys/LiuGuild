@@ -95,13 +95,20 @@ guild:
     cost: 1000.0
     # 是否允许同时修改标签（tag，如 [SKY]）
     allow-tag: true
-  # 工会头衔：工会自定义的显示称号，成员从自己够格的里选一个装备
+  # 固定工会头衔：仅管理员编辑配置，玩家只能装备/卸下
   titles:
     enabled: true
-    # 每个工会最多可创建几个头衔
-    max: 12
-    # 谁能创建/删除头衔（MEMBER / OFFICER / LEADER）
-    manage-rank: OFFICER
+    # 最多45个；min-rank 是最低可用职位
+    presets:
+      member:
+        display: "<white>工会成员"
+        min-rank: MEMBER
+      officer:
+        display: "<aqua>工会官员"
+        min-rank: OFFICER
+      leader:
+        display: "<gold>工会会长"
+        min-rank: LEADER
   # 工会商店：仅出售库存商品，Vault 收入进工会金币银行，不提供收购
   # 商店严格按工会隔离：每个工会的商店物品独立，工会之间互不可见/不可购买
   shop:

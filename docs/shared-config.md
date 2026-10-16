@@ -16,7 +16,7 @@ plugins/LiuGuild/
 ├── config.yml  database.yml  cross-server.yml  guild.yml
 ├── war.yml  war-modes.yml  arena.yml  kit.yml
 ├── gui.yml  icons.yml  messages.yml  tasks.yml
-└── overrides/        ← 游戏内编辑（GUI/指令）写入这里，不破坏上面的基础文件
+└── migration-backups/ ← 升级时旧覆盖文件的备份，不参与配置加载
 ```
 
 > `settings.shared-config-path` 只从 **本服** 的 `plugins/LiuGuild/config.yml` 读取；
@@ -30,7 +30,7 @@ plugins/LiuGuild/
 | `plugins/LiuGuild/config.yml` | ❌ 每服引导 | 仅用于读取共享路径与自动重载开关 |
 | `database.yml` | ✅ 共享 | 跨服必须同一库、同一表前缀 |
 | `cross-server.yml` | ✅ 共享 | 同一 Redis、同一 `channel`、同一 `database` |
-| `guild.yml` / `war.yml` / `war-modes.yml` / `arena.yml` / `kit.yml` / `gui.yml` / `icons.yml` / `messages.yml` / `tasks.yml` | ✅ 共享 | 玩法与展示配置，全服一致 |
+| `guild.yml` / `warehouse.yml` / `buffs.yml` / `war.yml` / `war-modes.yml` / `arena.yml` / `kit.yml` / `gui.yml` / `icons.yml` / `messages.yml` / `tasks.yml` | ✅ 共享 | 玩法与展示配置，全服一致 |
 | 共享目录 `config.yml` | ✅ 共享 | 全服一致（`server-id` 已移至 `server.yml`） |
 
 **结论：必须每服独立的都放在 `server.yml`：** `server-id`、工会战承办服设置、语言/调试。
@@ -65,21 +65,19 @@ overrides:
     transfer.enabled: true
 ```
 
-## 3. 游戏内编辑不会破坏共享文件
+## 3. 每个模块只有一份生效文件
 
-通过 GUI 或 `/guildadmin` 修改配置（几何出生点、套装、模式、竞技场等）时：
+通过 GUI 或 `/guildadmin` 修改竞技场出生点、套装、模式等时，直接保存到共享目录中的同名 YAML。例如设置出生点直接修改 `arena.yml`；手工编辑也修改这份文件。
 
-- 修改写入 **`overrides/<文件名>`**，**不写回** 带完整注释的基础文件；
-- 加载时把覆盖层合并到基础配置之上（覆盖层优先）；
-- 删除节点通过覆盖层中的 `__liuguild_deleted__` 标记实现；
-- 保存采用“临时文件 + 原子替换”，其它子服不会读到写了一半的文件。
+- 保存前重新读取磁盘文件，只修改目标节点，保留其它配置与可解析的 YAML 注释。
+- 多服通过文件锁串行执行读取、修改、保存，并使用临时文件 + 原子替换，避免读到半份文件。
+- `server.yml` 仍是每服独立设置，只影响运行配置，不会被写入共享文件。
 
-这样即使多台子服的两位管理员同时编辑不同服务器，也**不会**出现“整文件覆盖导致彼此丢失”，且基础文件的注释与结构保持不变。
+### 从旧版本升级
 
-- 查看覆盖层：`/guildadmin overrides`
-- 清除覆盖层（回退到基础文件）：`/guildadmin overrides clear <文件|all>`
+首次加载自动将旧 `overrides/<文件名>` 合并到同名基础 YAML（沿用旧覆盖值及删除标记），成功保存后移除旧覆盖文件。原覆盖文件备份到 `migration-backups/`，备份不参与加载。迁移失败时保留旧文件并停止加载，不会静默丢弃游戏内修改。
 
-> 已用 `/guildadmin` 设过的值，再手工改基础文件不会生效（覆盖层优先）；要恢复手改，请先清除对应覆盖层。
+升级完成后只维护基础文件，例如 `shared/LiuGuild-config/arena.yml`。不再生成游戏内编辑覆盖层，也不再提供 `/guildadmin overrides` 命令。滚动升级期间应避免旧版子服继续编辑配置，完成全部子服升级后再编辑。
 
 ## 4. 定时任务不会被多台子服重复执行
 
@@ -100,7 +98,7 @@ overrides:
 
 ## 5. 配置变更如何传播
 
-- 任一子服修改配置后，文件 mtime 变化（含覆盖层目录），其它子服通过指纹轮询感知并**自动热重载**。
+- 任一子服修改配置后，文件 mtime 变化，其它子服通过指纹轮询感知并**自动热重载**。
 - 自动热重载只重载配置/消息/定时任务，**不会**全表重读工会数据（避免风暴）。
 - 需要连同数据一起重读时，使用管理命令 `/guildadmin reload`。
 
@@ -120,4 +118,4 @@ overrides:
 | 各服 `cross-server.yml` 的 `channel` 不一致 | 视为不同群组，跨服工会战完全不通 | 统一 `channel` |
 | 各服 `database.yml` 不同库 | 工会数据割裂 | 统一库与表前缀 |
 | 共享目录不可写 | 游戏内编辑失败并记录告警，回退只读 | 授予写权限或改用手改基础文件 |
-| 手工改基础文件但该项已被覆盖层覆盖 | 改动不生效 | `/guildadmin overrides clear <文件>` 后重载 |
+| 手工修改后本服值仍不同 | `server.yml` 有本服独立设置 | 检查本服 `server.yml` 的对应键 |

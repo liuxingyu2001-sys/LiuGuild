@@ -1,5 +1,6 @@
 package com.liu.liuguild.config;
 
+import java.util.Map;
 import com.liu.liuguild.model.GuildRank;
 import org.bukkit.configuration.file.FileConfiguration;
 
@@ -119,12 +120,18 @@ public final class GuildSettings {
     public GuildRank warehouseManageRank = GuildRank.OFFICER;
 
     // ---- 工会头衔 ----
-    /** 是否启用工会自定义头衔。 */
+    /** 是否启用固定工会头衔。 */
     public boolean titlesEnabled = true;
-    /** 每个工会最多可创建的头衔数。 */
-    public int titlesMax = 12;
-    /** 创建/删除头衔所需的最低职位。 */
-    public GuildRank titlesManageRank = GuildRank.OFFICER;
+    /** 固定头衔，全服统一，由管理员配置；不读取旧自定义头衔。 */
+    public Map<String, com.liu.liuguild.model.GuildTitle> fixedTitles = defaultTitles();
+
+    private static Map<String, com.liu.liuguild.model.GuildTitle> defaultTitles() {
+        Map<String, com.liu.liuguild.model.GuildTitle> out = new java.util.LinkedHashMap<>();
+        out.put("member", new com.liu.liuguild.model.GuildTitle("member", "<white>工会成员", GuildRank.MEMBER));
+        out.put("officer", new com.liu.liuguild.model.GuildTitle("officer", "<aqua>工会官员", GuildRank.OFFICER));
+        out.put("leader", new com.liu.liuguild.model.GuildTitle("leader", "<gold>工会会长", GuildRank.LEADER));
+        return out;
+    }
 
     // ---- 工会商店 ----
     /** 是否启用工会商店。 */
@@ -218,8 +225,22 @@ public final class GuildSettings {
         s.shopTaxPercent = clamp(c.getDouble("guild.shop.tax-percent", s.shopTaxPercent), 0, 100);
         s.shopManageRank = GuildRank.parse(c.getString("guild.shop.manage-rank", s.shopManageRank.name()));
         s.titlesEnabled = c.getBoolean("guild.titles.enabled", s.titlesEnabled);
-        s.titlesMax = Math.max(1, Math.min(64, c.getInt("guild.titles.max", s.titlesMax)));
-        s.titlesManageRank = GuildRank.parse(c.getString("guild.titles.manage-rank", s.titlesManageRank.name()));
+        var fixed = c.getConfigurationSection("guild.titles.presets");
+        if (fixed != null) {
+            s.fixedTitles = new java.util.LinkedHashMap<>();
+            for (String id : fixed.getKeys(false)) {
+                String display = fixed.getString(id + ".display", "");
+                if (com.liu.liuguild.title.TitleService.validateId(id) != null
+                        || com.liu.liuguild.title.TitleService.validateDisplay(display) != null) {
+                    throw new IllegalArgumentException("固定头衔配置无效: " + id);
+                }
+                s.fixedTitles.put(id, new com.liu.liuguild.model.GuildTitle(id, display,
+                        GuildRank.parse(fixed.getString(id + ".min-rank", "MEMBER"))));
+            }
+            if (s.fixedTitles.size() > 45) {
+                throw new IllegalArgumentException("固定头衔最多配置45个");
+            }
+        }
         return s;
     }
 

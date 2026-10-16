@@ -2353,6 +2353,7 @@ public final class WarManager implements GuildModule {
     private void captureSnapshot(Player player, GuildWar war, Runnable afterCaptured) {
         UUID uuid = player.getUniqueId();
         String playerName = player.getName();
+        if (plugin.buffs() != null) plugin.buffs().suspend(player);
         plugin.gui().closeMenu(player);
         capturing.add(uuid);
         KitService.Snapshot snap = plugin.kits().snapshot(player);

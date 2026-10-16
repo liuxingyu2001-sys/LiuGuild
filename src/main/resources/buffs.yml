@@ -1,0 +1,33 @@
+# 公共工会资金购买，全体成员共享；离线/重启不暂停现实时间倒计时。
+enabled: true
+purchase-rank: LEADER
+max-duration-seconds: 21600
+slots-by-level:
+  '1': 1
+  '5': 2
+  '10': 3
+buffs:
+  speed:
+    name: 疾行祝福
+    effect: SPEED
+    level: 1
+    cost: 1000
+    duration-seconds: 3600
+  haste:
+    name: 矿工祝福
+    effect: HASTE
+    level: 1
+    cost: 1500
+    duration-seconds: 3600
+  diving:
+    name: 深海祝福
+    effect: WATER_BREATHING
+    level: 1
+    cost: 1000
+    duration-seconds: 3600
+  experience:
+    name: 丰收祝福
+    effect: EXPERIENCE
+    experience-bonus: 0.10
+    cost: 2000
+    duration-seconds: 3600

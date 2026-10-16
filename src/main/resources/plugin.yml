@@ -63,9 +63,6 @@ permissions:
   liuguild.shop.manage:
     description: 管理工会商店（上架 / 改价 / 下架）
     default: op
-  liuguild.title.manage:
-    description: 管理工会头衔（创建 / 删除）
-    default: op
   liuguild.admin:
     description: 工会管理总权限
     default: op

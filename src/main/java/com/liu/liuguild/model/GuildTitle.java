@@ -1,6 +1,6 @@
 package com.liu.liuguild.model;
 
-/** 工会自定义头衔（如「传说」「战力天花板」）。 */
+/** 固定工会头衔（如「传说」「战力天花板」）。 */
 public final class GuildTitle {
 
     /** 头衔标识（工会内唯一，用于指令与存储）。 */
