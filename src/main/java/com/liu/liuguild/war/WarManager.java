@@ -99,11 +99,11 @@ public final class WarManager implements GuildModule {
 
     /** 玩家是否处于「准备阶段锁定」状态。 */
     public boolean isFrozen(UUID uuid) {
-        return frozen.contains(uuid) || capturing.contains(uuid);
+        return frozen.contains(uuid) || capturing.contains(uuid) || (plugin.seasons() != null && plugin.seasons().frozen(uuid));
     }
 
     public boolean isCapturing(UUID uuid) {
-        return capturing.contains(uuid);
+        return capturing.contains(uuid) || (plugin.seasons() != null && plugin.seasons().capturing(uuid));
     }
 
     /** 玩家当前的锁定坐标（准备阶段出生点）；未锁定时返回 null。 */
@@ -440,7 +440,7 @@ public final class WarManager implements GuildModule {
 
     /** 玩家是否处于工会战或旁观状态（禁止打开面板/菜单、禁止外部传送、禁止传送指令）。 */
     public boolean isWarRestricted(UUID uuid) {
-        return uuid != null && (isInWar(uuid) || spectators.contains(uuid) || sideOf.containsKey(uuid));
+        return uuid != null && ((plugin.seasons() != null && plugin.seasons().restricted(uuid)) || isInWar(uuid) || spectators.contains(uuid) || sideOf.containsKey(uuid));
     }
 
     public boolean isSpectator(UUID uuid) {
@@ -477,6 +477,10 @@ public final class WarManager implements GuildModule {
 
     /** 指定模式发起匹配。 */
     public void queue(Player player, Guild guild, String modeKey) {
+        if (plugin.seasons() != null && plugin.seasons().isSeason(modeKey)) {
+            player.sendMessage("§e赛季混战由管理员或时间表统一开启，符合条件的在线工会自动参赛，不进入两两匹配队列。");
+            return;
+        }
         if (!player.hasPermission("liuguild.war")) {
             plugin.messages().send(player, "no-permission");
             return;
@@ -680,6 +684,10 @@ public final class WarManager implements GuildModule {
     }
 
     private void startSeason(WarMode mode, boolean forceEnqueue) {
+        if (mode != null && plugin.seasons() != null && plugin.seasons().isSeason(mode.key)) {
+            plugin.seasons().start(mode.key);
+            return;
+        }
         if (mode == null) {
             return;
         }
@@ -731,6 +739,9 @@ public final class WarManager implements GuildModule {
             return false;
         }
         if (!conf().enabled || !mode(modeKey).enabled) return false;
+        if (plugin.seasons() != null && plugin.seasons().isSeason(modeKey)) {
+            return plugin.seasons().start(modeKey);
+        }
         startSeason(mode(modeKey), true);
         return true;
     }
@@ -747,7 +758,7 @@ public final class WarManager implements GuildModule {
     }
 
     private void matchTick() {
-        if (!conf().enabled || current != null) {
+        if (!conf().enabled || current != null || (plugin.seasons() != null && plugin.seasons().busy())) {
             return;
         }
         try {
@@ -964,6 +975,10 @@ public final class WarManager implements GuildModule {
 
     @Override
     public void onCrossServer(String type, Map<String, String> data) {
+        if ("WAR_STOP_ALL".equals(type)) {
+            plugin.sync(this::stopAllLocal);
+            return;
+        }
         switch (type) {
             case "WAR_MATCHED" -> handleWarMatched(data);
             case "WAR_STATE" -> handleWarState(data);
@@ -1043,6 +1058,10 @@ public final class WarManager implements GuildModule {
     // =====================================================================
 
     private void adoptWar(GuildWar war) {
+        if (plugin.seasons() != null && plugin.seasons().busy()) {
+            cancelWar(war, "war-arena-failed");
+            return;
+        }
         if (current != null) {
             return; // 本服已在承办另一场
         }
@@ -1051,6 +1070,48 @@ public final class WarManager implements GuildModule {
         livesRemaining.clear();
         eliminated.clear();
         prepareArena(war);
+    }
+
+    public void openSeasonWorld(ArenaDef def, java.util.function.Consumer<World> ready) {
+        currentArena = def;
+        fallbackWorld = null;
+        builtinWorld = null;
+        if (def.tempWorld.builtin && !def.hasTemplate()) {
+            World world = createBuiltinWorld(def);
+            if (world != null) applyWorldSettings(def, world);
+            fallbackWorld = world;
+            ready.accept(world);
+        } else if (def.hasTemplate()) {
+            if (plugin.dungeon() == null || !plugin.dungeon().available() || !plugin.dungeon().hasTemplate(def.template)) {
+                ready.accept(null); return;
+            }
+            plugin.dungeon().create(def.template, plugin.settings().arenas.pregenerate ? computeChunks(def) : new HashSet<>(),
+                    Duration.ofSeconds(plugin.settings().arenas.createTimeoutSeconds)).whenComplete((created, error) -> plugin.sync(() -> {
+                if (error != null || created == null || created.world() == null) { ready.accept(null); return; }
+                if (plugin.seasons() == null || !plugin.seasons().busy()) { plugin.dungeon().destroy(created); return; }
+                arena = created;
+                applyWorldSettings(def, created.world());
+                ready.accept(created.world());
+            }));
+        } else {
+            World world = def.world.isBlank() ? (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().getFirst()) : WorldResolver.resolve(def.world);
+            if (world != null) applyWorldSettings(def, world);
+            fallbackWorld = world;
+            ready.accept(world);
+        }
+    }
+
+    public void closeSeasonWorld(ArenaDef def) {
+        if (def != null && !def.tempWorld.keepOnEnd) {
+            if (arena != null && plugin.dungeon() != null) {
+                World w = arena.world();
+                World fallback = Bukkit.getWorlds().stream().filter(candidate -> !candidate.equals(w)).findFirst().orElse(null);
+                if (fallback != null && w != null) for (Player p : new ArrayList<>(w.getPlayers())) warTeleport(p, fallback.getSpawnLocation());
+                plugin.dungeon().destroy(arena);
+            }
+            destroyBuiltinWorld();
+        }
+        arena = null; fallbackWorld = null; builtinWorld = null; currentArena = null;
     }
 
     private void prepareArena(GuildWar war) {
@@ -1808,6 +1869,23 @@ public final class WarManager implements GuildModule {
 
     private long wonGuildFunds(boolean win, WarMode mode, double multiplier) {
         return Math.round((win ? mode.winGuildFunds : mode.loseGuildFunds) * multiplier);
+    }
+
+    /** 停止本服当前承办的比赛；取消不发放胜负奖励。 */
+    public void stopAllLocal() {
+        GuildWar war = current;
+        if (war != null) cancelWar(war, "admin-war-stop-all");
+        if (plugin.seasons() != null) plugin.seasons().stop();
+    }
+
+    public void stopAll() {
+        stopAllLocal();
+        if (plugin.seasons() != null) plugin.seasons().stopAll();
+        plugin.async(() -> {
+            if (plugin.bus() != null && plugin.bus().isReady()) {
+                plugin.bus().publish("WAR_STOP_ALL", CrossServerBus.map("server", plugin.serverId()));
+            }
+        });
     }
 
     public boolean forceEnd(String warId) {

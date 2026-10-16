@@ -74,7 +74,8 @@
 | `/guildadmin arena setafter <id> <项> <值>` | 设置战后行为（auto-return / return-delay-seconds / end-spawn.enabled） |
 | `/guildadmin arena setendspawn <id>` | 把当前位置设为集合点 |
 | `/guildadmin war list` | 进行中的工会战与队列 |
-| `/guildadmin war start <模式>` | **开启赛事，符合条件的工会自动入队匹配** |
+| `/guildadmin war stop all` | 取消各子服当前全部普通工会战及赛季混战（普通跨服战需 Redis 在线） |
+| `/guildadmin war start <模式>` | **开启赛事；season 为多工会同场混战** |
 | `/guildadmin war stop [id]` | 停止工会战（等同 forceend） |
 | `/guildadmin war tp` | 传送到当前竞技场（非承办服会自动先传送到承办服） |
 | `/guildadmin war score <id> <a\|b> <分>` | 修改比分 |

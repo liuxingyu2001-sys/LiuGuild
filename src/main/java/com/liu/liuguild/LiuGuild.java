@@ -64,6 +64,8 @@ public final class LiuGuild extends JavaPlugin {
     private GuiManager gui;
     private PlayerguildImporter importer;
     private com.liu.liuguild.buff.BuffService buffs;
+    private com.liu.liuguild.war.SeasonService seasons;
+    public com.liu.liuguild.war.SeasonService seasons() { return seasons; }
     private ModuleRegistry modules;
 
     private EconomyHook economy;
@@ -161,6 +163,8 @@ public final class LiuGuild extends JavaPlugin {
         // 模块注册（按 order 启停）
         modules = new ModuleRegistry(this);
         modules.register(war);
+        seasons = new com.liu.liuguild.war.SeasonService(this);
+        modules.register(seasons);
         modules.register(gui);
         modules.register(new GuildListener(this));
         modules.register(new WarListener(this));

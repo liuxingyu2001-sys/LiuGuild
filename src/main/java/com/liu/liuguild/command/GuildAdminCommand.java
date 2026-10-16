@@ -129,7 +129,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "kit save <key>", "保存当前身上装备为套装");
         adminLine(sender, "kit list|info <key>|delete <key>", "装备套装管理");
         adminLine(sender, "mode list|info <模式>|start <模式>", "工会战模式 / 开启赛季");
-        adminLine(sender, "war start <模式>", "开启赛事，符合条件的工会自动入队");
+        adminLine(sender, "war start <模式>", "开启赛事；赛季模式为多工会混战");
+        adminLine(sender, "war stop all", "取消各子服当前全部工会战，不发放结算奖励");
         adminLine(sender, "war list|queue|stop|tp|score", "工会战管理（查看/队列/停止/传送/改分）");
         adminLine(sender, "disband|setlevel|setpoints|setbank|info <工会>", "工会数据管理");
         adminLine(sender, "rename <工会> <新名称> [新标签]", "给任意工会改名（绕开冷却与费用）");
@@ -484,6 +485,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         String action = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "list";
         switch (action) {
             case "list" -> {
+                if (sender instanceof Player player && plugin.seasons() != null && plugin.seasons().busy()) plugin.seasons().status(player);
                 List<GuildWar> wars = plugin.war().liveWars();
                 if (wars.isEmpty()) {
                     sender.sendMessage(cn("&7当前没有进行中的工会战。"));
@@ -514,7 +516,11 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "start" -> {
                 if (!require(sender, args, 3)) return;
                 if (args.length != 3) {
-                    sender.sendMessage(cn("&e用法：/guildadmin war start <模式>（符合条件的工会自动入队）"));
+                    sender.sendMessage(cn("&e用法：/guildadmin war start <模式>（符合条件的工会自动参赛）"));
+                    return;
+                }
+                if (plugin.seasons() != null && plugin.seasons().isSeason(args[2])) {
+                    plugin.seasons().requestStart(sender, args[2]);
                     return;
                 }
                 if (plugin.war().forceSeason(args[2])) {
@@ -524,6 +530,15 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "stop", "end" -> {
+                if (args.length == 3 && args[2].equalsIgnoreCase("all")) {
+                    plugin.war().stopAll();
+                    plugin.messages().send(sender, "admin-war-stop-all-requested");
+                    return;
+                }
+                if (plugin.seasons() != null && plugin.seasons().stop()) {
+                    sender.sendMessage(cn("&e正在取消本服赛季混战并归还装备。"));
+                    return;
+                }
                 GuildWar w = args.length >= 3 ? plugin.war().warById(args[2]) : plugin.war().currentWar();
                 if (w == null) {
                     plugin.messages().send(sender, "war-not-in-war");
@@ -978,6 +993,12 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             }
             if (sub.equals("mode")) {
                 return startsWith(new ArrayList<>(plugin.settings().war.modes.keySet()), args[2]);
+            }
+            if (sub.equals("war") && args[1].equalsIgnoreCase("stop")) {
+                List<String> choices = new ArrayList<>();
+                choices.add("all");
+                plugin.war().liveWars().forEach(w -> choices.add(w.id()));
+                return startsWith(choices, args[2]);
             }
             if (sub.equals("war") && args[1].equalsIgnoreCase("start")) {
                 return startsWith(new ArrayList<>(plugin.settings().war.modes.keySet()), args[2]);

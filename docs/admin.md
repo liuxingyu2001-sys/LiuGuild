@@ -53,7 +53,8 @@ LiuGuild 提供完整的命令行与图形化（GUI）管理能力，管理员�
 |---|---|
 | `/guildadmin war list` | 进行中的比赛与队列数量 |
 | `/guildadmin war queue` | 列出匹配队列中的工会 |
-| `/guildadmin war start <模式>` | 开启赛事，符合条件的工会自动进入匹配队列 |
+| `/guildadmin war stop all` | 取消各子服当前全部普通工会战及赛季混战，恢复装备并返程，不发放取消奖励；普通跨服比赛需 Redis 在线 |
+| `/guildadmin war start <模式>` | 开启赛事；season 模式让符合条件工会参加同一场混战 |
 | `/guildadmin war stop [id]` | 停止比赛（立即结算） |
 | `/guildadmin war tp` | 传送到当前竞技场 |
 | `/guildadmin war score <id> <a\|b> <分>` | 修改比分 |

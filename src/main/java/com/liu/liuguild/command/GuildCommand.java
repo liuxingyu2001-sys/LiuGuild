@@ -737,6 +737,10 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 });
             }
             default -> {
+                if (plugin.seasons() != null && plugin.seasons().restricted(player.getUniqueId())) {
+                    plugin.seasons().status(player);
+                    return;
+                }
                 GuildWar w = g == null ? null : plugin.war().warOf(g.id());
                 if (w == null) {
                     plugin.messages().send(player, "war-not-in-war");

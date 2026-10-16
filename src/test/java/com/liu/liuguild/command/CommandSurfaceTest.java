@@ -46,7 +46,19 @@ class CommandSurfaceTest {
         assertTrue(!start.contains("find(args[3])") && !start.contains("forceStart("));
         String manager = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/WarManager.java"));
         assertTrue(manager.contains("startSeason(mode(modeKey), true)"));
+        assertTrue(manager.contains("return plugin.seasons().start(modeKey)"));
         assertTrue(manager.contains("!forceEnqueue && !mode.autoEnqueue"));
+    }
+
+    @Test
+    void adminStopAllHasCrossServerAndSeasonPaths() throws Exception {
+        String admin = Files.readString(Path.of("src/main/java/com/liu/liuguild/command/GuildAdminCommand.java"));
+        assertTrue(admin.contains("args[2].equalsIgnoreCase(\"all\")"));
+        assertTrue(admin.contains("plugin.war().stopAll()"));
+        String war = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/WarManager.java"));
+        assertTrue(war.contains("publish(\"WAR_STOP_ALL\""));
+        assertTrue(war.contains("plugin.sync(this::stopAllLocal)"));
+        assertTrue(war.contains("plugin.seasons().stopAll()"));
     }
 
     private static String source() throws Exception {

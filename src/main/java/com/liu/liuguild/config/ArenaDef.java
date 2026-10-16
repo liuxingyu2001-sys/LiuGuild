@@ -76,6 +76,7 @@ public final class ArenaDef {
         /** 是否启用统一集合点（优先级高于 auto-return）。 */
         public boolean endSpawnEnabled = false;
         /** 集合点世界名；留空 = 使用竞技场世界。 */
+        public String endSpawnServer = "";
         public String endSpawnWorld = "";
         /** 统一集合点坐标。 */
         public Spawn endSpawn = new Spawn(0.5, 70, 0.5, 0, 0);
@@ -196,6 +197,7 @@ public final class ArenaDef {
         ConfigurationSection end = sec.getConfigurationSection("end-spawn");
         if (end != null) {
             aw.endSpawnEnabled = end.getBoolean("enabled", aw.endSpawnEnabled);
+            aw.endSpawnServer = end.getString("server", "");
             aw.endSpawnWorld = end.getString("world", aw.endSpawnWorld);
             aw.endSpawn = readSpawn(end, aw.endSpawn);
         }

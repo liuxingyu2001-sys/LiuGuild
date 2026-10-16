@@ -74,6 +74,21 @@ public final class SparrowSyncHook {
         }
     }
 
+    /** 已安装同步插件时必须等 ACTIVE 会话，拒绝在跨服数据仍加载时托管。 */
+    public boolean playerReady(UUID uuid) {
+        Plugin installed = Bukkit.getPluginManager().getPlugin("SparrowSync");
+        if (installed == null || !installed.isEnabled()) return true;
+        try {
+            Class<?> type = Class.forName("net.momirealms.sparrow.sync.plugin.SparrowSync");
+            Object instance = type.getMethod("instance").invoke(null);
+            Object manager = type.getMethod("sessionManager").invoke(instance);
+            Object session = manager.getClass().getMethod("find", UUID.class).invoke(manager, uuid);
+            return session != null && "ACTIVE".equals(String.valueOf(session.getClass().getMethod("state").invoke(session)));
+        } catch (ReflectiveOperationException e) {
+            return false;
+        }
+    }
+
     public boolean available() {
         return available;
     }
