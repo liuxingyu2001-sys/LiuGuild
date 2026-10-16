@@ -36,6 +36,19 @@ class CommandSurfaceTest {
             "wh", "cangku", "titles", "chenghao", "wins", "losses", "level", "members",
             "shangdian", "store");
 
+    @Test
+    void adminWarStartOpensEventWithoutGuildArguments() throws Exception {
+        String src = Files.readString(Path.of("src/main/java/com/liu/liuguild/command/GuildAdminCommand.java"));
+        String war = src.substring(src.indexOf("private void war("));
+        String start = war.substring(war.indexOf("case \"start\""), war.indexOf("case \"stop\""));
+        assertTrue(start.contains("require(sender, args, 3)"));
+        assertTrue(start.contains("forceSeason(args[2])"));
+        assertTrue(!start.contains("find(args[3])") && !start.contains("forceStart("));
+        String manager = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/WarManager.java"));
+        assertTrue(manager.contains("startSeason(mode(modeKey), true)"));
+        assertTrue(manager.contains("!forceEnqueue && !mode.autoEnqueue"));
+    }
+
     private static String source() throws Exception {
         return Files.readString(CMD);
     }

@@ -676,24 +676,28 @@ public final class WarManager implements GuildModule {
      * 否则共享配置下多台子服会重复开赛。</p>
      */
     public void startSeason(WarMode mode) {
+        startSeason(mode, false);
+    }
+
+    private void startSeason(WarMode mode, boolean forceEnqueue) {
         if (mode == null) {
             return;
         }
         if (plugin.bus() != null && plugin.bus().isReady()) {
-            plugin.bus().publish("SEASON_OPEN", CrossServerBus.map("mode", mode.key));
+            plugin.bus().publish("SEASON_OPEN", CrossServerBus.map("mode", mode.key, "force-enqueue", Boolean.toString(forceEnqueue)));
         } else {
-            applySeasonOpen(mode);
+            applySeasonOpen(mode, forceEnqueue);
         }
     }
 
     /** 收到跨服开赛指令后在本服生效：公告 + 可选自动入队。 */
-    private void applySeasonOpen(WarMode mode) {
+    private void applySeasonOpen(WarMode mode, boolean forceEnqueue) {
         if (mode == null) {
             return;
         }
         plugin.guilds().broadcastAll(plugin.messages().component("war-season-open",
                 "mode", mode.display, "minutes", mode.seasonWindowMinutes).append(queueJoinButton(mode)));
-        if (!mode.autoEnqueue) {
+        if (!forceEnqueue && !mode.autoEnqueue) {
             return;
         }
         // 主线程只做内存筛选，Redis 入队（isQueued/enqueue）放到异步，避免卡主线程。
@@ -726,7 +730,8 @@ public final class WarManager implements GuildModule {
                 || !conf().modes.containsKey(modeKey.toLowerCase(java.util.Locale.ROOT))) {
             return false;
         }
-        startSeason(mode(modeKey));
+        if (!conf().enabled || !mode(modeKey).enabled) return false;
+        startSeason(mode(modeKey), true);
         return true;
     }
 
@@ -970,7 +975,8 @@ public final class WarManager implements GuildModule {
             }
             case "SEASON_OPEN" -> {
                 WarMode mode = plugin.settings().mode(data.get("mode"));
-                plugin.sync(() -> applySeasonOpen(mode));
+                boolean forceEnqueue = Boolean.parseBoolean(data.get("force-enqueue"));
+                plugin.sync(() -> applySeasonOpen(mode, forceEnqueue));
             }
             case "WAR_QUEUE_TIMEOUT" -> {
                 String guildId = data.get("guild");

@@ -129,7 +129,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "kit save <key>", "保存当前身上装备为套装");
         adminLine(sender, "kit list|info <key>|delete <key>", "装备套装管理");
         adminLine(sender, "mode list|info <模式>|start <模式>", "工会战模式 / 开启赛季");
-        adminLine(sender, "war list|queue|start|stop|tp|score", "工会战管理（查看/队列/强开/停止/传送/改分）");
+        adminLine(sender, "war start <模式>", "开启赛事，符合条件的工会自动入队");
+        adminLine(sender, "war list|queue|stop|tp|score", "工会战管理（查看/队列/停止/传送/改分）");
         adminLine(sender, "disband|setlevel|setpoints|setbank|info <工会>", "工会数据管理");
         adminLine(sender, "rename <工会> <新名称> [新标签]", "给任意工会改名（绕开冷却与费用）");
         adminLine(sender, "guilds [页码]", "分页列出全部工会");
@@ -511,17 +512,15 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "start" -> {
-                if (!require(sender, args, 5)) {
+                if (!require(sender, args, 3)) return;
+                if (args.length != 3) {
+                    sender.sendMessage(cn("&e用法：/guildadmin war start <模式>（符合条件的工会自动入队）"));
                     return;
                 }
-                Guild ga = find(args[3]);
-                Guild gb = find(args[4]);
-                String error = plugin.war().forceStart(ga, gb, args[2]);
-                if (error != null) {
-                    plugin.messages().send(sender, error);
+                if (plugin.war().forceSeason(args[2])) {
+                    plugin.messages().sendRaw(sender, "season-started", "mode", args[2]);
                 } else {
-                    sender.sendMessage(cn("&a已强制开启工会战：&f" + ga.name() + " &7VS &f" + gb.name()
-                            + " &7（模式 &f" + args[2] + "&7）"));
+                    plugin.messages().sendRaw(sender, "war-mode-unknown", "mode", args[2]);
                 }
             }
             case "stop", "end" -> {
@@ -1014,13 +1013,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         if (args.length == 4 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("setafter")) {
             return startsWith(List.of("auto-return", "return-delay-seconds", "end-spawn.enabled"), args[3]);
         }
-        if (args.length == 4 && args[0].equalsIgnoreCase("war") && args[1].equalsIgnoreCase("start")) {
-            return guildNames(args[3]);
-        }
         if (args.length == 5 && args[0].equalsIgnoreCase("war")) {
-            if (args[1].equalsIgnoreCase("start")) {
-                return guildNames(args[4]);
-            }
             if (args[1].equalsIgnoreCase("score")) {
                 return startsWith(List.of("a", "b"), args[3]);
             }

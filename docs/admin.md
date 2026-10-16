@@ -53,7 +53,7 @@ LiuGuild 提供完整的命令行与图形化（GUI）管理能力，管理员�
 |---|---|
 | `/guildadmin war list` | 进行中的比赛与队列数量 |
 | `/guildadmin war queue` | 列出匹配队列中的工会 |
-| `/guildadmin war start <模式> <工会A> <工会B>` | 强制开启一场比赛 |
+| `/guildadmin war start <模式>` | 开启赛事，符合条件的工会自动进入匹配队列 |
 | `/guildadmin war stop [id]` | 停止比赛（立即结算） |
 | `/guildadmin war tp` | 传送到当前竞技场 |
 | `/guildadmin war score <id> <a\|b> <分>` | 修改比分 |
