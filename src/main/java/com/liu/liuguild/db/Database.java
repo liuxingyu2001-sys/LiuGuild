@@ -300,6 +300,23 @@ public final class Database {
                     + ")" + engine);
             index(st, t("guild_war_rewards") + "_status", t("guild_war_rewards"), "`status`,`created_at`");
 
+            // 跨服参赛者出发地：赛后/崩溃恢复时用于跨服返程。
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_war_origins") + "` ("
+                    + "`war_id` VARCHAR(36) NOT NULL,"
+                    + "`player_uuid` VARCHAR(36) NOT NULL,"
+                    + "`source_server` VARCHAR(64) NOT NULL,"
+                    + "`world` VARCHAR(128) NOT NULL,"
+                    + "`x` DOUBLE NOT NULL DEFAULT 0,"
+                    + "`y` DOUBLE NOT NULL DEFAULT 0,"
+                    + "`z` DOUBLE NOT NULL DEFAULT 0,"
+                    + "`yaw` FLOAT NOT NULL DEFAULT 0,"
+                    + "`pitch` FLOAT NOT NULL DEFAULT 0,"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`player_uuid`)"
+                    + ")" + engine);
+            index(st, t("guild_war_origins") + "_war", t("guild_war_origins"), "`war_id`");
+            index(st, t("guild_war_origins") + "_created", t("guild_war_origins"), "`created_at`");
+
             // 工会头衔定义
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_buffs") + "` ("
                     + "guild_id VARCHAR(64) NOT NULL, buff_id VARCHAR(32) NOT NULL, expires_at BIGINT NOT NULL,"

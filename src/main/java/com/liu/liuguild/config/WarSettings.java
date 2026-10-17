@@ -18,7 +18,7 @@ public final class WarSettings {
 
     // ---- 全局 ----
     public boolean enabled = true;
-    public int queueIntervalSeconds = 5;
+    public int queueIntervalSeconds = 2;
     public int matchTimeoutSeconds = 180;
     /** 默认模式（未指定模式时使用）。 */
     public String defaultMode = "match";
@@ -30,6 +30,13 @@ public final class WarSettings {
     public int settleBatchPerTick = 8;
     /** 匹配成功后是否自动把双方在线成员强制传送进竞技场并参战（无需手动 /guild war join）。 */
     public boolean autoEnter = true;
+
+    /** 双方都有人就绪后提前开战，不等完整的准备倒计时。 */
+    public boolean fastStart = true;
+    /** 提前开战的最短准备时间（秒），避免刚传送就开打。 */
+    public int fastStartMinPrepareSeconds = 1;
+    /** 提前开战后仍允许迟到玩家入场的宽限（秒）。 */
+    public int fastStartJoinGraceSeconds = 10;
 
     /** 模式公共默认值（来自 war.defaults）。 */
     public WarMode defaults = new WarMode();
@@ -48,6 +55,11 @@ public final class WarSettings {
         s.bossBarEnabled = c.getBoolean("war.bossbar", s.bossBarEnabled);
         s.settleBatchPerTick = Math.max(1, Math.min(200, c.getInt("war.settle-batch-per-tick", s.settleBatchPerTick)));
         s.autoEnter = c.getBoolean("war.auto-enter", s.autoEnter);
+        s.fastStart = c.getBoolean("war.fast-start", s.fastStart);
+        s.fastStartMinPrepareSeconds = Math.max(0, Math.min(30,
+                c.getInt("war.fast-start-min-prepare-seconds", s.fastStartMinPrepareSeconds)));
+        s.fastStartJoinGraceSeconds = Math.max(0, Math.min(60,
+                c.getInt("war.fast-start-join-grace-seconds", s.fastStartJoinGraceSeconds)));
 
         WarMode base = new WarMode();
         // 全局开关作为未显式配置该模式的默认值；模式里写 broadcast-queue 仍可单独覆盖。

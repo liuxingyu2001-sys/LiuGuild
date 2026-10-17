@@ -80,7 +80,8 @@ arenas:
 | `after-war.auto-return` | 结束后自动送回参赛前位置 |
 | `after-war.return-delay-seconds` | 返回延迟（仅固定世界生效） |
 | `after-war.end-spawn.enabled` | 启用统一集合点 |
-| `after-war.end-spawn.world` | 集合点世界（留空 = 竞技场世界） |
+| `after-war.end-spawn.server` | 集合点所在子服（留空 = 承办服）；填写后会把跨服参赛者送到该服 |
+| `after-war.end-spawn.world` | 集合点世界（留空 = 竞技场世界；跨服时留空则用目的服默认世界） |
 | `after-war.end-spawn.x/y/z/yaw/pitch` | 集合点坐标 |
 
 > 若 `after-war` 同时关闭 `auto-return` 且未启用 `end-spawn`，玩家将停留在原位；

@@ -98,6 +98,7 @@ final class GuildCleanup {
             try {
                 plugin.repo().purgeWarsBefore(nowMs - 365L * 24L * 3600L * 1000L);
                 plugin.repo().purgeWarRewardsBefore(nowMs - 90L * 24L * 3600L * 1000L);
+                plugin.repo().purgeWarOriginsBefore(nowMs - 7L * 24L * 3600L * 1000L);
             } catch (Exception e) {
                 plugin.getLogger().warning("清理工会战历史失败: " + e.getMessage());
             }

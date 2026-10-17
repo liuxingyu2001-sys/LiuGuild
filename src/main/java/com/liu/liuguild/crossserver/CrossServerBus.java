@@ -24,7 +24,7 @@ public final class CrossServerBus {
 
     /** 字段分隔（记录分隔 / 单元分隔），避免与玩家名、工会名冲突。 */
     private static final char REC = '\u001e';
-    private static final char UNIT = '\u001f';
+    public static final char UNIT = '\u001f';
 
     public interface Listener {
         void on(String type, Map<String, String> data);
@@ -467,8 +467,21 @@ public final class CrossServerBus {
         if (!isReady()) {
             return true; // 单服模式：本机独占
         }
-        String r = bridge.withJedis(jedis -> jedis.set(bridge.keyMatchLock(), conf.serverId, redis.clients.jedis.params.SetParams.setParams().nx().px(5000)));
+        // 锁只覆盖一次匹配扫描；拿到后跑完即释放，TTL 仅作为进程崩溃的兜底。
+        String r = bridge.withJedis(jedis -> jedis.set(bridge.keyMatchLock(), conf.serverId, redis.clients.jedis.params.SetParams.setParams().nx().px(2000)));
         return "OK".equals(r);
+    }
+
+    /** 主动释放匹配锁（只有持有者能删），让下一台子服可以立即匹配。 */
+    public void releaseMatchLock() {
+        if (!isReady() || !bridge.isHealthy()) {
+            return;
+        }
+        bridge.withJedis(jedis -> {
+            // keyMatchLock() 已是完整键，不能再走 releaseLock() 的 LOCK_PREFIX 拼接。
+            jedis.eval(COMPARE_DEL_SCRIPT, List.of(bridge.keyMatchLock()), List.of(conf.serverId));
+            return Boolean.TRUE;
+        });
     }
 
     /** 从队列中原子移除指定的两个工会；两个都移除成功才返回 true。 */
@@ -497,21 +510,128 @@ public final class CrossServerBus {
     // 跨服工会战实时状态
     // =====================================================================
 
-    public void publishWarState(String warId, String state, int scoreA, int scoreB) {
+    public void publishWarState(String warId, String state, int scoreA, int scoreB, long leftSeconds) {
         Map<String, String> m = new HashMap<>();
         m.put("war", warId);
         m.put("state", state);
         m.put("sa", String.valueOf(scoreA));
         m.put("sb", String.valueOf(scoreB));
+        m.put("left", String.valueOf(Math.max(0, leftSeconds)));
         publish("WAR_STATE", m);
     }
 
     public boolean setPendingWar(UUID uuid, String warId) {
+        return setPendingWar(uuid, warId, null, null, 0, 0, 0, 0, 0);
+    }
+
+    /** 编码待入场标记；批量传送与单发共用，避免格式漂移。 */
+    public static String pendingWarValue(String warId, String sourceServer, String world,
+                                         double x, double y, double z, float yaw, float pitch) {
+        return warId
+                + (sourceServer == null ? "" : UNIT + sourceServer)
+                + (sourceServer == null ? "" : UNIT + (world == null ? "" : world))
+                + (sourceServer == null ? "" : UNIT + x + UNIT + y + UNIT + z + UNIT + yaw + UNIT + pitch);
+    }
+
+    /**
+     * 写「待入场」标记，并带上出发服与坐标（供赛后跨服返程）。
+     * 值格式：{@code warId UNIT sourceServer UNIT world UNIT x UNIT y UNIT z UNIT yaw UNIT pitch}。
+     */
+    public boolean setPendingWar(UUID uuid, String warId, String sourceServer, String world,
+                                 double x, double y, double z, float yaw, float pitch) {
+        String value = pendingWarValue(warId, sourceServer, world, x, y, z, yaw, pitch);
         Boolean ok = bridge.withJedis(jedis -> {
-            jedis.setex(bridge.keyWarPending(uuid), 180, warId);
+            jedis.setex(bridge.keyWarPending(uuid), 180, value);
             return Boolean.TRUE;
         });
         return Boolean.TRUE.equals(ok);
+    }
+
+    /**
+     * 批量写入待入场标记：一次 pipeline 只付 1 个 RTT。
+     * 自动入场会一次转移整会成员，逐个 SETEX 会把延迟乘以人数。
+     */
+    public boolean setPendingWars(Map<UUID, String> pendingByPlayer) {
+        if (pendingByPlayer == null || pendingByPlayer.isEmpty()) {
+            return true;
+        }
+        Boolean ok = bridge.withJedis(jedis -> {
+            redis.clients.jedis.Pipeline pipe = jedis.pipelined();
+            for (Map.Entry<UUID, String> e : pendingByPlayer.entrySet()) {
+                pipe.setex(bridge.keyWarPending(e.getKey()), 180, e.getValue());
+            }
+            pipe.sync();
+            return Boolean.TRUE;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
+    /**
+     * 一次 pipeline 消费玩家接入时的全部待处理标记：待入场、赛后返程、竞技场传送。
+     *
+     * @return 长度为 3 的数组，依次为 war / return / arena，未命中为 null
+     */
+    public String[] consumePendingMarkers(UUID uuid) {
+        return bridge.withJedis(jedis -> {
+            redis.clients.jedis.Pipeline pipe = jedis.pipelined();
+            redis.clients.jedis.Response<String> war = pipe.get(bridge.keyWarPending(uuid));
+            pipe.del(bridge.keyWarPending(uuid));
+            redis.clients.jedis.Response<String> ret = pipe.get(bridge.keyWarReturn(uuid));
+            pipe.del(bridge.keyWarReturn(uuid));
+            redis.clients.jedis.Response<String> arena = pipe.get(bridge.keyArenaPending(uuid));
+            pipe.del(bridge.keyArenaPending(uuid));
+            pipe.sync();
+            return new String[]{war.get(), ret.get(), arena.get()};
+        });
+    }
+
+    /** 写赛后返程目的地标记（世界 + 坐标），由目的服在玩家接入时消费。 */
+    public boolean setPendingReturn(UUID uuid, String world, double x, double y, double z, float yaw, float pitch) {
+        String value = (world == null ? "" : world) + UNIT + x + UNIT + y + UNIT + z + UNIT + yaw + UNIT + pitch;
+        Boolean ok = bridge.withJedis(jedis -> {
+            jedis.setex(bridge.keyWarReturn(uuid), 300, value);
+            return Boolean.TRUE;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
+    public String consumePendingReturn(UUID uuid) {
+        return bridge.withJedis(jedis -> {
+            String v = jedis.get(bridge.keyWarReturn(uuid));
+            if (v != null) {
+                jedis.del(bridge.keyWarReturn(uuid));
+            }
+            return v;
+        });
+    }
+
+    /** 承办服是否正在承办比赛/赛事（由承办服续期）。 */
+    public boolean isHostBusy(String host) {
+        if (host == null || host.isBlank()) {
+            return false;
+        }
+        Boolean exists = bridge.withJedis(jedis -> jedis.exists(bridge.keyWarHost(host)));
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public void markHostBusy(String host, long ttlSeconds) {
+        if (host == null || host.isBlank()) {
+            return;
+        }
+        bridge.withJedis(jedis -> {
+            jedis.setex(bridge.keyWarHost(host), Math.max(10, ttlSeconds), conf.serverId);
+            return Boolean.TRUE;
+        });
+    }
+
+    public void clearHostBusy(String host) {
+        if (host == null || host.isBlank()) {
+            return;
+        }
+        bridge.withJedis(jedis -> {
+            jedis.del(bridge.keyWarHost(host));
+            return Boolean.TRUE;
+        });
     }
 
     public String consumePendingWar(UUID uuid) {

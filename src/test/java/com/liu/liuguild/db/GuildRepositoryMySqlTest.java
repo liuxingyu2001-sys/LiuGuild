@@ -25,6 +25,7 @@ import java.util.logging.Logger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -185,5 +186,21 @@ class GuildRepositoryMySqlTest {
     private GuildMember leader(Guild g, String guildId) {
         return new GuildMember(g.leaderUuid(), "Leader", guildId, GuildRank.LEADER,
                 System.currentTimeMillis(), 0, 0, 0);
+    }
+
+    @Test
+    void warOriginUpsertWorksOnMySql() throws Exception {
+        UUID player = UUID.randomUUID();
+        repo.saveWarOrigin(new WarOrigin("war-origin-1", player, "zy", "world", 1.5, 64, -2.5, 90f, 45f));
+        WarOrigin loaded = repo.loadWarOrigin(player);
+        assertNotNull(loaded);
+        assertEquals("zy", loaded.sourceServer());
+        assertEquals(1.5, loaded.x(), 0.0001);
+        assertEquals(90f, loaded.yaw(), 0.0001);
+
+        repo.saveWarOrigin(new WarOrigin("war-origin-2", player, "fb", "world_nether", 0, 70, 0, 0f, 0f));
+        assertEquals("war-origin-2", repo.loadWarOrigin(player).warId());
+        repo.deleteWarOrigin(player);
+        assertNull(repo.loadWarOrigin(player));
     }
 }

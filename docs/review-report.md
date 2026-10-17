@@ -342,3 +342,44 @@ ls target/Liu-LiuGuild-0.1.0.jar
 - `mvn -o test`：251 用例全绿（SQLite 真实 JDBC）。
 - `mvn -o clean package`：BUILD SUCCESS，产物 `target/Liu-LiuGuild-0.3.4.jar`。
 - `GuildRepositoryMySqlTest` 在本地 MariaDB 11.8 上 5 用例全绿（默认跳过）。
+
+
+---
+
+## 十六、跨服工会战专项优化
+
+本轮针对跨服主链路补齐了返程与承办服可用性：
+
+- **跨服返程**：入场把出发服/坐标写入新表 `guild_war_origins`，并随 `war:pending` 标记带一份；
+  赛后优先 `after-war.end-spawn.server`，否则送回出发服原坐标；离线/承办服崩溃后重新上线由托管恢复流程补做返程。
+- **承办服忙碌**：战斗/赛季期间续期 `war:host:<承办服>`（60s TTL），匹配前跳过忙碌承办服；
+  赛季占用也走同一标记，避免“匹配成功→承办服正忙→取消重排”的循环。
+- **修复忙碌拒绝误伤**：此前承办服忙碌/被赛季占用时调用 `cancelWar()/cleanup()`，会清掉当前比赛（或赛季）的全局场地、结算队列与 BossBar；现改为只处理被拒绝的这一场，不触碰当前比赛。
+- **匹配确认**：远程承办需要 `WAR_MATCH_ACK`；发起服 5s 重发（最多 4 次），30s 未认领取消并重排；
+  承办服认领前校验数据库仍是 `MATCHED`，防止迟到消息复活已取消比赛。
+- **重启镜像**：非承办服启动时从数据库恢复进行中战斗的只读镜像，避免重启期间同一工会被再次匹配。
+- **状态与显示**：`PREPARING` 现在会广播；`WAR_STATE` 携带剩余秒数，跨服 `%liuguild_war_time_left%` 不再显示 `-1`；
+  队列快照由每台子服独立刷新；终态广播在 Redis 恢复后补发。
+- **入场边界**：开战后不再先把玩家传送过去；满员/迟到/无资格时明确提示并送回出发地；承办服尚未完成认领时最多等待 5 秒而不是立即遣返。
+- 新增 `guild_war_origins` 的 SQLite/MySQL 回归测试；MySQL 6 用例在 MariaDB 11.8 通过。
+
+
+---
+
+## 十七、跨服工会战延迟优化
+
+针对“匹配到开战之间偏慢”的问题，按链路逐段压缩：
+
+- **入队即匹配**：`queue()` 成功后立即尝试一次配对（300ms 节流），不再固定等下一轮轮询；轮询默认从 5s 降到 2s。
+- **匹配锁**：扫描完立即 compare-delete 释放，不再让 `war:matchlock` 空占 5 秒；TTL 降到 2s 只作崩溃兜底。
+- **批量入场**：整会转移从“每人一次异步 Redis SETEX”改为一次 pipeline 写完全部 `war:pending`，再统一切服。
+- **接入消费**：玩家接入时原来分三次读取待入场/返程/竞技场标记，改为一次 pipeline（GET+DEL）取回。
+- **接入等待**：`PlayerJoinEvent` 后处理从固定 20 tick（1s）降到 2 tick（约 0.1s）；标记在传送前已写好，不需要盲等。
+- 准备阶段、结算阶段与战斗节奏不变；如需进一步压缩，可调低 `war-modes.yml` 的 `prepare-seconds`。
+
+
+### 快速开战（fast-start）
+
+- 双方 roster 都非空、且没有玩家仍在采集装备时，准备阶段只保留 `fast-start-min-prepare-seconds`（默认 1 秒）即进入 ACTIVE。
+- `fast-start-join-grace-seconds`（默认 10 秒）内仍允许仍在切服的成员加入 ACTIVE 比赛；超过宽限才拒绝并送回出发地。
+- `fast-start: false` 恢复完整 `prepare-seconds` 倒计时。

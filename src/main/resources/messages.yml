@@ -155,6 +155,7 @@ zh_CN:
   war-spectate-disabled: "<red>本场工会战未开放旁观，或你已在战斗中。"
   war-arena-failed: "<red>竞技场准备失败，工会战已取消。"
   war-transfer-failed: "<red>跨服传送失败，请稍后重试。"
+  war-returned: "<green>已回到出发服务器/位置。"
   war-no-participants: "<red>本场工会战至少需要双方各有一名参赛者，比赛已取消。"
   war-guild-disbanded: "<red>参战工会已被解散，本场工会战已取消。"
   war-join-locked: "<red>比赛开始后不允许加入本场工会战。"

@@ -799,4 +799,31 @@ class GuildRepositoryTest {
         assertTrue(repo.loadPendingWarRewards(10).isEmpty());
     }
 
+
+    @Test
+    void warOriginRoundTripUpsertAndPurge() throws Exception {
+        UUID player = UUID.randomUUID();
+        repo.saveWarOrigin(new WarOrigin("war-1", player, "zy", "world", 12.5, 64.0, -3.5, 90f, 45f));
+        WarOrigin loaded = repo.loadWarOrigin(player);
+        assertNotNull(loaded);
+        assertEquals("war-1", loaded.warId());
+        assertEquals("zy", loaded.sourceServer());
+        assertEquals("world", loaded.world());
+        assertEquals(12.5, loaded.x(), 0.0001);
+        assertEquals(64.0, loaded.y(), 0.0001);
+        assertEquals(-3.5, loaded.z(), 0.0001);
+        assertEquals(90f, loaded.yaw(), 0.0001);
+        assertEquals(45f, loaded.pitch(), 0.0001);
+
+        // 同一玩家再次参赛：一人一条，最后一场覆盖。
+        repo.saveWarOrigin(new WarOrigin("war-2", player, "fb", "world_nether", 0, 70, 0, 0f, 0f));
+        assertEquals("war-2", repo.loadWarOrigin(player).warId());
+
+        assertTrue(repo.purgeWarOriginsBefore(System.currentTimeMillis() + 1000L) >= 1);
+        assertNull(repo.loadWarOrigin(player));
+
+        repo.saveWarOrigin(new WarOrigin("war-3", player, "zy", "world", 1, 2, 3, 0f, 0f));
+        repo.deleteWarOrigin(player);
+        assertNull(repo.loadWarOrigin(player));
+    }
 }

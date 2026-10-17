@@ -9,8 +9,8 @@ war:
   enabled: true
   # 竞技场承办服配置在 arena.yml 的 arenas.<id>.server，无需开启承办模式。
 
-  # 匹配队列轮询间隔（秒）
-  queue-interval-seconds: 5
+  # 匹配队列轮询间隔（秒）；入队会立即尝试一次，此值只决定后续重试频率
+  queue-interval-seconds: 2
   # 发起匹配后等待对手的最长时间（秒），0 = 不超时
   match-timeout-seconds: 180
   # 默认模式（未指定时使用）
@@ -24,6 +24,12 @@ war:
   # 匹配成功后是否自动把双方在线成员强制传送进竞技场并参战（无需手动 /guild war join）。
   # 关闭后才会在「匹配成功」消息里附带 [点击进入竞技场] 按钮。
   auto-enter: true
+  # 双方都有人就绪后提前开战（不必等完整 prepare-seconds）。
+  # 最短仍会冻结 fast-start-min-prepare-seconds 秒；剩余在线成员可在开战后
+  # fast-start-join-grace-seconds 秒内赶到并加入。
+  fast-start: true
+  fast-start-min-prepare-seconds: 1
+  fast-start-join-grace-seconds: 10
 
   # ----------------------------------------------------------
   #  所有工会战模式的公共默认值；模式里未写的项继承这里。

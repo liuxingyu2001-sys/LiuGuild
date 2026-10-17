@@ -25,7 +25,7 @@ public final class SeasonService implements GuildModule, Listener {
     private final Set<UUID> capturing = new HashSet<>(), restoring = new HashSet<>(), waiting = new HashSet<>();
     private final Map<UUID, Long> arrivals = new HashMap<>();
     private final Map<UUID, Long> transferCooldown = new HashMap<>();
-    private SeasonRepository.Event current;
+    private volatile SeasonRepository.Event current;
     private WarMode mode;
     private ArenaDef arena;
     private World world;
@@ -38,6 +38,8 @@ public final class SeasonService implements GuildModule, Listener {
     private boolean worldLoading;
     /** 上次轮询数据库的时间；无赛事时退避到 5 秒，避免空转。 */
     private long lastPollAt;
+    /** 上次续期「承办服忙碌」标记的时间。 */
+    private long lastHostLeaseAt;
     private Map<Integer,Long> rewards = Map.of();
 
     public SeasonService(LiuGuild plugin) { this.plugin=plugin; repo=new SeasonRepository(plugin.db()); }
@@ -114,6 +116,19 @@ public final class SeasonService implements GuildModule, Listener {
         if(!running) return;
         long pollInterval = current == null ? 5000L : 1000L;
         long nowMs = System.currentTimeMillis();
+        // 赛季期间也占用承办服：普通匹配不要再把两工会战派到同一台机器。
+        if(current != null && nowMs - lastHostLeaseAt >= 5000L) {
+            lastHostLeaseAt = nowMs;
+            String host = current.host();
+            String leaseEvent = current.id();
+            if(host != null && !host.isBlank()) {
+                plugin.async(() -> {
+                    if(current != null && leaseEvent.equals(current.id())) {
+                        plugin.bus().markHostBusy(host, 60);
+                    }
+                });
+            }
+        }
         if(!polling && nowMs - lastPollAt >= pollInterval) {
             lastPollAt = nowMs;
             polling=true;
@@ -398,6 +413,9 @@ public final class SeasonService implements GuildModule, Listener {
                     }
                     if(bar!=null) { bar.removeAll(); bar=null; }
                     plugin.war().closeSeasonWorld(arena);
+                    if(host != null && !host.isBlank() && plugin.war().currentWar() == null) {
+                        plugin.async(() -> plugin.bus().clearHostBusy(host));
+                    }
                     current=null; battle=null; starting=false; finishing=false; waiting.clear();
                 });
             } catch(Exception e) { failure(e); plugin.sync(() -> { finishing=false; if(running) plugin.syncDelayed(() -> finish(cancelled),100); }); }

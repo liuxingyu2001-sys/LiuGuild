@@ -55,7 +55,7 @@ public final class GuildListener implements GuildModule, Listener {
                 guild.touchActive();
                 plugin.guilds().saveGuild(guild);
             }
-        }, 20L);
+        }, 2L); // 只等客户端 join 收尾；入场标记在传送前已写好，不必固定等 1 秒
     }
 
     @EventHandler(priority = EventPriority.LOW)

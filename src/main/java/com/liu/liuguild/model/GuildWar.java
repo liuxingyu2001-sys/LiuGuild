@@ -20,6 +20,8 @@ public final class GuildWar {
     private volatile long createdAt = System.currentTimeMillis();
     private volatile long startedAt;
     private volatile long endedAt;
+    /** 当前阶段结束时间（跨服镜像用于显示倒计时）。 */
+    private volatile long phaseUntil;
     private volatile String winner = "";
     /** 举办竞技场的服务器 id。 */
     private volatile String hostServer = "";
@@ -139,6 +141,14 @@ public final class GuildWar {
 
     public long endedAt() {
         return endedAt;
+    }
+
+    public long phaseUntil() {
+        return phaseUntil;
+    }
+
+    public void phaseUntil(long v) {
+        this.phaseUntil = v;
     }
 
     public void endedAt(long v) {

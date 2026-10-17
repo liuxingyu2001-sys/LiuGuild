@@ -236,7 +236,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "enemy" -> war == null ? "" : (home ? war.nameB() : war.nameA());
             case "score" -> war == null ? "0" : String.valueOf(home ? war.scoreA() : war.scoreB());
             case "enemy_score" -> war == null ? "0" : String.valueOf(home ? war.scoreB() : war.scoreA());
-            case "time_left" -> war == null ? "0" : String.valueOf(plugin.war().phaseSecondsLeft());
+            case "time_left" -> war == null ? "0" : String.valueOf(plugin.war().secondsLeft(war));
             case "winner" -> war == null ? "" : war.winner();
             case "host" -> war == null ? "" : war.hostServer();
             case "mode" -> war == null ? "" : war.mode();

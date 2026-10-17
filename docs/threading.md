@@ -54,10 +54,12 @@ plugin.syncDelayed(r, t) // 延迟 t tick 在主线程跑
 | 在线心跳 `presenceTask` | 心跳秒 | 写自己玩家的 presence/name 键（单次 pipeline） | 天然无冲突 |
 | 配置热重载 `configWatchTask` | 5s | 仅重载配置（不重读数据） | 读操作，无副作用 |
 | 僵尸工会清理 `cleanupTask` | 配置间隔 | 删除工会 | 抢锁 `cleanup` |
-| 匹配 `queueTask` | 队列间隔 | 配对并创建工会战 | `war:matchlock` + 原子 `ZREM` |
-| 工会战 tick `tickTask` | 1s | 倒计时/结算/回收 | 仅承办服有 `current`，他服空转 |
+| 匹配 `queueTask` | 队列间隔（默认 2s） | 配对并创建工会战；入队时也会立即尝试一次 | `war:matchlock` + 原子 `ZREM`，扫描完立即释放锁 |
+| 工会战 tick `tickTask` | 1s | 倒计时/结算/回收/终态补发 | 仅承办服有 `current`，他服空转 |
 | 赛季到点 `seasonTask` | 1s | 开赛公告 + 自动入队 | 抢锁 `season:<模式>:<分钟>` + 广播 `SEASON_OPEN` |
 | 奖励补扫 `rewardTask` | 5min | 补发崩溃遗留的玩家奖励 | outbox 行 `PENDING→PROCESSING` 原子领取 |
+| 跨服返程记录 | 入场/赛后/登录 | 写/读 `guild_war_origins` | 按玩家主键 upsert；返回成功后删除 |
+| 承办服忙碌标记 | 5s 续期 | 写 `war:host:<承办服>`（60s TTL） | 只由承办服续期；收尾/停赛删除 |
 | 仓库过期清理 | 5min | 清理过期仓库/空间归档 | 抢锁 `warehouse-purge` |
 
 详见 [shared-config.md](shared-config.md)。

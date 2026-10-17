@@ -180,6 +180,16 @@ public final class RedisBridge {
         return prefix + "war:pending:" + player;
     }
 
+    /** 赛后跨服返程目的地的临时标记（世界 + 坐标）。 */
+    public String keyWarReturn(java.util.UUID player) {
+        return prefix + "war:return:" + player;
+    }
+
+    /** 承办服忙碌/占用标记：战斗期间由承办服续期，匹配服据此跳过该承办服。 */
+    public String keyWarHost(String host) {
+        return prefix + "war:host:" + (host == null ? "" : host.toLowerCase(java.util.Locale.ROOT));
+    }
+
     public String keyArenaPending(java.util.UUID player) {
         return prefix + "arena:pending:" + player;
     }

@@ -1357,6 +1357,80 @@ public final class GuildRepository {
         }
     }
 
+    /** 记录/更新跨服参赛者的出发地（一人一条，最后一场为准）。 */
+    public void saveWarOrigin(WarOrigin origin) throws SQLException {
+        if (origin == null || origin.player() == null) {
+            return;
+        }
+        String table = db.t("guild_war_origins");
+        String sql = db.isSqlite()
+                ? "INSERT INTO `" + table + "` (`war_id`,`player_uuid`,`source_server`,`world`,`x`,`y`,`z`,`yaw`,`pitch`,`created_at`)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(`player_uuid`) DO UPDATE SET"
+                + " `war_id`=excluded.`war_id`,`source_server`=excluded.`source_server`,`world`=excluded.`world`,"
+                + "`x`=excluded.`x`,`y`=excluded.`y`,`z`=excluded.`z`,`yaw`=excluded.`yaw`,`pitch`=excluded.`pitch`,"
+                + "`created_at`=excluded.`created_at`"
+                : "INSERT INTO `" + table + "` (`war_id`,`player_uuid`,`source_server`,`world`,`x`,`y`,`z`,`yaw`,`pitch`,`created_at`)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE"
+                + " `war_id`=VALUES(`war_id`),`source_server`=VALUES(`source_server`),`world`=VALUES(`world`),"
+                + "`x`=VALUES(`x`),`y`=VALUES(`y`),`z`=VALUES(`z`),`yaw`=VALUES(`yaw`),`pitch`=VALUES(`pitch`),"
+                + "`created_at`=VALUES(`created_at`)";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, origin.warId());
+            ps.setString(2, origin.player().toString());
+            ps.setString(3, origin.sourceServer());
+            ps.setString(4, origin.world() == null ? "" : origin.world());
+            ps.setDouble(5, origin.x());
+            ps.setDouble(6, origin.y());
+            ps.setDouble(7, origin.z());
+            ps.setFloat(8, origin.yaw());
+            ps.setFloat(9, origin.pitch());
+            ps.setLong(10, System.currentTimeMillis());
+            ps.executeUpdate();
+        }
+    }
+
+    /** 读取某玩家的出发地；不存在返回 null。 */
+    public WarOrigin loadWarOrigin(UUID player) throws SQLException {
+        if (player == null) {
+            return null;
+        }
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("SELECT `war_id`,`source_server`,`world`,`x`,`y`,`z`,`yaw`,`pitch`"
+                     + " FROM `" + db.t("guild_war_origins") + "` WHERE `player_uuid`=?")) {
+            ps.setString(1, player.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                return new WarOrigin(rs.getString(1), player, rs.getString(2), rs.getString(3),
+                        rs.getDouble(4), rs.getDouble(5), rs.getDouble(6), rs.getFloat(7), rs.getFloat(8));
+            }
+        }
+    }
+
+    public void deleteWarOrigin(UUID player) throws SQLException {
+        if (player == null) {
+            return;
+        }
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_war_origins")
+                     + "` WHERE `player_uuid`=?")) {
+            ps.setString(1, player.toString());
+            ps.executeUpdate();
+        }
+    }
+
+    /** 清理过期的出发地记录（玩家一直未回来/记录残留）。 */
+    public int purgeWarOriginsBefore(long before) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_war_origins")
+                     + "` WHERE `created_at`>0 AND `created_at`<?")) {
+            ps.setLong(1, before);
+            return ps.executeUpdate();
+        }
+    }
+
     private com.liu.liuguild.war.KitService.PersistedEscrow mapWarEscrow(ResultSet rs) throws SQLException {
         return new com.liu.liuguild.war.KitService.PersistedEscrow(
                 parseUuid(rs.getString("player_uuid")),
