@@ -24,7 +24,7 @@ class GuiPlaceholderTest {
     private static final Set<String> KNOWN = Set.of(
             // placeholders(guild)
             "guild", "tag", "leader", "level", "max_level", "points", "members", "member_limit",
-            "wins", "losses", "bank", "home_slots", "notice", "description", "icon", "open",
+            "wins", "losses", "bank", "home_slots", "notice", "description", "icon", "open", "pvp",
             // members
             "player", "rank", "contributed", "kills", "deaths", "joined", "title",
             // list

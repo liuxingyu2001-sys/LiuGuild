@@ -1,6 +1,6 @@
 # 统一装备（Kit）
 
-`kit.yml` 支持**多套装备**，不同工会战模式通过 `war-modes.yml` 的 `kit: <key>` 选用。
+`kit.yml` 支持**多套装备**，不同工会战模式通过 `war-modes.yml` 的 `kit: <key>` 选用；模式未写 `kit` 时继承 `war.defaults.kit`，两者都为空才使用 `default-kit`。
 每套装备可以手工列举，也可以**直接保存玩家当前身上穿的装备**（序列化为 Base64 快照）。
 
 ```yaml

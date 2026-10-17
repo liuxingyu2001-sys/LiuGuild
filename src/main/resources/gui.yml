@@ -63,7 +63,7 @@ gui:
         slot: 43
         material: REDSTONE_TORCH
         name: "<white>工会设置"
-        lore: ["<gray>图标 / 公告 / 简介 / 改名字 / 加入方式"]
+        lore: ["<gray>图标 / 公告 / 简介 / 改名字 / 加入方式 / 成员 PvP"]
       list:
         slot: 39
         material: WRITABLE_BOOK
@@ -271,6 +271,17 @@ gui:
         material: WRITABLE_BOOK
         name: "<white>修改简介"
         lore: ["<gray>当前：<white>{description}", "<gray>点击后输入新简介"]
+      toggle_pvp:
+        slot: 30
+        material: DIAMOND_SWORD
+        name: "<white>成员 PvP：<yellow>{pvp}"
+        lore:
+          - "<gray>当前：<white>{pvp}"
+          - "<gray>开启：同工会成员可以互相攻击"
+          - "<gray>关闭：同工会成员免伤"
+          - "<gray>仅会长 / 有设置权限的官员可切换"
+          - ""
+          - "<yellow>点击切换"
       # ---- 危险操作：从主菜单移到这里，避免玩家在主界面误点 ----
       leave:
         slot: 39

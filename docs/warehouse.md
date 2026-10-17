@@ -29,7 +29,7 @@
 | `/guild warehouse upgrade` | 用工会资金升级仓库容量 |
 | 主菜单「工会仓库」 | `/guild gui` → 点击「工会仓库」（同样会在未开通时改为管理菜单） |
 
-权限：`liuguild.warehouse`（默认所有人）。购买时长 / 升级需要职位达到 `guild.warehouse.manage-rank`（默认 `OFFICER`），或拥有 `liuguild.admin`。
+权限：`liuguild.warehouse`（默认所有人）。购买时长 / 升级需要职位达到 `warehouse.yml` 的 `manage-rank`（默认 `OFFICER`），或拥有 `liuguild.admin`。
 
 ## 使用时间（租赁）
 
@@ -40,7 +40,7 @@
 
 ## 容量升级
 
-- 仓库槽位不再随工会等级增长，而是由**已购买的仓库等级**决定：`min(max-slots, base-slots + 仓库等级 × slots-per-level)`。
+- 仓库槽位不再随工会等级增长，而是由**已购买的仓库等级**在 `warehouse.yml` 的 `levels` 中显式决定。
 - 升级花费按 `base-cost × cost-growth^当前等级` 递增，最多升级 `max-level` 次（0 = 不可升级）。
 - 升级只增不减；已购买等级与使用时间都随工会行持久化，跨服一致。
 
@@ -89,28 +89,24 @@
 
 ## 槽位数量
 
-`base-slots` 为基础槽位，`slots-per-level` 为每次升级增加的槽位，`max-slots` 为上限：
+空间规则集中在 `warehouse.yml`，不再读取 `guild.warehouse`：
 
 ```yaml
-guild:
-  warehouse:
-    enabled: true
-    require-rent: true   # 必须先购买使用时间
-    base-slots: 27       # 基础槽位（非 9 的倍数会自动向上取整）
-    slots-per-level: 9   # 每次升级增加
-    max-slots: 54        # 上限
-    manage-rank: OFFICER # 购买时长 / 升级所需职位
-    rent:
-      price-per-day: 200 # 每 24 小时消耗的工会资金
-      options: [1, 7, 30] # 管理菜单里的购买选项
-      max-days: 90       # 累计最多持有天数（0 = 不限）
-    upgrade:
-      max-level: 3       # 最多升级次数（0 = 不可升级）
-      base-cost: 1000    # 0 → 1 升级消耗
-      cost-growth: 2.0   # 每级成本倍率
+# warehouse.yml
+enabled: true
+manage-rank: OFFICER      # 购买时长 / 升级所需职位
+base-slots: 45            # 未购买任何等级时的槽位
+access:
+  require-rent: true      # 必须先购买使用时间
+  options: [1, 7, 30]     # 管理菜单里的购买天数
+  max-days: 90            # 累计最多持有天数（0 = 不限）
+  price-per-day: {currency: FUNDS, amount: 200}
+levels:                   # 逐级显式容量；必须从 1 连续编号
+  '1': {slots: 90, price: {currency: FUNDS, amount: 1000}, duration-days: 0}
+  '2': {slots: 135, price: {currency: FUNDS, amount: 2000}, duration-days: 0}
 ```
 
-计算：`min(max-slots, base-slots + 仓库等级 × slots-per-level)`，**结果始终是 9 的倍数且落在 9~54**（Bukkit 只接受合法容器尺寸，配错会导致创建界面抛异常）。
+容量直接取已购买等级在 `levels` 中的 `slots`，不再使用旧的 `base-slots + 等级 × slots-per-level` 公式。`duration-days: 0` 表示永久；临时等级到期后回到最高永久等级。
 
 > 降级/配置调小后若槽位缩小，多余槽位的物品**仍保留在数据库里**，不会因为界面变小而被删除；升级回去即可再次看到。
 

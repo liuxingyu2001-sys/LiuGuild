@@ -78,7 +78,7 @@ public final class GuildListener implements GuildModule, Listener {
         Guild gb = plugin.guilds().guildOf(victim.getUniqueId());
 
         // 同工会友伤保护
-        if (ga != null && gb != null && ga.id().equals(gb.id()) && !plugin.settings().guild.friendlyFire) {
+        if (ga != null && gb != null && ga.id().equals(gb.id()) && !plugin.guilds().allowsMemberPvp(ga)) {
             event.setCancelled(true);
             return;
         }

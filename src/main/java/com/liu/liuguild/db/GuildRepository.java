@@ -112,7 +112,7 @@ public final class GuildRepository {
 
     /** Atomically inserts a guild and its leader. */
     public void insertGuildWithLeader(Guild guild, GuildMember leader) throws SQLException {
-        String guildSql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String guildSql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`,`member_pvp`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         String memberSql = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`,`last_checkin`,`checkin_streak`) VALUES (?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
@@ -136,6 +136,11 @@ public final class GuildRepository {
         ps.setInt(10, g.open() ? 1 : 0); ps.setLong(11, g.createdAt()); ps.setLong(12, g.updatedAt()); ps.setLong(13, g.points());
         ps.setInt(14, g.level()); ps.setInt(15, g.wins()); ps.setInt(16, g.losses()); ps.setLong(17, g.bank()); ps.setString(18, g.homeServer()); ps.setInt(19, g.memberCount());
         ps.setLong(20, g.lastActiveAt());
+        if (g.memberPvp() == null) {
+            ps.setNull(21, java.sql.Types.INTEGER);
+        } else {
+            ps.setInt(21, g.memberPvp() ? 1 : 0);
+        }
     }
 
     private void bindMember(PreparedStatement ps, GuildMember m) throws SQLException {
@@ -144,7 +149,7 @@ public final class GuildRepository {
         ps.setLong(9, m.lastCheckin()); ps.setInt(10, m.checkinStreak());
     }
     public boolean insertGuild(Guild g) throws SQLException {
-        String sql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String sql = "INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`,`member_pvp`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
             bindGuild(ps, g);
             return ps.executeUpdate() > 0;
@@ -180,7 +185,7 @@ public final class GuildRepository {
                     throw new SQLException("导入会长已属于其他工会，拒绝覆盖");
                 if (existingId == null) {
                     guild.memberCount(accepted.size());
-                    try (var ps = c.prepareStatement("INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                    try (var ps = c.prepareStatement("INSERT INTO `" + db.t("guilds") + "` (`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,`last_active_at`,`member_pvp`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
                         bindGuild(ps, guild); ps.executeUpdate();
                     }
                 } else {
@@ -224,7 +229,7 @@ public final class GuildRepository {
         return "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
                 + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,"
                 + "`level`=?,`wins`=?,`losses`=?,"
-                + "`home_server`=?,`member_count`=?,`last_active_at`=? WHERE `guild_id`=?";
+                + "`home_server`=?,`member_count`=?,`last_active_at`=?,`member_pvp`=? WHERE `guild_id`=?";
     }
 
     private void bindGuildUpdate(PreparedStatement ps, Guild g) throws SQLException {
@@ -244,7 +249,12 @@ public final class GuildRepository {
         ps.setString(14, g.homeServer());
         ps.setInt(15, g.memberCount());
         ps.setLong(16, g.lastActiveAt());
-        ps.setString(17, g.id());
+        if (g.memberPvp() == null) {
+            ps.setNull(17, java.sql.Types.INTEGER);
+        } else {
+            ps.setInt(17, g.memberPvp() ? 1 : 0);
+        }
+        ps.setString(18, g.id());
     }
 
     /**
@@ -972,6 +982,14 @@ public final class GuildRepository {
                 rs.getInt("member_count"),
                 rs.getString("icon"));
         g.iconData(rs.getString("icon_data"));
+        try {
+            int memberPvp = rs.getInt("member_pvp");
+            if (!rs.wasNull()) {
+                g.memberPvp(memberPvp != 0);
+            }
+        } catch (SQLException ignored) {
+            // 旧库尚未补列时保持 null，回退 guild.yml 的 friendly-fire
+        }
         try {
             g.warehouseLevel(rs.getInt("warehouse_level"));
             g.warehouseLevelExpiresAt(rs.getLong("warehouse_level_expires_at"));

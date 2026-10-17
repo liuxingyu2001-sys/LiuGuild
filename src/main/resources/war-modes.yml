@@ -3,6 +3,7 @@
 #  每一种工会战模式在这里独立配置，互不影响。
 #  未显式填写的项会继承 war.yml 的 war.defaults；
 #  模式里写了的项优先，所以可以让一个模式用统一装备、另一个用玩家自己的装备。
+#  同名模式也可直接写在 war.yml 的 war 下，本文件中的同名模式优先。
 #  broadcast-queue 未写时继承 war.yml 的 war.broadcast-queue。
 #  场地通过 arena 字段引用 arena.yml 中定义的竞技场 id。
 # ==========================================================
@@ -45,12 +46,11 @@ modes:
     allow-jump-on-prepare: false
     # 准备阶段在出生点脚下自动垫一层屏障，从物理上彻底禁止起跳（默认开）
     prepare-platform: true
-    # 玩家点击参与匹配时全服广播提示
-    broadcast-queue: true
+    # 玩家点击参与匹配时是否全服广播由 war.yml 的 war.broadcast-queue 控制；
+    # 需要本模式单独覆盖时再写 broadcast-queue。
     score:
       kill: 1
       death: -1
-      objective: 5
     rewards:
       # Vault 个人金币（发给每位参赛者）
       win-player-money: 500.0
@@ -69,8 +69,8 @@ modes:
       #  scope: both（默认，双方）/ win（仅胜方）/ lose（仅负方，含平局）
       #  可用占位符：{player} {uuid} {guild} {guild_id} {mode} {score} {enemy_score}
       #  结算时分行列出的只有「实际发出去的」奖励，没配置/为 0 的项不会显示。
+      #  未写时继承 war.defaults.rewards.extra；需要清空继承的奖励时写 extra: []。
       # ------------------------------------------------------
-      extra: []
       #  - name: 金币 x1000
       #    commands:
       #      - "money give {player} 1000"
@@ -83,13 +83,15 @@ modes:
       #      - "lp user {player} permission settemp liuguild.vip true 7d"
 
   # ----------------------------------------------------------
-  #  赛季工会战：按时间表自动开启的赛季赛事
+  #  赛季工会战：多工会同场混战，按排名结算。
   #  schedule 支持："20:00"（每天）、"sat 20:00"、"mon-fri 20:00"、"* 20:00"
+  #  混战只读取本段列出的字段；两两匹配的胜负奖励、旁观、死亡扣分、
+  #  每日资金上限等配置不参与混战结算。
   # ----------------------------------------------------------
   season:
     enabled: true
     display: "赛季工会战"
-    description: "赛季限时开启，奖励更丰厚。"
+    description: "赛季限时开启，多工会同场混战。"
     arena: main
     fair-equipment: true
     # 是否屏蔽 LuckyPeaches 蟠桃血量加成，保证公平血量
@@ -100,32 +102,14 @@ modes:
     min-level: 3
     lives:
       per-player: 3
-      balance-teams: true
+      # 阵亡后等待多少秒复活；等待期间仍算存活
       respawn-delay-seconds: 5
     prepare-seconds: 30
     duration-seconds: 900
-    settle-seconds: 15
-    allow-spectators: true
-    # 准备阶段锁定参赛者（冻结移动/视角/跳跃/交互），倒计时结束才放开
+    # 准备阶段锁定参赛者；混战没有 allow-jump / prepare-platform 细项
     freeze-on-prepare: true
-    allow-jump-on-prepare: false
-    prepare-platform: true
-    broadcast-queue: true
     score:
       kill: 2
-      death: -1
-      objective: 10
-    rewards:
-      win-player-money: 1200.0
-      lose-player-money: 300.0
-      win-guild-funds: 12000
-      lose-guild-funds: 3000
-      # 赛季奖励更高，单独抬高每日上限
-      daily-guild-funds-cap: 20000
-      win-pass-xp: 1500
-      lose-pass-xp: 300
-      pass-id: ""
-      win-title-id: 0
     # ---- 赛季时间表 ----
     schedule:
       - "sat 20:00"
@@ -137,12 +121,8 @@ modes:
         '1': 5000
         '2': 3000
         '3': 1000
-      # 到点后开放报名/匹配的窗口时长（分钟）
-      window-minutes: 10
-      # 到点是否自动把符合条件的工会加入匹配队列
-      auto-enqueue: true
-      # 赛季奖励点数倍率
-      points-multiplier: 1.0
+      # 报名汇总窗口（秒）：到点后等待各子服写入在线名单
+      registration-seconds: 15
 
   # ----------------------------------------------------------
   #  示例：另一个自定义模式（复制上段即可新增）

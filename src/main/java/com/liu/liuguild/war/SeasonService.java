@@ -47,12 +47,22 @@ public final class SeasonService implements GuildModule, Listener {
         task=Bukkit.getScheduler().runTaskTimer(plugin,this::tick,20,20);
     }
     public boolean isSeason(String key) {
-        return "season".equalsIgnoreCase(key) || plugin.configs().file("war-modes.yml").getBoolean("modes."+key+".season.melee",false);
+        if (key == null) return false;
+        WarMode configured=plugin.settings().war.modes.get(key.toLowerCase(Locale.ROOT));
+        return configured!=null && configured.melee;
     }
     public boolean busy() { return current!=null; }
     public boolean restricted(UUID id) { return participants.containsKey(id) || capturing.contains(id) || restoring.contains(id); }
+    /** 是否仍在赛事名单内（准备/战斗/等待复活/已淘汰待返程），用于屏蔽外部药水效果。 */
+    public boolean isFighting(UUID id) { return id != null && participants.containsKey(id); }
     public boolean capturing(UUID id) { return capturing.contains(id) || restoring.contains(id); }
-    public boolean frozen(UUID id) { return restricted(id) && (battle==null || battle.phase()!=SeasonBattle.Phase.RUNNING || waiting.contains(id) || capturing.contains(id) || restoring.contains(id)); }
+    public boolean frozen(UUID id) {
+        if (!restricted(id)) return false;
+        if (battle == null || battle.phase() != SeasonBattle.Phase.RUNNING) {
+            return mode == null || mode.freezeOnPrepare;
+        }
+        return waiting.contains(id) || capturing.contains(id) || restoring.contains(id);
+    }
     public void requestStart(org.bukkit.command.CommandSender sender, String key) {
         requestStart(key, message -> { if(running) plugin.sync(() -> sender.sendMessage(message)); });
     }
@@ -62,10 +72,16 @@ public final class SeasonService implements GuildModule, Listener {
         ArenaDef def=plugin.settings().arenas.arenas.get(requested.arena.toLowerCase(Locale.ROOT));
         if(def==null) { reply.accept("§c模式的竞技场不存在。"); return false; }
         String host=def.server==null || def.server.isBlank()?plugin.serverId():def.server;
+        if(!host.equals(plugin.serverId()) && (!plugin.settings().main.transferEnabled
+                || plugin.bus()==null || !plugin.bus().isReady() || plugin.bus().transfer()==null || !plugin.bus().transfer().available())) {
+            reply.accept("§c本赛季场地在 "+host+"，但跨服传送不可用（Redis/transfer 未就绪），无法把玩家送过去。");
+            return false;
+        }
         if(host.equals(plugin.serverId()) && requested.fairHealth && (plugin.luckyPeaches()==null || !plugin.luckyPeaches().available()))
             plugin.getLogger().warning("赛季模式 "+requested.key+" 开启了 fair-health，但未检测到 LuckyPeaches 的屏蔽接口，无法保证公平血量。");
         long now=System.currentTimeMillis();
-        SeasonRepository.Event event=new SeasonRepository.Event(UUID.randomUUID().toString(),requested.key,host,"REGISTERING",now+15000,now);
+        long window=Math.max(5,requested.seasonRegistrationSeconds)*1000L;
+        SeasonRepository.Event event=new SeasonRepository.Event(UUID.randomUUID().toString(),requested.key,host,"REGISTERING",now+window,now);
         submit(() -> {
             try { repo.create(event); reply.accept("§a赛季混战报名已开启，正在等待承办服和各子服汇总名单。"); }
             catch(Exception e) { reply.accept("§c赛季未开启：承办服已被占用或数据库失败，详情见日志。"); plugin.getLogger().warning("赛季未开启: "+e.getMessage()); }
@@ -166,7 +182,7 @@ public final class SeasonService implements GuildModule, Listener {
                 Set<String> guilds=new HashSet<>();
                 entries.forEach(e -> guilds.add(e.guild()));
                 if(guilds.size()<2) { finish(true); return; }
-                prepareUntil=System.currentTimeMillis()+Math.max(15,mode.prepareSeconds)*1000L;
+                prepareUntil=System.currentTimeMillis()+Math.max(1,mode.prepareSeconds)*1000L;
                 current=new SeasonRepository.Event(event.id(),event.mode(),event.host(),"PREPARING",prepareUntil,System.currentTimeMillis());
                 submit(() -> { try { repo.state(event.id(),"PREPARING",prepareUntil); } catch(Exception e) { failure(e); } });
                 Bukkit.broadcastMessage("§6[工会赛季] §e"+guilds.size()+" 个工会进入混战准备阶段。");
@@ -190,15 +206,8 @@ public final class SeasonService implements GuildModule, Listener {
         }
     }
     private Map<Integer,Long> readRewards(String key) {
-        Map<Integer,Long> result=new HashMap<>(Map.of(1,5000L,2,3000L,3,1000L));
-        var section=plugin.configs().file("war-modes.yml").getConfigurationSection("modes."+key+".season.rank-rewards");
-        if(section!=null) { result.clear(); }
-        if(section!=null) for(String rank:section.getKeys(false)) {
-            int n=Integer.parseInt(rank); long value=section.getLong(rank);
-            if(n<1 || value<0) throw new IllegalArgumentException("赛季排名奖励无效");
-            result.put(n,value);
-        }
-        return Map.copyOf(result);
+        WarMode selected=plugin.settings().war.modes.get(key);
+        return selected==null ? Map.of() : selected.rankRewards;
     }
     private void registerLocal(SeasonRepository.Event event) {
         WarMode selected=plugin.settings().war.modes.get(event.mode());
@@ -294,8 +303,8 @@ public final class SeasonService implements GuildModule, Listener {
         current=new SeasonRepository.Event(current.id(),current.mode(),current.host(),"RUNNING",System.currentTimeMillis()+mode.durationSeconds*1000L,System.currentTimeMillis());
         String id=current.id(); long until=current.until();
         submit(() -> { try { repo.state(id,"RUNNING",until); } catch(Exception e) { failure(e); } });
-        bar=Bukkit.createBossBar("工会赛季混战",BarColor.YELLOW,BarStyle.SOLID);
-        participants.keySet().forEach(uuid -> { Player p=Bukkit.getPlayer(uuid); if(p!=null) bar.addPlayer(p); });
+        bar=plugin.settings().war.bossBarEnabled?Bukkit.createBossBar("工会赛季混战",BarColor.YELLOW,BarStyle.SOLID):null;
+        if(bar!=null) participants.keySet().forEach(uuid -> { Player p=Bukkit.getPlayer(uuid); if(p!=null) bar.addPlayer(p); });
         Bukkit.broadcastMessage("§6[工会赛季] §c混战开始！击杀得分，同分按死亡次数排名。");
     }
     private void updateBoard() {
@@ -444,7 +453,7 @@ public final class SeasonService implements GuildModule, Listener {
             applyFairHealth(victim);
             plugin.kits().apply(victim,mode); victim.setGameMode(GameMode.ADVENTURE); victim.setInvulnerable(false);
             teleportSpawn(victim,participants.get(uuid).guild(),new ArrayList<>(participants.values()));
-        },Math.max(1,mode.respawnDelaySeconds)*20L);
+        },Math.max(0,mode.respawnDelaySeconds)*20L);
     }
     @EventHandler(priority=EventPriority.HIGHEST)
     public void death(PlayerDeathEvent event) {
@@ -464,7 +473,7 @@ public final class SeasonService implements GuildModule, Listener {
                 plugin.kits().apply(player,mode); player.setGameMode(GameMode.ADVENTURE); player.setInvulnerable(false);
                 teleportSpawn(player,participants.get(uuid).guild(),new ArrayList<>(participants.values()));
             } else { player.setGameMode(GameMode.SPECTATOR); player.setInvulnerable(true); }
-        }, Math.max(1,mode.respawnDelaySeconds)*20L);
+        }, Math.max(0,mode.respawnDelaySeconds)*20L);
     }
 
     @EventHandler public void join(PlayerJoinEvent event) { arrivals.put(event.getPlayer().getUniqueId(),System.currentTimeMillis()); }

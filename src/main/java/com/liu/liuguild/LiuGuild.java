@@ -540,9 +540,9 @@ public final class LiuGuild extends JavaPlugin {
         }
         if (s.war.enabled) {
             if (s.war.modes.isEmpty()) {
-                configWarnings.add("工会战已启用但未定义任何模式（war-modes.yml）。");
+                configWarnings.add("工会战已启用但未定义任何模式（war-modes.yml 或 war.yml）。");
             } else if (!s.war.modes.containsKey(s.war.defaultMode)) {
-                configWarnings.add("war.default-mode=" + s.war.defaultMode + " 未在 war-modes.yml 中定义。");
+                configWarnings.add("war.default-mode=" + s.war.defaultMode + " 未在 war-modes.yml 或 war.yml 中定义。");
             }
             for (com.liu.liuguild.config.WarMode m : s.war.modes.values()) {
                 com.liu.liuguild.config.ArenaDef a = s.arenas.arenas.get(

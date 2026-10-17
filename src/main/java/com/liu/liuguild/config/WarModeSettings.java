@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** 工会战模式模块（war-modes.yml）：每种模式一份独立配置。 */
+/** 工会战模式模块（war-modes.yml + war.yml 的同级模式段）：每种模式一份独立配置。 */
 public final class WarModeSettings {
 
     /** 全部模式（key 小写）。 */
@@ -53,6 +53,7 @@ public final class WarModeSettings {
             m.display = "赛季工会战";
             m.description = "在配置的时间表到达时自动开启的赛季赛事。";
             m.schedule = new ArrayList<>(List.of("sat 20:00", "sun 20:00"));
+            m.melee = true;
             return m;
         });
         if (!s.modes.containsKey(s.defaultMode)) {

@@ -79,13 +79,13 @@ enabled: true
 redis: { host: 127.0.0.1, port: 6379, password: "", database: 0, pool-size: 8, timeout-ms: 2000, channel: liuguild }
 transfer: { enabled: true }
 heartbeat-seconds: 5
-local-fallback: true     # Redis 不可用时降级为单服
+# Redis 不可用时固定降级为单服；没有关闭开关
 ```
 
 ## guild.yml
 
 工会名称/标签长度、创建费、成员上限与每级增长、邀请有效期与冷却、银行开关与税率、
-升级所需点数与成长系数、最高等级、友伤开关、官员权限（邀请/踢人/宣战/公告）、默认图标与图标更换费用。
+升级所需点数与成长系数、最高等级、新工会的成员 PvP 默认值（`friendly-fire`）、官员权限（邀请/踢人/宣战/公告）、默认图标与图标更换费用。已有工会可在 GUI「工会设置」中单独开关成员 PvP。
 
 ## war.yml
 
@@ -138,9 +138,9 @@ hooks:
 - 手动：`/guildadmin reload`。
 
 
-## 工会头衔 / 商店（`guild.yml`）与旧仓库配置
+## 工会玩法（`guild.yml`）
 
-仓库配置现已迁移到独立 `warehouse.yml`。下面的 `guild.warehouse` 仅为旧版迁移参考，新版运行规则请编辑 `warehouse.yml`。首次迁移后修改旧仓库节点不会改变新规则。
+头衔、商店、签到、活跃度、驻地、改名与清理都在这里。工会空间（仓库）已独立到 `warehouse.yml`，`guild.yml` 中不再包含 `warehouse` 节点。
 
 ```yaml
 guild:

@@ -109,6 +109,60 @@ class WarConfigTest {
     }
 
     @Test
+    void meleeAndRankRewardsParseFromWarYmlOrModeFile() throws Exception {
+        WarSettings w = war("""
+                war:
+                  custom-melee:
+                    season:
+                      melee: true
+                      rank-rewards:
+                        '1': 7000
+                        '2': 4000
+                """);
+        WarModeSettings m = modes("", w);
+        WarMode melee = m.mode("custom-melee");
+        assertTrue(melee.melee);
+        assertEquals(7000L, melee.rankRewards.get(1));
+        assertEquals(4000L, melee.rankRewards.get(2));
+        assertFalse(m.mode("custom-melee").rankRewards.containsKey(3));
+    }
+
+    @Test
+    void seasonIsMeleeAndUsesDefaultRankRewardsWhenNotConfigured() throws Exception {
+        WarSettings w = war("");
+        WarMode season = modes("modes:\n  season: {}\n", w).mode("season");
+        assertTrue(season.melee);
+        assertEquals(5000L, season.rankRewards.get(1));
+        assertEquals(1000L, season.rankRewards.get(3));
+        assertFalse(modes("modes:\n  match: {}\n", w).mode("match").melee);
+    }
+
+    @Test
+    void meleeRegistrationWindowIsConfigurableAndClamped() throws Exception {
+        WarSettings w = war("");
+        WarModeSettings m = modes("modes:\n  season:\n    season:\n      registration-seconds: 2\n", w);
+        assertEquals(5, m.mode("season").seasonRegistrationSeconds);
+        WarModeSettings m2 = modes("modes:\n  season:\n    season:\n      registration-seconds: 45\n", w);
+        assertEquals(45, m2.mode("season").seasonRegistrationSeconds);
+    }
+
+    @Test
+    void extraRewardsInheritUnlessModeExplicitlyOverrides() throws Exception {
+        WarSettings w = war("""
+                war:
+                  defaults:
+                    rewards:
+                      extra:
+                        - name: 默认奖励
+                          commands: ["say {player}"]
+                """);
+        WarModeSettings inherited = modes("modes:\n  match: {}\n", w);
+        assertEquals(1, inherited.mode("match").extraRewards.size());
+        WarModeSettings cleared = modes("modes:\n  match:\n    rewards:\n      extra: []\n", w);
+        assertTrue(cleared.mode("match").extraRewards.isEmpty());
+    }
+
+    @Test
     void globalBroadcastQueueAppliesUnlessModeOverridesIt() throws Exception {
         WarSettings w = war("war:\n  broadcast-queue: false\n");
         WarModeSettings m = modes("modes:\n  match: {}\n  season:\n    broadcast-queue: true\n", w);

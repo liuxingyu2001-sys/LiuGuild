@@ -42,7 +42,7 @@ war:
     duration-seconds: 600
     settle-seconds: 10
     allow-spectators: true
-    score: { kill: 1, death: -1, objective: 5 }
+    score: { kill: 1, death: -1 }
     rewards:
       win-player-money: 500.0
       lose-player-money: 100.0
@@ -80,7 +80,7 @@ modes:
     lives: { per-player: 3, balance-teams: true, respawn-delay-seconds: 3 }
     prepare-seconds: 30
     duration-seconds: 600
-    score: { kill: 1, death: -1, objective: 5 }
+    score: { kill: 1, death: -1 }
     rewards:
       win-player-money: 500.0
       lose-player-money: 100.0
@@ -131,6 +131,8 @@ war:
 - `lives.per-player` 是每名参赛者初始生命数，包含开战时的当前生命。
 - `lives.balance-teams: true` 时，人数不等的双方获得相等总生命池：`max(较大队伍人数, 较小队伍人数 × per-player)`。分配时保证每名参赛者至少有 1 命；较小队伍可能每人分到多于基础值。关闭后双方均按每人基础生命数计算。
 - 达到致命伤害时，在原版死亡流程前拦截，扣除一命。参赛者不会掉落装备或进入原版死亡界面。
+- 入场和每次复活都会先清空玩家当前全部药水效果（包括 PlayerTitle 称号 buff、命令或药水来源），再发放 `kit.yml` 的套装效果；`fair-equipment: false` 也适用。
+- 战斗期间（准备、复活等待、已淘汰待返程）拦截新增/变化的药水效果，只放行本插件发放的套装效果，避免 PlayerTitle 在切世界或复活后重新施加。
 - 还有生命时，玩家临时进入旁观模式，等待 `respawn-delay-seconds` 后在己方出生点复活并重新领取统一套装。
 - 生命耗尽后被淘汰并持续旁观；一方全员淘汰时立即判负。比赛进入 ACTIVE 后锁定参赛名单，不接受新参赛者。
 - 比赛结束（含强制结束）时，参赛者会被传送回参赛前的位置并还原装备。
@@ -143,7 +145,8 @@ war:
 - 模式开启 `broadcast-queue` 时，玩家入队会向**所有子服**广播（Redis 跨服消息），其他服玩家可直接点击提示加入；未启用跨服时只在当前服广播。
 - 配对按模式分组，不会让不同模式的工会互相阻塞。
 - `schedule` 支持 `"20:00"`、`"sat 20:00"`、`"mon-fri 20:00"`、`"sat,sun 21:30"`。
-- `season.window-minutes` 控制赛季报名窗口，`season.auto-enqueue` 控制是否自动入队。
+- 判定为混战的模式（`season.melee: true`）使用 `season.registration-seconds` 汇总名单，并自动登记符合条件的工会，不使用 `window-minutes` / `auto-enqueue`。
+- 未启用混战的时间表模式仍使用 `season.window-minutes` 控制报名窗口，`season.auto-enqueue` 控制是否自动入队。
 - 管理员可以使用 `/guildadmin mode start <mode>` 手动开放赛季。
 
 ## 奖励
@@ -162,13 +165,12 @@ war:
 
 ### 每日上限（防刷）
 
-- `daily-guild-funds-cap` 按**工会 + 自然日**统计，默认由 `war.defaults` 提供、模式可单独覆盖：匹配战默认 `2000`，赛季默认 `20000`。
+- `daily-guild-funds-cap` 按**工会 + 自然日**统计，默认由 `war.defaults` 提供、模式可单独覆盖；匹配战默认 `2000`。混战排名奖励走独立事务，不读取该上限。
 - 实际上限判定在**数据库内原子完成**（读当日已发额 → 算本次可发额 → 乐观锁写入），多台子服同时结算也不会超发；已达上限时结算消息显示「已达今日上限」，不再发放工会资金（个人金币/经验/称号不受影响）。
 - 匹配战默认奖励已从 `5000/1000` 下调为 `800/100`，配合每日上限避免反复匹配刷工会资金。
 
-平局双方按参与奖励结算，不发胜利称号。赛季 `points-multiplier` 为旧配置兼容保留，奖励倍率作用于金币、工会资金和通行证经验，不会产生点数。
+平局双方按参与奖励结算，不发胜利称号。`season.points-multiplier` 只对按时间表开启的非混战赛事生效，作用于金币、工会资金和通行证经验；混战使用 `season.rank-rewards`，不受该倍率影响。
 
-升级兼容：旧 `win-points` / `lose-points` 会被忽略；旧 `win-money` / `lose-money` 只作为工会资金字段的迁移回退，不会发为个人金币。
 
 ## 跨服和竞技场
 

@@ -3,12 +3,13 @@ package com.liu.liuguild.config;
 import org.bukkit.configuration.ConfigurationSection;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 /**
- * 单种工会战模式的可独立配置（war-modes.yml）。
+ * 单种工会战模式的可独立配置（war-modes.yml，或 war.yml 中与 defaults 同级的模式段）。
  * <p>每种模式都有自己完整的配置：是否启用公平统一装备、使用哪套装备、引用哪个竞技场、
  * 承办服、时长、计分、奖励、开放时间等。未写的项继承 {@code war.defaults}。</p>
  */
@@ -24,7 +25,6 @@ public final class WarMode {
     public boolean fairEquipment = true;
     /** kit.yml 中的装备套装 key。 */
     public String kit = "default";
-    public boolean keepInventory = false;
     /** 是否屏蔽 LuckyPeaches 等插件的额外血量，保证公平血量。 */
     public boolean fairHealth = true;
 
@@ -47,7 +47,6 @@ public final class WarMode {
     // ---- 计分 ----
     public int scoreKill = 1;
     public int scoreDeath = -1;
-    public int scoreObjective = 5;
 
     // ---- 场地 / 承办 ----
     public boolean allowSpectators = true;
@@ -133,10 +132,19 @@ public final class WarMode {
     public List<String> schedule = new ArrayList<>();
     /** 到点后开放报名/匹配的窗口时长（分钟）。 */
     public int seasonWindowMinutes = 10;
+    /** 混战报名汇总窗口（秒）；到点后等待各子服写入名单。 */
+    public int seasonRegistrationSeconds = 15;
     /** 到点是否自动把符合条件的工会加入匹配队列。 */
     public boolean autoEnqueue = false;
     /** 赛季期间额外奖励点数倍率（1.0 = 不变）。 */
     public double seasonPointsMultiplier = 1.0;
+
+    // ---- 多工会混战 ----
+    /** 是否使用多工会混战（按排名结算），而不是两两匹配。 */
+    public boolean melee = false;
+    /** 混战按名次发放的工会公共资金；显式配置会整体替换默认前三名。 */
+    public Map<Integer, Long> rankRewards = new LinkedHashMap<>(Map.of(
+            1, 5000L, 2, 3000L, 3, 1000L));
 
     /**
      * 读取 {@code rewards.extra}：一个奖励对象列表，每项 = 名称 + 作用范围 + 指令列表。
@@ -214,7 +222,6 @@ public final class WarMode {
         m.description = sec.getString("description", m.description);
         m.fairEquipment = sec.getBoolean("fair-equipment", m.fairEquipment);
         m.kit = sec.getString("kit", m.kit);
-        m.keepInventory = sec.getBoolean("keep-inventory", m.keepInventory);
         m.fairHealth = sec.getBoolean("fair-health", m.fairHealth);
         m.teamSize = Math.max(1, sec.getInt("team-size", m.teamSize));
         m.minMembers = Math.max(1, sec.getInt("min-members", m.minMembers));
@@ -227,7 +234,6 @@ public final class WarMode {
         m.settleSeconds = Math.max(1, sec.getInt("settle-seconds", m.settleSeconds));
         m.scoreKill = sec.getInt("score.kill", m.scoreKill);
         m.scoreDeath = sec.getInt("score.death", m.scoreDeath);
-        m.scoreObjective = sec.getInt("score.objective", m.scoreObjective);
         m.allowSpectators = sec.getBoolean("allow-spectators", m.allowSpectators);
         m.freezeOnPrepare = sec.getBoolean("freeze-on-prepare", m.freezeOnPrepare);
         m.allowJumpOnPrepare = sec.getBoolean("allow-jump-on-prepare", m.allowJumpOnPrepare);
@@ -235,21 +241,41 @@ public final class WarMode {
         m.arena = sec.getString("arena", m.arena);
         m.winPlayerMoney = Math.max(0, sec.getDouble("rewards.win-player-money", m.winPlayerMoney));
         m.losePlayerMoney = Math.max(0, sec.getDouble("rewards.lose-player-money", m.losePlayerMoney));
-        m.winGuildFunds = Math.max(0, sec.getLong("rewards.win-guild-funds",
-                (long) sec.getDouble("rewards.win-money", m.winGuildFunds)));
-        m.loseGuildFunds = Math.max(0, sec.getLong("rewards.lose-guild-funds",
-                (long) sec.getDouble("rewards.lose-money", m.loseGuildFunds)));
+        m.winGuildFunds = Math.max(0, sec.getLong("rewards.win-guild-funds", m.winGuildFunds));
+        m.loseGuildFunds = Math.max(0, sec.getLong("rewards.lose-guild-funds", m.loseGuildFunds));
         m.dailyGuildFundsCap = Math.max(0, sec.getLong("rewards.daily-guild-funds-cap", m.dailyGuildFundsCap));
         m.winPassXp = Math.max(0, sec.getInt("rewards.win-pass-xp", m.winPassXp));
         m.losePassXp = Math.max(0, sec.getInt("rewards.lose-pass-xp", m.losePassXp));
         m.passId = sec.getString("rewards.pass-id", m.passId);
         m.winTitleId = Math.max(0, sec.getInt("rewards.win-title-id", m.winTitleId));
-        m.extraRewards = readExtraRewards(sec);
+        // 只有模式显式写了 rewards.extra 才覆盖 defaults，否则继承公共额外奖励。
+        if (sec.contains("rewards.extra")) {
+            m.extraRewards = readExtraRewards(sec);
+        }
         m.broadcastQueue = sec.getBoolean("broadcast-queue", m.broadcastQueue);
         m.schedule = readStringList(sec, "schedule", m.schedule);
         m.seasonWindowMinutes = Math.max(1, sec.getInt("season.window-minutes", m.seasonWindowMinutes));
+        m.seasonRegistrationSeconds = Math.max(5, Math.min(300, sec.getInt("season.registration-seconds", m.seasonRegistrationSeconds)));
         m.autoEnqueue = sec.getBoolean("season.auto-enqueue", m.autoEnqueue);
         m.seasonPointsMultiplier = Math.max(1.0, sec.getDouble("season.points-multiplier", m.seasonPointsMultiplier));
+        // 名为 season 的内置模式默认就是混战；自定义模式必须显式写 season.melee: true。
+        m.melee = sec.getBoolean("season.melee", "season".equalsIgnoreCase(key) || m.melee);
+        ConfigurationSection rankSection = sec.getConfigurationSection("season.rank-rewards");
+        if (rankSection != null) {
+            Map<Integer, Long> ranks = new LinkedHashMap<>();
+            for (String rank : rankSection.getKeys(false)) {
+                try {
+                    int place = Integer.parseInt(rank.trim());
+                    long value = rankSection.getLong(rank, -1);
+                    if (place >= 1 && value >= 0) {
+                        ranks.put(place, value);
+                    }
+                } catch (NumberFormatException ignored) {
+                    // 非数字名次忽略，不影响其余奖励
+                }
+            }
+            m.rankRewards = ranks;
+        }
         return m;
     }
 
@@ -261,7 +287,6 @@ public final class WarMode {
         c.description = description;
         c.fairEquipment = fairEquipment;
         c.kit = kit;
-        c.keepInventory = keepInventory;
         c.fairHealth = fairHealth;
         c.teamSize = teamSize;
         c.minMembers = minMembers;
@@ -274,7 +299,6 @@ public final class WarMode {
         c.settleSeconds = settleSeconds;
         c.scoreKill = scoreKill;
         c.scoreDeath = scoreDeath;
-        c.scoreObjective = scoreObjective;
         c.allowSpectators = allowSpectators;
         c.freezeOnPrepare = freezeOnPrepare;
         c.allowJumpOnPrepare = allowJumpOnPrepare;
@@ -296,8 +320,11 @@ public final class WarMode {
         c.broadcastQueue = broadcastQueue;
         c.schedule = new ArrayList<>(schedule);
         c.seasonWindowMinutes = seasonWindowMinutes;
+        c.seasonRegistrationSeconds = seasonRegistrationSeconds;
         c.autoEnqueue = autoEnqueue;
         c.seasonPointsMultiplier = seasonPointsMultiplier;
+        c.melee = melee;
+        c.rankRewards = new LinkedHashMap<>(rankRewards);
         return c;
     }
 

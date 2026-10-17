@@ -158,6 +158,7 @@ public final class Database {
                     + "`icon` VARCHAR(64),"
                     + "`icon_data` TEXT,"
                     + "`open` INT NOT NULL DEFAULT 0,"
+                    + "`member_pvp` INT NULL DEFAULT NULL,"
                     + "`created_at` BIGINT NOT NULL DEFAULT 0,"
                     + "`updated_at` BIGINT NOT NULL DEFAULT 0,"
                     + "`points` BIGINT NOT NULL DEFAULT 0,"
@@ -376,6 +377,7 @@ public final class Database {
         columns.add(new String[]{"guilds", "description", "`description` VARCHAR(255)"});
         columns.add(new String[]{"guilds", "home_server", "`home_server` VARCHAR(64)"});
         columns.add(new String[]{"guilds", "member_count", "`member_count` INT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guilds", "member_pvp", "`member_pvp` INT NULL DEFAULT NULL"});
         columns.add(new String[]{"guilds", "updated_at", "`updated_at` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "bank", "`bank` BIGINT NOT NULL DEFAULT 0"});
         columns.add(new String[]{"guilds", "warehouse_level_expires_at", "`warehouse_level_expires_at` BIGINT NOT NULL DEFAULT 0"});

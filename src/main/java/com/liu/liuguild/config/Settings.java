@@ -4,7 +4,8 @@ package com.liu.liuguild.config;
  * 模块化配置聚合根。
  * 每个模块由各自的文件解析而来，互不耦合：
  * <pre>
- *   config.yml        → main（含 cross-server.yml 覆盖）
+ *   config.yml        → main（settings / hooks / channels）
+ *   cross-server.yml  → main 的跨服段
  *   database.yml      → database（由主类单独读取）
  *   guild.yml         → guild
  *   war.yml           → war（全局 + 默认值）

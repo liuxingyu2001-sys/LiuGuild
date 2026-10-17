@@ -438,6 +438,11 @@ public final class WarManager implements GuildModule {
         return c != null && c.sideOf(uuid) != null;
     }
 
+    /** 玩家是否正在参战（含准备/复活等待/已淘汰但尚未离场），用于战斗期效果锁定。 */
+    public boolean isFighting(UUID uuid) {
+        return isInWar(uuid) || (plugin.seasons() != null && plugin.seasons().isFighting(uuid));
+    }
+
     /** 玩家是否处于工会战或旁观状态（禁止打开面板/菜单、禁止外部传送、禁止传送指令）。 */
     public boolean isWarRestricted(UUID uuid) {
         return uuid != null && ((plugin.seasons() != null && plugin.seasons().restricted(uuid)) || isInWar(uuid) || spectators.contains(uuid) || sideOf.containsKey(uuid));
@@ -2325,6 +2330,12 @@ public final class WarManager implements GuildModule {
     private void leaveLocal(UUID uuid) {
         Player p = plugin.player(uuid);
         unfreezePlayer(p);
+        // 先退出战斗身份，再还原快照：否则 PlayerTitle 在返程切世界时重新施加的称号效果
+        // 会被“战斗中禁止药水”监听器再次拦掉，导致赛后称号 buff 丢失。
+        spectators.remove(uuid);
+        sideOf.remove(uuid);
+        livesRemaining.remove(uuid);
+        eliminated.remove(uuid);
         restoreSnapshot(uuid, p, false, () -> {
             finishTeleport(uuid, plugin.player(uuid));
             returnLoc.remove(uuid);
@@ -2336,10 +2347,6 @@ public final class WarManager implements GuildModule {
                 plugin.luckyPeaches().clear(uuid);
             }
         }
-        spectators.remove(uuid);
-        sideOf.remove(uuid);
-        livesRemaining.remove(uuid);
-        eliminated.remove(uuid);
         if (p != null) {
             p.setGameMode(org.bukkit.GameMode.SURVIVAL);
             hideWarBar(p);

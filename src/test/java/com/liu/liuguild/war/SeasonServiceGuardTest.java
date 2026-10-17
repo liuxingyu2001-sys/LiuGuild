@@ -22,6 +22,13 @@ class SeasonServiceGuardTest {
     }
 
     @Test
+    void seasonHonorsFreezeConfigAndRegistrationWindow() throws Exception {
+        String season = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/SeasonService.java"));
+        assertTrue(season.contains("return mode == null || mode.freezeOnPrepare;"));
+        assertTrue(season.contains("requested.seasonRegistrationSeconds"));
+    }
+
+    @Test
     void queueAnnouncementReachesOtherServersOnce() throws Exception {
         String war = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/WarManager.java"));
         assertTrue(war.contains("publish(\"WAR_QUEUE_ANNOUNCE\""));

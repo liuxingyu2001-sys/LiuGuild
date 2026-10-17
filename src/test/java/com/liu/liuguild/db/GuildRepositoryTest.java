@@ -14,6 +14,7 @@ import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -135,6 +136,21 @@ class GuildRepositoryTest {
         }
         warehouse.cleanExpired(settings, System.currentTimeMillis());
         assertEquals(1, warehouse.loadSnapshot(g.id()).items().size());
+    }
+
+    @Test
+    void memberPvpOverrideRoundTripsAndNullMeansInheritDefault() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Pvp", "PVP");
+        repo.insertGuild(g);
+        assertNull(repo.loadGuild(g.id()).memberPvp(), "未设置时应保持 null，回退 guild.yml");
+
+        g.memberPvp(true);
+        repo.updateGuild(g);
+        assertEquals(Boolean.TRUE, repo.loadGuild(g.id()).memberPvp());
+
+        g.memberPvp(false);
+        repo.updateGuild(g);
+        assertEquals(Boolean.FALSE, repo.loadGuild(g.id()).memberPvp());
     }
 
     @Test

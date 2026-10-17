@@ -5,7 +5,7 @@
 `season` 模式使用独立混战控制器；自定义模式可设置 `season.melee: true`。
 管理员 `/guildadmin war start season` 或赛季时间表触发报名。
 
-- 15秒跨服报名汇总，之后进入准备阶段（至少15秒）。
+- `season.registration-seconds`（默认15秒）跨服报名汇总，之后进入准备阶段（至少15秒）。
 - 每工会按最低等级、人数、队伍上限筛选；入场前持久化装备托管。
 - 套装与公平血量遵循该模式的 `fair-equipment`、`fair-health` 配置：关闭 `fair-equipment` 时保留玩家自带装备，关闭 `fair-health` 时不屏蔽蟠桃血量。
 - 所有工会进入同一场地。按工会ID排序分配点位，不足循环复用。

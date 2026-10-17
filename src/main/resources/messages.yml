@@ -71,6 +71,7 @@ zh_CN:
   # ---- 设置 ----
   set-usage: "<red>用法：<white>/guild set <open|notice|desc> <内容></white>"
   set-open: "<green>工会加入方式已设置为 <white>{value}</white>。"
+  set-pvp: "<green>工会成员 PvP 已设置为 <white>{value}</white>。"
   set-notice: "<green>工会公告已更新。"
   set-desc: "<green>工会简介已更新。"
   # ---- 工会改名字 ----

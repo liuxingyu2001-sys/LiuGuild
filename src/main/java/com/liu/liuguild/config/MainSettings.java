@@ -2,7 +2,7 @@ package com.liu.liuguild.config;
 
 import org.bukkit.configuration.file.FileConfiguration;
 
-/** 主配置模块（config.yml：settings / cross-server；server-id 来自每服的 server.yml）。 */
+/** 主配置模块（config.yml：settings / hooks / channels；跨服段只来自 cross-server.yml，server-id 来自每服 server.yml）。 */
 public final class MainSettings {
 
     public String language = "zh_CN";
@@ -20,9 +20,6 @@ public final class MainSettings {
     public String redisChannel = "liuguild";
     public boolean transferEnabled = true;
     public int heartbeatSeconds = 5;
-    /** Redis 不可用时是否自动降级为单服模式。 */
-    public boolean localFallback = true;
-
     // ---- 可选插件钩子 ----
     /** mcMMO 兼容总开关。 */
     public boolean mcmmoEnabled = true;
@@ -54,18 +51,8 @@ public final class MainSettings {
         s.language = c.getString("settings.language", s.language);
         s.autoReload = c.getBoolean("settings.auto-reload-config", s.autoReload);
         s.debug = c.getBoolean("settings.debug", s.debug);
-        // server-id 只从每服的 server.yml 读取（见 ConfigManager#applyServerOverride），不再由 config.yml 提供。
-
-        s.crossServerEnabled = c.getBoolean("cross-server.enabled", s.crossServerEnabled);
-        s.redisHost = c.getString("cross-server.redis.host", s.redisHost);
-        s.redisPort = clamp(c.getInt("cross-server.redis.port", s.redisPort), 1, 65535);
-        s.redisPassword = c.getString("cross-server.redis.password", s.redisPassword);
-        s.redisDatabase = Math.max(0, c.getInt("cross-server.redis.database", s.redisDatabase));
-        s.redisPoolSize = clamp(c.getInt("cross-server.redis.pool-size", s.redisPoolSize), 1, 64);
-        s.redisTimeoutMs = Math.max(200, c.getInt("cross-server.redis.timeout-ms", s.redisTimeoutMs));
-        s.redisChannel = sanitize(c.getString("cross-server.redis.channel", s.redisChannel), "liuguild");
-        s.transferEnabled = c.getBoolean("cross-server.transfer.enabled", s.transferEnabled);
-        s.heartbeatSeconds = clamp(c.getInt("cross-server.heartbeat-seconds", s.heartbeatSeconds), 2, 60);
+        // server-id 只从每服的 server.yml 读取（见 ConfigManager#applyServerOverride）。
+        // 跨服段只从 cross-server.yml 读取，config.yml 里的同名键不再生效。
         s.mcmmoEnabled = c.getBoolean("hooks.mcmmo.enabled", s.mcmmoEnabled);
         s.mcmmoSuppressAbilities = c.getBoolean("hooks.mcmmo.suppress-abilities-in-war", s.mcmmoSuppressAbilities);
         s.mcmmoSuppressXp = c.getBoolean("hooks.mcmmo.suppress-xp-in-war", s.mcmmoSuppressXp);
@@ -83,7 +70,7 @@ public final class MainSettings {
         return s;
     }
 
-    /** 用独立的 cross-server.yml 覆盖跨服段（优先于 config.yml 内嵌配置）。 */
+    /** 读取跨服段（唯一来源：cross-server.yml）。 */
     public static void applyCrossServer(MainSettings s, FileConfiguration c) {
         if (c == null) {
             return;
@@ -98,7 +85,6 @@ public final class MainSettings {
         s.redisChannel = sanitize(c.getString("redis.channel", s.redisChannel), "liuguild");
         s.transferEnabled = c.getBoolean("transfer.enabled", s.transferEnabled);
         s.heartbeatSeconds = clamp(c.getInt("heartbeat-seconds", s.heartbeatSeconds), 2, 60);
-        s.localFallback = c.getBoolean("local-fallback", s.localFallback);
     }
 
     private static int clamp(int v, int min, int max) {

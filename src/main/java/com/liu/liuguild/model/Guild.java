@@ -20,6 +20,8 @@ public final class Guild {
     /** 自定义图标数据（旧插件导入的序列化 ItemStack，可空）。 */
     private volatile String iconData;
     private volatile boolean open;
+    /** 同工会成员是否允许互相攻击；null = 未单独设置，回退 guild.yml 的 friendly-fire。 */
+    private volatile Boolean memberPvp;
     private volatile long createdAt;
     private volatile long updatedAt;
     private volatile long points;
@@ -158,6 +160,14 @@ public final class Guild {
 
     public void open(boolean open) {
         this.open = open;
+    }
+
+    public Boolean memberPvp() {
+        return memberPvp;
+    }
+
+    public void memberPvp(Boolean memberPvp) {
+        this.memberPvp = memberPvp;
     }
 
     public long createdAt() {

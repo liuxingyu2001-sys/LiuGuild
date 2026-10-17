@@ -95,6 +95,9 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
 - 工会战胜利时按模式 `rewards.win-title-id` 发放 PlayerTitle 称号：
   `PlayerTitleApi.setPlayerTitle(UUID, int)`。
 - `win-title-id: 0` 表示不发放。
+- 工会战入场/复活会清理玩家身上的药水效果，并在战斗期间拦截新效果，因此称号的
+  `POTION_EFFECT` buff 不会带进竞技场；如果希望从源头关闭，可把竞技场世界加入
+  PlayerTitle 的 `config.yml` → `disabledBuffWorld`（双保险，不强制）。
 
 ## LiuShop（价格参照与禁售联动）
 

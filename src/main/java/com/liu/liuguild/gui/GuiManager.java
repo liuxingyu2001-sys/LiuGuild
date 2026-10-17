@@ -448,7 +448,8 @@ public final class GuiManager implements GuildModule, Listener {
                 continue;
             }
             // 无管理权限时隐藏需权限的配置项
-            if (("notice".equals(e.getKey()) || "desc".equals(e.getKey())) && !canManage) {
+            if (("notice".equals(e.getKey()) || "desc".equals(e.getKey()) || "toggle_pvp".equals(e.getKey()))
+                    && !canManage) {
                 continue;
             }
             ButtonDef b = e.getValue();
@@ -1231,6 +1232,11 @@ public final class GuiManager implements GuildModule, Listener {
                     openSettings(player, g);
                 }
             }
+            case "set:pvp" -> {
+                if (g != null && plugin.guilds().toggleMemberPvp(player, g)) {
+                    openSettings(player, g);
+                }
+            }
             case "set:notice" -> {
                 if (g != null && plugin.guilds().canManageSettings(player, g)) {
                     requestText(player, "input-notice", text -> {
@@ -1573,7 +1579,6 @@ public final class GuiManager implements GuildModule, Listener {
         modeToggle(inv, holder, player, key, 1, "fair-equipment", m.fairEquipment, "发放统一公平装备");
         modeToggle(inv, holder, player, key, 2, "fair-health", m.fairHealth, "屏蔽蟠桃血量，保证公平血量");
         modeToggle(inv, holder, player, key, 3, "allow-spectators", m.allowSpectators, "允许成员旁观");
-        modeToggle(inv, holder, player, key, 4, "keep-inventory", m.keepInventory, "死亡保留物品");
         modeToggle(inv, holder, player, key, 5, "broadcast-queue", m.broadcastQueue, "参与匹配时全服广播");
 
         // ---- 准备阶段相关（第 2 排） ----
@@ -1865,7 +1870,6 @@ public final class GuiManager implements GuildModule, Listener {
             case "fair-equipment" -> m.fairEquipment;
             case "fair-health" -> m.fairHealth;
             case "allow-spectators" -> m.allowSpectators;
-            case "keep-inventory" -> m.keepInventory;
             case "broadcast-queue" -> m.broadcastQueue;
             case "freeze-on-prepare" -> m.freezeOnPrepare;
             case "allow-jump-on-prepare" -> m.allowJumpOnPrepare;
@@ -2478,6 +2482,7 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("description", g.description().isBlank() ? "无" : Text.sanitizeToMini(g.description()));
         ph.put("icon", g.icon());
         ph.put("open", g.open() ? "开放" : "邀请");
+        ph.put("pvp", plugin.guilds().allowsMemberPvp(g) ? "开启" : "关闭");
         return ph;
     }
 
@@ -2577,6 +2582,7 @@ public final class GuiManager implements GuildModule, Listener {
             case "buffs" -> "buffs:open";
             case "titles" -> "title:open";
             case "toggle_open" -> "set:open";
+            case "toggle_pvp" -> "set:pvp";
             case "notice" -> "set:notice";
             case "desc" -> "set:desc";
             case "icon" -> "set:icon";

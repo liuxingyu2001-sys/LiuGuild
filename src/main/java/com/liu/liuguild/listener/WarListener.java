@@ -11,6 +11,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 
@@ -58,6 +59,29 @@ public final class WarListener implements GuildModule, Listener {
         if (plugin.war().handleLethalDamage(victim, attacker)) {
             event.setCancelled(true);
         }
+    }
+
+    /**
+     * 战斗期间只允许本插件发放的套装药水效果。
+     * <p>PlayerTitle 等插件会在切世界、复活后重新施加称号 buff；只在入场时清理一次不够，
+     * 因此这里拦截战斗中新增/变化的药水效果，避免外部效果破坏公平性。</p>
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPotionEffect(EntityPotionEffectEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        if (event.getAction() != EntityPotionEffectEvent.Action.ADDED
+                && event.getAction() != EntityPotionEffectEvent.Action.CHANGED) {
+            return;
+        }
+        if (!plugin.war().isFighting(player.getUniqueId())) {
+            return;
+        }
+        if (plugin.kits() != null && plugin.kits().isApplyingEffects(player.getUniqueId())) {
+            return;
+        }
+        event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)

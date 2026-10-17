@@ -26,6 +26,8 @@ public final class KitService {
     /** 预解析缓存：套装 key -> 护甲/物品。配置重载时重建。 */
     private final java.util.Map<String, ItemStack[]> armorCache = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<String, ItemStack[]> itemsCache = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 正在由本插件写入/还原药水效果，供战斗监听器放行，避免把自己的效果也拦掉。 */
+    private final java.util.Set<UUID> effectBypass = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public KitService(LiuGuild plugin) {
         this.plugin = plugin;
@@ -190,12 +192,15 @@ public final class KitService {
         player.setFoodLevel(snap.food());
         player.setLevel(snap.level());
         player.setExp(snap.exp());
-        for (PotionEffect e : new java.util.ArrayList<>(player.getActivePotionEffects())) {
-            player.removePotionEffect(e.getType());
-        }
+        clearPotionEffects(player);
         if (snap.effects() != null) {
-            for (PotionEffect e : snap.effects()) {
-                player.addPotionEffect(e);
+            effectBypass.add(player.getUniqueId());
+            try {
+                for (PotionEffect e : snap.effects()) {
+                    player.addPotionEffect(e);
+                }
+            } finally {
+                effectBypass.remove(player.getUniqueId());
             }
         }
         if (!skipTeleport && snap.location() != null && snap.location().getWorld() != null) {
@@ -322,27 +327,47 @@ public final class KitService {
     private void fullState(Player player, WarMode mode) {
         KitProfile c = profile(mode);
         int duration = (mode.durationSeconds + mode.prepareSeconds + 60) * 20;
-        if (c != null) {
-            for (String eff : c.effects) {
-                if (eff == null || eff.isBlank()) {
-                    continue;
+        // 入场/复活必须先清掉玩家原有药水（含 PlayerTitle 称号 buff、命令/药水来源），
+        // 否则公平装备和公平血量都会被外部效果破坏。
+        clearPotionEffects(player);
+        effectBypass.add(player.getUniqueId());
+        try {
+            if (c != null) {
+                for (String eff : c.effects) {
+                    if (eff == null || eff.isBlank()) {
+                        continue;
+                    }
+                    String[] parts = eff.split(":");
+                    PotionEffectType type = com.liu.liuguild.util.ApiCompat.potionEffect(parts[0]);
+                    if (type == null) {
+                        org.bukkit.Bukkit.getLogger().warning("[LiuGuild] 未知的药水效果名称：" + parts[0]
+                                + "（已跳过，请检查 kit.yml）");
+                        continue;
+                    }
+                    int amp = parts.length > 1 ? NumberUtil.toInt(parts[1], 0) : 0;
+                    player.addPotionEffect(new PotionEffect(type, duration, Math.max(0, amp), true, false));
                 }
-                String[] parts = eff.split(":");
-                PotionEffectType type = com.liu.liuguild.util.ApiCompat.potionEffect(parts[0]);
-                if (type == null) {
-                    org.bukkit.Bukkit.getLogger().warning("[LiuGuild] 未知的药水效果名称：" + parts[0]
-                            + "（已跳过，请检查 kit.yml）");
-                    continue;
-                }
-                int amp = parts.length > 1 ? NumberUtil.toInt(parts[1], 0) : 0;
-                player.addPotionEffect(new PotionEffect(type, duration, Math.max(0, amp), true, false));
             }
+        } finally {
+            effectBypass.remove(player.getUniqueId());
         }
         com.liu.liuguild.util.ApiCompat.setHealthSafely(player, com.liu.liuguild.util.ApiCompat.maxHealth(player));
         player.setFoodLevel(20);
         player.setSaturation(20f);
         player.setFireTicks(0);
         player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+    }
+
+    /** 清除玩家当前所有药水效果（包括 PlayerTitle 等第三方插件施加的效果）。 */
+    private static void clearPotionEffects(Player player) {
+        for (PotionEffect e : new java.util.ArrayList<>(player.getActivePotionEffects())) {
+            player.removePotionEffect(e.getType());
+        }
+    }
+
+    /** 是否正在由本插件写入/还原药水效果（战斗监听器据此放行套装效果）。 */
+    public boolean isApplyingEffects(UUID uuid) {
+        return uuid != null && effectBypass.contains(uuid);
     }
 
     private ItemStack resolve(String spec, Material fallback) {

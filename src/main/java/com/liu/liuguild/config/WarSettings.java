@@ -11,8 +11,8 @@ import java.util.Map;
 
 /**
  * 工会战全局模块（war.yml）。
- * <p>全局开关 + {@code war.defaults} 默认值；各模式由 {@link WarModeSettings}（war-modes.yml）解析后注入
- * {@link #modes}，场地由 {@link ArenaSettings}（arena.yml）提供。</p>
+ * <p>全局开关 + {@code war.defaults} 默认值；各模式可由 war.yml 的同级段/{@code war.modes} 或
+ * {@link WarModeSettings}（war-modes.yml）定义，最终注入 {@link #modes}；场地由 {@link ArenaSettings} 提供。</p>
  */
 public final class WarSettings {
 
@@ -33,7 +33,7 @@ public final class WarSettings {
     /** 匹配成功后是否自动把双方在线成员强制传送进竞技场并参战（无需手动 /guild war join）。 */
     public boolean autoEnter = true;
 
-    /** 模式公共默认值（来自 war.defaults 或 war 根节点）。 */
+    /** 模式公共默认值（来自 war.defaults）。 */
     public WarMode defaults = new WarMode();
     /** war.yml 中直接写出的模式覆盖（与 defaults 同级，或位于 war.modes 下）。 */
     public Map<String, WarMode> inlineModes = new LinkedHashMap<>();
@@ -59,7 +59,6 @@ public final class WarSettings {
         if (defaults != null) {
             base = WarMode.parse("default", defaults, base);
         }
-        applyLegacyRoot(c, base);
         s.defaults = base;
         s.inlineModes = parseInlineModes(c, base);
         return s;
@@ -101,7 +100,7 @@ public final class WarSettings {
     /** 判断一个段是否像模式配置，避免把将来的全局段误认成模式。 */
     private static boolean looksLikeMode(ConfigurationSection sec) {
         for (String key : java.util.List.of("enabled", "display", "description", "arena", "kit", "fair-equipment",
-                "fair-health", "keep-inventory", "team-size", "min-members", "min-level",
+                "fair-health", "team-size", "min-members", "min-level",
                 "prepare-seconds", "duration-seconds", "settle-seconds", "allow-spectators",
                 "freeze-on-prepare", "prepare-platform", "broadcast-queue", "schedule", "season",
                 "lives", "score", "rewards")) {
@@ -110,32 +109,6 @@ public final class WarSettings {
             }
         }
         return false;
-    }
-
-    /** 兼容旧版扁平 war.* 配置。 */
-    private static void applyLegacyRoot(FileConfiguration c, WarMode base) {
-        base.fairEquipment = c.getBoolean("war.fair-equipment", base.fairEquipment);
-        base.keepInventory = c.getBoolean("war.keep-inventory", base.keepInventory);
-        base.teamSize = Math.max(1, c.getInt("war.team-size", base.teamSize));
-        base.minMembers = Math.max(1, c.getInt("war.min-members", base.minMembers));
-        base.prepareSeconds = Math.max(1, c.getInt("war.prepare-seconds", base.prepareSeconds));
-        base.durationSeconds = Math.max(10, c.getInt("war.duration-seconds", base.durationSeconds));
-        base.settleSeconds = Math.max(1, c.getInt("war.settle-seconds", base.settleSeconds));
-        base.allowSpectators = c.getBoolean("war.allow-spectators", base.allowSpectators);
-        base.arena = c.getString("war.arena", base.arena);
-        base.scoreKill = c.getInt("war.score.kill", base.scoreKill);
-        base.scoreDeath = c.getInt("war.score.death", base.scoreDeath);
-        base.scoreObjective = c.getInt("war.score.objective", base.scoreObjective);
-        base.winGuildFunds = Math.max(0, c.getLong("war.rewards.win-guild-funds",
-                (long) c.getDouble("war.rewards.win-money", base.winGuildFunds)));
-        base.loseGuildFunds = Math.max(0, c.getLong("war.rewards.lose-guild-funds",
-                (long) c.getDouble("war.rewards.lose-money", base.loseGuildFunds)));
-        base.winPlayerMoney = Math.max(0, c.getDouble("war.rewards.win-player-money", base.winPlayerMoney));
-        base.losePlayerMoney = Math.max(0, c.getDouble("war.rewards.lose-player-money", base.losePlayerMoney));
-        base.winPassXp = Math.max(0, c.getInt("war.rewards.win-pass-xp", base.winPassXp));
-        base.losePassXp = Math.max(0, c.getInt("war.rewards.lose-pass-xp", base.losePassXp));
-        base.passId = c.getString("war.rewards.pass-id", base.passId);
-        base.winTitleId = Math.max(0, c.getInt("war.rewards.win-title-id", base.winTitleId));
     }
 
     /** 取某模式配置；未知模式回退默认值构造成临时模式。 */

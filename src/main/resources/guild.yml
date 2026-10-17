@@ -27,7 +27,8 @@ guild:
     base-required-points: 1000
     required-growth: 1.5
     max-level: 20
-  # 同会成员之间是否免伤（true = 允许互相攻击，默认 false）
+  # 新工会的成员 PvP 默认值；未单独设置过的旧工会也回退到此值。
+  # 已有工会可在 GUI「工会设置」中单独开关。true = 同会成员可以互相攻击；false = 同会成员免伤。
   friendly-fire: false
   # 官员（副会长）权限
   officer:
@@ -125,36 +126,6 @@ guild:
     tax-percent: 5.0
     # 谁能上架/改价/下架（MEMBER / OFFICER / LEADER）
     manage-rank: OFFICER
-  # 工会仓库：跨服共享物品存储，同一时刻只允许一个成员打开（跨服原子锁）
-  # 使用时间与容量升级均消耗【工会资金（点数）】，与工会银行（Vault 金币）无关。
-  warehouse:
-    enabled: true
-    # 是否必须先购买使用时间才能打开；false = 永久可用（旧行为，不消耗点数）
-    require-rent: true
-    # 逻辑堆叠容量，每个同类物品可存 21 亿件；界面每页45类，非9倍数向上取整
-    base-slots: 45
-    # 每购买1次升级增加一页容量
-    slots-per-level: 45
-    # 逻辑容量上限（9~4500），默认十页；不是原版库存尺寸
-    max-slots: 450
-    # 谁能购买时长 / 升级（MEMBER / OFFICER / LEADER）
-    manage-rank: OFFICER
-    # 购买使用时间
-    rent:
-      # 每 24 小时使用时间消耗的工会资金（点数）
-      price-per-day: 200
-      # 一次可购买的天数（管理菜单按钮 / 命令 /guild warehouse rent <天数>）
-      options: [1, 7, 30]
-      # 累计最多可持有的天数（0 = 不限）
-      max-days: 90
-    # 升级容量
-    upgrade:
-      # 最多可升级次数（0 = 不可升级）
-      max-level: 9
-      # 0 → 1 升级消耗的工会资金
-      base-cost: 1000
-      # 每级升级成本的倍率
-      cost-growth: 2.0
   # 僵尸工会清理（不活跃工会）
   cleanup:
     # 自动定期清理开关（默认关闭，建议先用 dry-run 确认）

@@ -22,6 +22,3 @@ transfer:
 
 # 在线心跳间隔（秒）
 heartbeat-seconds: 5
-
-# Redis 不可用时是否自动降级为单服模式
-local-fallback: true

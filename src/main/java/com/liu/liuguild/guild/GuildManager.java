@@ -278,6 +278,7 @@ public final class GuildManager {
         Guild g = new Guild(id, cleanName, cleanTag, player.getUniqueId(), player.getName(),
                 "", "", false, now, now, 0, 1, 0, 0, 0, plugin.serverId(), 1,
                 conf().defaultIcon);
+        g.memberPvp(c.friendlyFire);
         GuildMember leader = new GuildMember(player.getUniqueId(), player.getName(), id,
                 GuildRank.LEADER, now, 0, 0, 0);
         g.putMember(leader);
@@ -1142,6 +1143,27 @@ public final class GuildManager {
         g.icon(iconId);
         saveGuild(g);
         plugin.messages().send(actor, "set-icon", "icon", def.display);
+        return true;
+    }
+
+    /** 同工会成员是否允许互相攻击；未单独设置时回退 guild.yml 的 friendly-fire。 */
+    public boolean allowsMemberPvp(Guild g) {
+        if (g == null) {
+            return false;
+        }
+        Boolean value = g.memberPvp();
+        return value == null ? conf().friendlyFire : value;
+    }
+
+    /** 切换本工会成员 PvP；需要会长或具备设置权限的官员。 */
+    public boolean toggleMemberPvp(Player actor, Guild g) {
+        if (g == null || !canManageSettings(actor, g)) {
+            return false;
+        }
+        boolean next = !allowsMemberPvp(g);
+        g.memberPvp(next);
+        saveGuild(g);
+        plugin.messages().send(actor, "set-pvp", "value", next ? "开启" : "关闭");
         return true;
     }
 
