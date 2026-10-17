@@ -43,10 +43,12 @@ public final class GuiManager implements GuildModule, Listener {
 
     private final LiuGuild plugin;
     private final ChatInput chatInput;
+    private final GuiPlaceholders guiPlaceholders;
 
     public GuiManager(LiuGuild plugin) {
         this.plugin = plugin;
         this.chatInput = new ChatInput(plugin);
+        this.guiPlaceholders = new GuiPlaceholders(plugin);
     }
 
     public ChatInput chatInput() {
@@ -206,7 +208,7 @@ public final class GuiManager implements GuildModule, Listener {
             mph.put("contributed", plugin.economy().format(m.contributed()));
             mph.put("kills", String.valueOf(m.kills()));
             mph.put("deaths", String.valueOf(m.deaths()));
-            mph.put("joined", new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date(m.joinedAt())));
+            mph.put("joined", com.liu.liuguild.util.TimeUtil.formatDate(m.joinedAt()));
             ItemStack item = GuiUtil.build(player, def.entry.material, def.entry.fallbackMaterial,
                     def.entry.name, def.entry.lore, mph, m.uuid());
             int slot = i;
@@ -215,9 +217,16 @@ public final class GuiManager implements GuildModule, Listener {
         }
         addBack(inv, holder, def, ph, player, "back:main", page, "members", members.size(), perPage);
         // 邀请入口：权限与冷却由 GuildManager.invite 统一校验，这里只负责收集名字。
-        inv.setItem(51, GuiUtil.build(player, "NAME_TAG", "NAME_TAG", "<green>邀请玩家",
-                List.of("<gray>输入在线玩家名字发出入会邀请"), Map.of(), null));
-        holder.actions.put(51, "invite_player");
+        // 槽位不能写死 51：members.rows 调小后 51 会越界，且不能与返回按钮占同一格。
+        int inviteSlot = Math.min(inv.getSize() - 1, 51);
+        if (inviteSlot == inv.getSize() - 5) {
+            inviteSlot = inv.getSize() - 6;
+        }
+        if (inviteSlot >= 0) {
+            inv.setItem(inviteSlot, GuiUtil.build(player, "NAME_TAG", "NAME_TAG", "<green>邀请玩家",
+                    List.of("<gray>输入在线玩家名字发出入会邀请"), Map.of(), null));
+            holder.actions.put(inviteSlot, "invite_player");
+        }
         show(player, holder, inv);
     }
 
@@ -251,7 +260,7 @@ public final class GuiManager implements GuildModule, Listener {
         List<Guild> guilds = new ArrayList<>(plugin.guilds().all());
         guilds.sort((a, b) -> Long.compare(b.points(), a.points()));
         Guild self = plugin.guilds().guildOf(player.getUniqueId());
-        Map<String, String> ph = basePlaceholders();
+        Map<String, String> ph = new LinkedHashMap<>();
         ph.put("count", String.valueOf(guilds.size()));
         Holder holder = new Holder("list", self == null ? "" : self.id(), page);
         Inventory inv = create(holder, def, ph, player);
@@ -351,6 +360,10 @@ public final class GuiManager implements GuildModule, Listener {
 
     /** 管理员 GUI：状态 / 模式 / 场地 / 装备 / 重载。 */
     public void openAdmin(Player player) {
+        if (!player.hasPermission("liuguild.admin") && !player.hasPermission("liuguild.admin.gui")) {
+            plugin.messages().send(player, "no-permission");
+            return;
+        }
         MenuDef def = menu("admin");
         if (def == null) {
             return;
@@ -480,9 +493,12 @@ public final class GuiManager implements GuildModule, Listener {
         int from = Math.max(0, page * perPage);
         for (int i = 0; i < perPage && from + i < icons.size(); i++) {
             IconDef icon = icons.get(from + i);
+            boolean current = icon.id != null && icon.id.equals(g.icon());
             Map<String, String> iph = new LinkedHashMap<>(ph);
             iph.put("icon_name", icon.display);
-            iph.put("icon_cost", plugin.economy().format(plugin.settings().guild.iconChangeCost));
+            iph.put("icon_cost", current
+                    ? "当前使用（不扣费）"
+                    : plugin.economy().format(plugin.settings().guild.iconChangeCost));
             ItemStack item = plugin.craftEngine() == null
                     ? new ItemStack(icon.fallback())
                     : plugin.craftEngine().resolve(icon.item, icon.fallback());
@@ -497,7 +513,7 @@ public final class GuiManager implements GuildModule, Listener {
                 item.setItemMeta(meta);
             }
             inv.setItem(i, item);
-            holder.actions.put(i, "icon:" + icon.id);
+            holder.actions.put(i, current ? "noop" : "icon:" + icon.id);
         }
         addBack(inv, holder, def, ph, player, "back:settings", page, "icons", icons.size(), perPage);
         show(player, holder, inv);
@@ -926,9 +942,27 @@ public final class GuiManager implements GuildModule, Listener {
             if (holder.actions.get(event.getRawSlot()) == null) {
                 return;
             }
+            // 只认左/右键（含 Shift）；Q、1-9、F、中键、Ctrl+Q 等一律忽略，
+            // 否则会被当成“普通左键”误触解散/升职/购买等动作。
+            if (!isActionClick(event.getClick())) {
+                return;
+            }
             dispatch(player, holder, event.getRawSlot(), event.isRightClick(), event.isShiftClick());
         }
     }
+
+    static String requiredAdminPermission(String action) {
+        return GuiActions.requiredAdminPermission(action);
+    }
+
+    /** 只有左键/右键及其 Shift 变体才算有效操作。 */
+    public static boolean isActionClick(org.bukkit.event.inventory.ClickType type) {
+        return GuiActions.isActionClick(type);
+    }
+
+    /** 同一玩家两次点击的最小间隔（防连点重复购买/重复扣费）。 */
+    private static final long CLICK_COOLDOWN_MS = 150L;
+    private final Map<UUID, Long> clickCooldown = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * 由 Sparrow 点击回调派发到与内置点击一致的动作处理（主线程）。
@@ -937,6 +971,20 @@ public final class GuiManager implements GuildModule, Listener {
         String action = holder.actions.get(slot);
         if (action == null) {
             return;
+        }
+        // 管理面板与命令层权限对齐：只有 liuguild.admin.gui 时不能执行 reload/解散/改资金等。
+        String required = requiredAdminPermission(action);
+        if (required != null && !player.hasPermission("liuguild.admin") && !player.hasPermission(required)) {
+            plugin.messages().send(player, "no-permission");
+            return;
+        }
+        long now = System.currentTimeMillis();
+        Long last = clickCooldown.put(player.getUniqueId(), now);
+        if (last != null && now - last < CLICK_COOLDOWN_MS) {
+            return;
+        }
+        if (clickCooldown.size() > 500) {
+            clickCooldown.entrySet().removeIf(e -> now - e.getValue() > 60_000L);
         }
         clickRight = right;
         clickShift = shift;
@@ -1976,9 +2024,10 @@ public final class GuiManager implements GuildModule, Listener {
 
     /** 空白管理菜单（灰玻璃填充）。 */
     private Inventory simpleInventory(Player viewer, Holder holder, int rows, String title, Map<String, String> ph) {
-        Inventory inv = Bukkit.createInventory(holder, rows * 9, Text.fmt(title, flatten(ph)));
+        Component rendered = Text.fmt(title, flatten(ph));
+        Inventory inv = Bukkit.createInventory(holder, rows * 9, rendered);
         holder.inv = inv;
-        holder.title = Text.fmt(title, flatten(ph));
+        holder.title = rendered;
         ItemStack filler = GuiUtil.build(viewer, "GRAY_STAINED_GLASS_PANE", "GRAY_STAINED_GLASS_PANE",
                 " ", List.of(), Map.of(), null);
         for (int i = 0; i < inv.getSize(); i++) {
@@ -2356,7 +2405,18 @@ public final class GuiManager implements GuildModule, Listener {
         if (player == null || !player.isOnline()) {
             return;
         }
-        plugin.sync(() -> openMain(player));
+        plugin.sync(() -> {
+            // 只有当前正停在本插件的“主菜单/资金”页时才刷新；不要顶掉其它界面或玩家正在操作的容器。
+            var top = player.getOpenInventory().getTopInventory();
+            if (!(top.getHolder() instanceof Holder holder)) {
+                return;
+            }
+            if ("main".equals(holder.menu)) {
+                openMain(player);
+            } else if ("funds".equals(holder.menu)) {
+                openFunds(player);
+            }
+        });
     }
 
     private double parseAmount(String text) {
@@ -2411,10 +2471,10 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private Inventory create(Holder holder, MenuDef def, Map<String, String> ph, Player viewer) {
-        Inventory inv = Bukkit.createInventory(holder, def.rows * 9,
-                Text.fmt(def.title, flatten(ph)));
+        Component title = Text.fmt(def.title, flatten(ph));
+        Inventory inv = Bukkit.createInventory(holder, def.rows * 9, title);
         holder.inv = inv;
-        holder.title = Text.fmt(def.title, flatten(ph));
+        holder.title = title;
         if (plugin.settings().gui.filler != null) {
             ItemStack filler = GuiUtil.fromButton(viewer, plugin.settings().gui.filler, ph);
             for (int i = 0; i < inv.getSize(); i++) {
@@ -2466,101 +2526,25 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     private Map<String, String> placeholders(Guild g) {
-        Map<String, String> ph = basePlaceholders();
-        if (g == null) {
-            return ph;
-        }
-        ph.put("guild", g.name());
-        ph.put("tag", g.tag());
-        ph.put("leader", g.leaderName());
-        ph.put("level", String.valueOf(g.level()));
-        ph.put("max_level", String.valueOf(plugin.settings().guild.maxLevel));
-        ph.put("points", String.valueOf(g.points()));
-        ph.put("members", String.valueOf(g.memberCount()));
-        ph.put("member_limit", String.valueOf(plugin.settings().guild.memberLimit(g.level())));
-        ph.put("wins", String.valueOf(g.wins()));
-        ph.put("losses", String.valueOf(g.losses()));
-        ph.put("bank", plugin.economy().format(g.bank()));
-        ph.put("home_slots", String.valueOf(plugin.settings().guild.homeSlots(g.level())));
-        ph.put("notice", g.notice().isBlank() ? "无" : Text.sanitizeToMini(g.notice()));
-        ph.put("description", g.description().isBlank() ? "无" : Text.sanitizeToMini(g.description()));
-        ph.put("icon", g.icon());
-        ph.put("open", g.open() ? "开放" : "邀请");
-        ph.put("pvp", plugin.guilds().allowsMemberPvp(g) ? "开启" : "关闭");
-        return ph;
+        return guiPlaceholders.placeholders(g);
     }
 
-    /**
-     * 工会详情面板的扩展占位符（胜率 / 在线 / 升级进度 / 建会时间等）。
-     * 仅 {@code openInfo} 使用，避免主菜单每帧都算这些。
-     */
     private Map<String, String> detailPlaceholders(Guild g) {
-        Map<String, String> ph = placeholders(g);
-        if (g == null) {
-            ph.put("total_wars", "0");
-            ph.put("win_rate", "0%");
-            ph.put("online", "0");
-            ph.put("next_level_points", "-");
-            ph.put("level_progress", "-");
-            ph.put("created", "-");
-            return ph;
-        }
-        int total = g.wins() + g.losses();
-        ph.put("total_wars", String.valueOf(total));
-        ph.put("win_rate", total == 0 ? "暂无战绩" : (Math.round(g.wins() * 1000.0 / total) / 10.0) + "%");
-        ph.put("online", String.valueOf(plugin.guilds().onlineMembers(g).size()));
-        long need = plugin.settings().guild.requiredPoints(g.level());
-        boolean maxed = g.level() >= plugin.settings().guild.maxLevel;
-        ph.put("next_level_points", maxed ? "已满级" : String.valueOf(need));
-        ph.put("level_progress", maxed ? "已满级"
-                : g.points() + " / " + need + "（还需 " + Math.max(0, need - g.points()) + "）");
-        ph.put("created", com.liu.liuguild.util.TimeUtil.formatDate(g.createdAt()));
-        return ph;
+        return guiPlaceholders.detailPlaceholders(g);
     }
 
     /** 供外部界面引擎复用的占位符。 */
     public Map<String, String> placeholdersFor(Guild g) {
-        return placeholders(g);
+        return guiPlaceholders.placeholders(g);
     }
 
     /** 主菜单占位符（含与具体玩家相关的签到状态）；内置 GUI 与 Sparrow UI 共用。 */
     public Map<String, String> mainPlaceholders(Player player, Guild g) {
-        Map<String, String> ph = placeholders(g);
-        GuildMember self = (g == null || player == null) ? null : g.member(player.getUniqueId());
-        ph.put("checkin_streak", String.valueOf(self == null ? 0 : self.checkinStreak()));
-        ph.put("checkin_state", !plugin.settings().guild.checkinEnabled ? "未开启"
-                : (self != null && com.liu.liuguild.config.GuildSettings.alreadyCheckedIn(
-                        com.liu.liuguild.util.TimeUtil.todayEpochDay(), self.lastCheckin()) ? "已签到" : "未签到"));
-        double checkinCost = plugin.settings().guild.checkinCost;
-        long checkinGuildCost = plugin.settings().guild.checkinGuildCost;
-        StringBuilder cost = new StringBuilder();
-        if (checkinCost > 0) {
-            cost.append(plugin.economy().format(checkinCost));
-        }
-        if (checkinGuildCost > 0) {
-            if (cost.length() > 0) {
-                cost.append(" + ");
-            }
-            cost.append(checkinGuildCost).append(" 工会资金");
-        }
-        ph.put("checkin_cost", cost.length() == 0 ? "免费" : cost.toString());
-        ph.put("chat_state", plugin.guildChat() == null || !plugin.guildChat().available() ? "不可用"
-                : (plugin.guildChat().inGuildChannel(player) ? "已开启" : "已关闭"));
-        return ph;
-    }
-
-    private Map<String, String> basePlaceholders() {
-        return new LinkedHashMap<>();
+        return guiPlaceholders.mainPlaceholders(player, g);
     }
 
     private static Object[] flatten(Map<String, String> ph) {
-        Object[] arr = new Object[ph.size() * 2];
-        int i = 0;
-        for (Map.Entry<String, String> e : ph.entrySet()) {
-            arr[i++] = e.getKey();
-            arr[i++] = e.getValue();
-        }
-        return arr;
+        return GuiPlaceholders.flatten(ph);
     }
 
     private static int clamp(int slot) {
@@ -2568,49 +2552,6 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     public static String actionId(String buttonId) {
-        return switch (buttonId) {
-            case "info" -> "info:open";
-            case "card" -> "noop";
-            case "info_notice" -> "info:notice";
-            case "info_desc" -> "info:desc";
-            case "info_members" -> "info:members";
-            case "info_history" -> "info:history";
-            case "info_back" -> "info:back";
-            case "leave" -> "leave";
-            case "warehouse" -> "guild:warehouse";
-            case "warehouse_manage" -> "warehouse:manage";
-            case "top" -> "top:open";
-            case "shop" -> "shop:open";
-            case "invites" -> "invites:open";
-            case "chat" -> "chat:toggle";
-            case "buffs" -> "buffs:open";
-            case "titles" -> "title:open";
-            case "toggle_open" -> "set:open";
-            case "toggle_pvp" -> "set:pvp";
-            case "notice" -> "set:notice";
-            case "desc" -> "set:desc";
-            case "icon" -> "set:icon";
-            case "rename" -> "set:rename";
-            case "disband" -> "guild:disband";
-            case "back" -> "back:main";
-            case "history" -> "war_history";
-            case "leave_queue" -> "war_leave";
-            case "status" -> "war_status";
-            case "spectate" -> "war_spectate";
-            case "admin_status" -> "admin:status";
-            case "admin_modes" -> "admin:modes";
-            case "admin_arena" -> "admin:arenas";
-            case "admin_guilds" -> "admin:guilds";
-            case "admin_wars" -> "admin:wars";
-            case "admin_kits" -> "admin:kits";
-            case "admin_cleanup" -> "admin:cleanup";
-            case "admin_verify" -> "admin:verify";
-            case "admin_reload" -> "admin:reload";
-            case "funds" -> "funds";
-            case "close" -> "close";
-            case "help" -> "join_help";
-            case "create" -> "list:create";
-            default -> buttonId;
-        };
+        return GuiActions.actionId(buttonId);
     }
 }

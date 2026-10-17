@@ -24,6 +24,10 @@ import java.util.function.Function;
 public final class RedisBridge {
 
     public static final int HEARTBEAT_TTL_SECONDS = 15;
+    /** 在线/子服键的 TTL 由心跳周期推导，避免 heartbeat-seconds 配大后键必然过期。 */
+    public int heartbeatTtlSeconds() {
+        return Math.max(HEARTBEAT_TTL_SECONDS, Math.max(2, conf.heartbeatSeconds) * 3);
+    }
     private static final int DEGRADE_THRESHOLD = 3;
 
     private final Plugin plugin;
@@ -53,7 +57,10 @@ public final class RedisBridge {
             cfg.setMaxTotal(conf.redisPoolSize);
             cfg.setMaxIdle(conf.redisPoolSize);
             cfg.setMinIdle(1);
-            cfg.setTestOnBorrow(true);
+            // 每次借连接都 PING 会给每条 Redis 命令叠加一次 RTT；改为空闲检测。
+            cfg.setTestOnBorrow(false);
+            cfg.setTestWhileIdle(true);
+            cfg.setTimeBetweenEvictionRuns(java.time.Duration.ofSeconds(30));
             cfg.setMaxWait(java.time.Duration.ofMillis(conf.redisTimeoutMs));
 
             String password = conf.redisPassword == null || conf.redisPassword.isBlank()
@@ -199,7 +206,7 @@ public final class RedisBridge {
 
     public boolean refreshHeartbeat() {
         Boolean ok = withJedisProbe(jedis -> {
-            jedis.setex(keyServer(conf.serverId), HEARTBEAT_TTL_SECONDS, String.valueOf(System.currentTimeMillis()));
+            jedis.setex(keyServer(conf.serverId), heartbeatTtlSeconds(), String.valueOf(System.currentTimeMillis()));
             return Boolean.TRUE;
         });
         return Boolean.TRUE.equals(ok);
@@ -236,10 +243,27 @@ public final class RedisBridge {
     // =====================================================================
 
     public void subscribe(java.util.function.BiConsumer<String, String> handler) {
+        subscribe(handler, null);
+    }
+
+    /**
+     * 订阅跨服消息。
+     *
+     * @param onSubscribed 真正 SUBSCRIBE 成功后的回调（用于把 ready 置 true，
+     *                     避免“线程刚启动就宣布可用”导致自己发出的消息收不到回声）
+     */
+    public void subscribe(java.util.function.BiConsumer<String, String> handler, Runnable onSubscribed) {
         if (!isHealthyIgnoringDegrade() && pool == null) {
             return;
         }
         final JedisPubSub sub = new JedisPubSub() {
+            @Override
+            public void onSubscribe(String channel, int subscribedChannels) {
+                if (onSubscribed != null) {
+                    onSubscribed.run();
+                }
+            }
+
             @Override
             public void onMessage(String channel, String message) {
                 try {

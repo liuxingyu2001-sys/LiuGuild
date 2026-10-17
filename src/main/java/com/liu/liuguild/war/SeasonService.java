@@ -36,6 +36,8 @@ public final class SeasonService implements GuildModule, Listener {
     private volatile boolean running;
     private boolean polling, finishing, starting;
     private boolean worldLoading;
+    /** 上次轮询数据库的时间；无赛事时退避到 5 秒，避免空转。 */
+    private long lastPollAt;
     private Map<Integer,Long> rewards = Map.of();
 
     public SeasonService(LiuGuild plugin) { this.plugin=plugin; repo=new SeasonRepository(plugin.db()); }
@@ -110,7 +112,10 @@ public final class SeasonService implements GuildModule, Listener {
     private void failure(Exception e) { plugin.getLogger().warning("赛季混战IO失败: "+e.getMessage()); }
     private void tick() {
         if(!running) return;
-        if(!polling) {
+        long pollInterval = current == null ? 5000L : 1000L;
+        long nowMs = System.currentTimeMillis();
+        if(!polling && nowMs - lastPollAt >= pollInterval) {
+            lastPollAt = nowMs;
             polling=true;
             String heartbeat=current==null?null:current.id();
             submit(() -> {

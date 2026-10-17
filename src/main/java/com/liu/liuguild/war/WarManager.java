@@ -159,19 +159,40 @@ public final class WarManager implements GuildModule {
     private BukkitTask queueTask;
     private BukkitTask tickTask;
     private BukkitTask seasonTask;
+    private BukkitTask rewardTask;
     private final Map<String, Long> lastSeasonTrigger = new ConcurrentHashMap<>();
+    /** 已处理的 SEASON_OPEN 消息 id：本地先执行、Redis 回声到达时按 id 去重。 */
+    private final Map<String, Long> seenSeasonOpens = new ConcurrentHashMap<>();
     private volatile long phaseUntil;
     private volatile long lastBroadcastSecond = -1;
     private volatile boolean settling;
     /** 结算阶段分帧发放的奖励任务队列（避免一次性在主线程阻塞）。 */
     private final java.util.Deque<Runnable> settleQueue = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    /** 已提交但尚未回到主线程完成的结算（此期间不许 cleanup）。 */
+    private volatile boolean settlementPending;
+    /** 战斗中已在异步领取、等待主线程发放的玩家奖励数（cleanup 需等它归零）。 */
+    private final java.util.concurrent.atomic.AtomicInteger pendingRewardClaims =
+            new java.util.concurrent.atomic.AtomicInteger();
+    /**
+     * 工会战写库线程：结束/取消/收尾的状态落库与奖励 outbox 写入都放这里，
+     * 避免在主线程 tick 里等 JDBC（SQLite busy_timeout 最长 10 秒）。
+     */
+    private final java.util.concurrent.ExecutorService warIo =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "liuguild-war-io");
+                t.setDaemon(true);
+                return t;
+            });
     private volatile String forcedWinner = "";
     private final Set<UUID> handledLethal = ConcurrentHashMap.newKeySet();
     /** 比赛期间的 BossBar（比分 + 剩余时间）。 */
     private volatile BossBar warBar;
 
+    private final WarRewards rewardService;
+
     public WarManager(LiuGuild plugin) {
         this.plugin = plugin;
+        this.rewardService = new WarRewards(plugin);
     }
 
     public WarSettings conf() {
@@ -227,6 +248,9 @@ public final class WarManager implements GuildModule {
                 20L * interval, 20L * interval);
         tickTask = Bukkit.getScheduler().runTaskTimer(plugin, this::warTick, 20L, 20L);
         seasonTask = Bukkit.getScheduler().runTaskTimer(plugin, this::seasonTick, 40L, 20L);
+        // 未发完的奖励 outbox 定时补扫（claim 语义保证不会重复发放）。
+        rewardTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::processPendingWarRewards,
+                20L * 60L * 5L, 20L * 60L * 5L);
     }
 
     /**
@@ -275,13 +299,46 @@ public final class WarManager implements GuildModule {
         // 关服/插件卸载：绝不结算奖励。取消进行中的工会战并还原玩家与竞技场。
         GuildWar war = current;
         if (war != null) {
-            war.state(WarState.CANCELLED);
-            try {
-                plugin.repo().updateWar(war);
-            } catch (Exception e) {
-                plugin.getLogger().warning("取消工会战写库失败: " + e.getMessage());
-            }
+            final String warId = war.id();
+            final boolean wasSettling = war.state() == WarState.SETTLING;
+            // 已进入结算（奖励已发、历史已写）的战斗不能在收尾时降级为 CANCELLED，
+            // 否则 /guild war history 会查不到这场、胜者也会丢失。
+            war.state(wasSettling ? WarState.ENDED : WarState.CANCELLED);
+            settlementPending = false;
             cleanup(war, false);
+            if (wasSettling) {
+                // 还没发完的奖励退回 PENDING，下次启动由补扫继续发（避免关服丢奖励）。
+                try {
+                    warIo.submit(() -> {
+                        try {
+                            plugin.repo().releaseWarRewardsForWar(warId);
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("关服释放未发完奖励失败: " + e.getMessage());
+                        }
+                    });
+                } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                }
+            }
+        }
+        // 无论是否结算中：正在领取/发放的行都退回 PENDING，避免重启后卡在 PROCESSING 变 FAILED。
+        try {
+            warIo.submit(() -> {
+                try {
+                    plugin.repo().releaseAllProcessingWarRewards();
+                } catch (Exception e) {
+                    plugin.getLogger().warning("关服释放奖励领取状态失败: " + e.getMessage());
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+        }
+        pendingRewardClaims.set(0);
+        warIo.shutdown();
+        try {
+            if (!warIo.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                plugin.getLogger().warning("工会战写库队列关闭超时，可能丢失最后一条结算记录");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -306,6 +363,10 @@ public final class WarManager implements GuildModule {
         if (seasonTask != null) {
             seasonTask.cancel();
             seasonTask = null;
+        }
+        if (rewardTask != null) {
+            rewardTask.cancel();
+            rewardTask = null;
         }
     }
 
@@ -537,9 +598,13 @@ public final class WarManager implements GuildModule {
                         plugin.sync(() -> plugin.messages().send(player, "war-already-queued"));
                         return;
                     }
-                    plugin.bus().queueGuild(guild.id(), CrossServerBus.map(
+                    if (!plugin.bus().queueGuild(guild.id(), CrossServerBus.map(
                             "name", guild.name(), "tag", guild.tag(), "server", plugin.serverId(),
-                            "mode", mode.key, "leader", player.getName()));
+                            "mode", mode.key, "leader", player.getName()))) {
+                        // 写 Redis 失败不能提示“已排队”，否则玩家会一直等一个不存在的队列项。
+                        plugin.sync(() -> plugin.messages().send(player, "war-queue-error"));
+                        return;
+                    }
                     plugin.sync(() -> announceQueued(player, guild, mode));
                 } catch (RuntimeException e) {
                     // Redis 握手中断时不能无声吞掉：否则玩家点了匹配以为已排队。
@@ -646,14 +711,13 @@ public final class WarManager implements GuildModule {
         if (guildId == null) return;
         cachedQueued.add(guildId);
         if (mode != null) cachedMode.put(guildId, mode);
-        cachedQueueSize = cachedQueued.size();
+        // 数量只由跨服快照刷新：本地集合只代表本服，直接当总数会长期偏小。
     }
 
     private void cacheDequeued(String guildId) {
         if (guildId == null) return;
         cachedQueued.remove(guildId);
         cachedMode.remove(guildId);
-        cachedQueueSize = cachedQueued.size();
     }
 
     private void updateQueueCache(List<Map<String, String>> snapshot) {
@@ -748,11 +812,29 @@ public final class WarManager implements GuildModule {
         if (mode == null) {
             return;
         }
+        String messageId = UUID.randomUUID().toString();
+        markSeasonOpen(messageId);
         if (plugin.bus() != null && plugin.bus().isReady()) {
-            plugin.publishAsync("SEASON_OPEN", CrossServerBus.map("mode", mode.key, "force-enqueue", Boolean.toString(forceEnqueue)));
-        } else {
-            applySeasonOpen(mode, forceEnqueue);
+            plugin.publishAsync("SEASON_OPEN", CrossServerBus.map(
+                    "mode", mode.key, "force-enqueue", Boolean.toString(forceEnqueue), "id", messageId));
         }
+        // 本服立即生效，不再依赖 Redis 回声（订阅重连窗口会丢回声，导致本服没开赛）。
+        applySeasonOpen(mode, forceEnqueue);
+    }
+
+    /** @return true = 该消息首次处理；false = 重复（本地已执行过或回声）。 */
+    private boolean markSeasonOpen(String id) {
+        if (id == null || id.isBlank()) {
+            return true;
+        }
+        long now = System.currentTimeMillis();
+        if (seenSeasonOpens.putIfAbsent(id, now) != null) {
+            return false;
+        }
+        if (seenSeasonOpens.size() > 200) {
+            seenSeasonOpens.entrySet().removeIf(e -> now - e.getValue() > 3_600_000L);
+        }
+        return true;
     }
 
     /** 收到跨服开赛指令后在本服生效：公告 + 可选自动入队。 */
@@ -1003,9 +1085,9 @@ public final class WarManager implements GuildModule {
                 "server", plugin.serverId());
         if (plugin.bus().isReady()) {
             plugin.publishAsync("WAR_MATCHED", data);
-        } else {
-            handleWarMatched(data);
         }
+        // 本服也立即处理；回声到达时 handleWarMatched 会按 warId 去重。
+        handleWarMatched(data);
         return true;
     }
 
@@ -1063,6 +1145,9 @@ public final class WarManager implements GuildModule {
                 }
             }
             case "SEASON_OPEN" -> {
+                if (!markSeasonOpen(data.get("id"))) {
+                    return;
+                }
                 WarMode mode = plugin.settings().mode(data.get("mode"));
                 boolean forceEnqueue = Boolean.parseBoolean(data.get("force-enqueue"));
                 plugin.sync(() -> applySeasonOpen(mode, forceEnqueue));
@@ -1090,6 +1175,10 @@ public final class WarManager implements GuildModule {
         String warId = data.get("war");
         String host = data.get("host");
         if (warId == null || host == null) {
+            return;
+        }
+        // 本服已处理过（本地先执行 + Redis 回声）时直接忽略，避免二次 adopt 被当成“承办服正忙”。
+        if (observed.containsKey(warId)) {
             return;
         }
         GuildWar war = new GuildWar(warId, data.get("a"), data.get("b"));
@@ -1137,7 +1226,23 @@ public final class WarManager implements GuildModule {
             return;
         }
         if (current != null) {
-            return; // 本服已在承办另一场
+            // 本服已在承办另一场：不能静默 return，否则这场会永久卡在 MATCHED，
+            // 双方也无法再排队。显式取消、广播终态并把双方放回队列。
+            plugin.getLogger().warning("承办服正忙，无法接收工会战 " + war.id() + "，已取消并重新排队");
+            war.state(WarState.CANCELLED);
+            war.endedAt(System.currentTimeMillis());
+            observed.remove(war.id());
+            publishState(war, true);
+            try {
+                warIo.submit(() -> {
+                    try { plugin.repo().updateWar(war); }
+                    catch (Exception e) { plugin.getLogger().warning("取消未承办工会战写库失败: " + e.getMessage()); }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            }
+            // 重新入队含 Redis 写入，放到异步，避免在承办服主线程做网络 IO。
+            plugin.async(() -> requeueFailedMatch(java.util.List.of(war.guildA(), war.guildB()), war.mode()));
+            return;
         }
         current = war;
         observed.put(war.id(), war);
@@ -1736,6 +1841,8 @@ public final class WarManager implements GuildModule {
     private void warTickInternal() {
         long now = System.currentTimeMillis();
         pruneStaleMirrors(now);
+        // 分帧发放：结算期与启动补偿共用同一队列，每 tick 最多处理一批。
+        drainSettlements(Math.max(1, conf().settleBatchPerTick));
         GuildWar war = current;
         if (war == null) {
             return;
@@ -1770,10 +1877,11 @@ public final class WarManager implements GuildModule {
             }
             case SETTLING -> {
                 settling = true;
-                // 分帧发放奖励：每 tick 最多 settleBatchPerTick 人，避免大名单一次性阻塞。
-                int batch = Math.max(1, conf().settleBatchPerTick);
-                drainSettlements(batch);
-                if (remain <= 0 && settleQueue.isEmpty()) {
+                // 写库/领奖还没回到主线程时不能收尾，否则会漏发或与写库竞态。
+                if (settlementPending) {
+                    return;
+                }
+                if (remain <= 0 && settleQueue.isEmpty() && pendingRewardClaims.get() == 0) {
                     cleanup(war);
                 }
             }
@@ -1801,236 +1909,146 @@ public final class WarManager implements GuildModule {
                 : (war.scoreA() == war.scoreB() ? "" : (war.scoreA() > war.scoreB() ? war.guildA() : war.guildB()));
         forcedWinner = "";
         war.winner(winner);
+        settlementPending = true;
+        final String win = winner;
+        final java.util.List<com.liu.liuguild.db.GuildRepository.WarReward> rows =
+                rewardService.buildRows(war, win, modeOf(war));
         try {
-            plugin.repo().transition(war, WarState.ACTIVE, WarState.SETTLING);
-            plugin.repo().updateWar(war);
-        } catch (Exception e) {
-            plugin.getLogger().warning("结算工会战写库失败: " + e.getMessage());
+            warIo.submit(() -> {
+                boolean claimed;
+                java.util.List<com.liu.liuguild.db.GuildRepository.WarReward> ready = java.util.List.of();
+                try {
+                    // transition 的 WHERE state='ACTIVE' 是跨服幂等闸门：抢到的那台才发奖励。
+                    claimed = plugin.repo().transition(war, WarState.ACTIVE, WarState.SETTLING);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("结算工会战状态写库失败: " + e.getMessage());
+                    claimed = false;
+                }
+                if (claimed) {
+                    // 状态已经是 SETTLING：后续写失败也不能把奖励吞掉，outbox 行与补扫会兜底。
+                    try {
+                        plugin.repo().updateWar(war);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("结算工会战写库失败: " + e.getMessage());
+                    }
+                    try {
+                        plugin.repo().saveWarRewards(rows);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("保存工会战奖励明细失败（将由补扫重试）: " + e.getMessage());
+                    }
+                    try {
+                        ready = plugin.repo().claimWarRewardsForWar(war.id());
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("领取工会战奖励失败（保留 PENDING 待补扫）: " + e.getMessage());
+                    }
+                }
+                final boolean ok = claimed;
+                final java.util.List<com.liu.liuguild.db.GuildRepository.WarReward> claimedRows = ready;
+                plugin.sync(() -> finishEndWar(war, win, ok, claimedRows));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // 已在关服：不再结算，只做收尾（不发奖）。
+            settlementPending = false;
+            cleanup(war, true);
         }
-        GuildWarEndEvent.Result result = winner.isEmpty()
+    }
+
+    /** 写库完成、回到主线程：发事件/公告、工会层奖励、把已领取的玩家奖励放入分帧队列。 */
+    private void finishEndWar(GuildWar war, String winner, boolean dbClaimed,
+                              java.util.List<com.liu.liuguild.db.GuildRepository.WarReward> rewards) {
+        settlementPending = false;
+        if (!dbClaimed) {
+            plugin.getLogger().warning("工会战 " + war.id() + " 已被其它子服结算或写库失败，本次跳过奖励发放");
+            cleanup(war, true);
+            return;
+        }
+        GuildWarEndEvent.Result result = winner == null || winner.isEmpty()
                 ? GuildWarEndEvent.Result.DRAW
                 : (winner.equals(war.guildA()) ? GuildWarEndEvent.Result.A_WIN : GuildWarEndEvent.Result.B_WIN);
         Bukkit.getPluginManager().callEvent(new GuildWarEndEvent(war, result));
-        if (winner.isEmpty()) {
+        if (winner == null || winner.isEmpty()) {
             broadcastWar(war, plugin.messages().component("war-draw", "score_a", war.scoreA(), "score_b", war.scoreB()));
         } else {
             String winnerName = winner.equals(war.guildA()) ? war.nameA() : war.nameB();
             broadcastWar(war, plugin.messages().component("war-ended",
                     "winner", winnerName, "score_a", war.scoreA(), "score_b", war.scoreB()));
         }
-        persistPlayerRewards(war, winner);
-        applyRewards(war, winner);
+        WarMode mode = modeOf(war);
+        if (mode != null) {
+            double mult = mode.scheduled() ? Math.max(1.0, mode.seasonPointsMultiplier) : 1.0;
+            boolean draw = winner == null || winner.isBlank();
+            boolean aWon = winner != null && winner.equals(war.guildA());
+            boolean bWon = winner != null && winner.equals(war.guildB());
+            long nominalA = rewardService.wonGuildFunds(aWon, mode, mult);
+            long nominalB = rewardService.wonGuildFunds(bWon, mode, mult);
+            long fundsA = rewardService.grantGuild(plugin.guilds().guild(war.guildA()), aWon, draw, mode, mult);
+            long fundsB = rewardService.grantGuild(plugin.guilds().guild(war.guildB()), bWon, draw, mode, mult);
+            for (com.liu.liuguild.db.GuildRepository.WarReward row : rewards) {
+                boolean sideA = row.guildId() != null && row.guildId().equals(war.guildA());
+                long granted = sideA ? fundsA : fundsB;
+                long nominal = sideA ? nominalA : nominalB;
+                pendingRewardClaims.incrementAndGet();
+                settleQueue.add(() -> {
+                    try {
+                        rewardService.grantPlayer(war, row, mode, granted, nominal);
+                    } finally {
+                        pendingRewardClaims.decrementAndGet();
+                    }
+                });
+            }
+        } else {
+            // 模式已被删除：无法确定通行证/称号，直接把 outbox 标记完成，避免永久 PENDING。
+            for (com.liu.liuguild.db.GuildRepository.WarReward row : rewards) {
+                rewardService.markDone(row);
+            }
+        }
         publishState(war, true);
-        phaseUntil = System.currentTimeMillis() + modeOf(war).settleSeconds * 1000L;
+        int settle = mode == null ? 10 : Math.max(0, mode.settleSeconds);
+        phaseUntil = System.currentTimeMillis() + settle * 1000L;
     }
 
-    /** 结算前先把玩家奖励写成 outbox；崩溃后由 processPendingWarRewards 继续。 */
-    private void persistPlayerRewards(GuildWar war, String winnerId) {
-        WarMode w = modeOf(war);
-        double mult = w.scheduled() ? Math.max(1.0, w.seasonPointsMultiplier) : 1.0;
-        boolean aWon = winnerId != null && winnerId.equals(war.guildA());
-        boolean bWon = winnerId != null && winnerId.equals(war.guildB());
-        java.util.List<com.liu.liuguild.db.GuildRepository.WarReward> rows = new java.util.ArrayList<>();
-        for (UUID u : new ArrayList<>(war.rosterA())) {
-            rows.add(new com.liu.liuguild.db.GuildRepository.WarReward(war.id(), u, war.guildA(), aWon,
-                    w.key, (aWon ? w.winPlayerMoney : w.losePlayerMoney) * mult,
-                    (int) Math.min(Integer.MAX_VALUE, Math.round((aWon ? w.winPassXp : w.losePassXp) * mult)),
-                    aWon ? w.winTitleId : 0));
-        }
-        for (UUID u : new ArrayList<>(war.rosterB())) {
-            rows.add(new com.liu.liuguild.db.GuildRepository.WarReward(war.id(), u, war.guildB(), bWon,
-                    w.key, (bWon ? w.winPlayerMoney : w.losePlayerMoney) * mult,
-                    (int) Math.min(Integer.MAX_VALUE, Math.round((bWon ? w.winPassXp : w.losePassXp) * mult)),
-                    bWon ? w.winTitleId : 0));
-        }
-        try { plugin.repo().saveWarRewards(rows); }
-        catch (Exception e) { plugin.getLogger().warning("保存工会战奖励明细失败: " + e.getMessage()); }
-    }
-
-    /** 启动/定时扫描未完成奖励；最多处理一批，避免启动时阻塞。 */
+    /**
+     * 启动/定时补偿未发放的奖励。
+     *
+     * <p>先把 PENDING 行原子领取为 PROCESSING 再发，跨服/多实例不会重复发；
+     * 超过 10 分钟仍停在 PROCESSING 的行标记 FAILED 交人工处理（宁可不发也不重复发钱）。</p>
+     */
     public void processPendingWarRewards() {
         plugin.async(() -> {
+            java.util.List<com.liu.liuguild.db.GuildRepository.WarReward> rows;
             try {
-                for (var row : plugin.repo().loadPendingWarRewards(200)) {
-                    plugin.sync(() -> settlePersistedReward(row));
-                }
+                plugin.repo().failStaleWarRewards(System.currentTimeMillis() - 10L * 60L * 1000L);
+                rows = plugin.repo().claimPendingWarRewards(200);
             } catch (Exception e) {
                 plugin.getLogger().warning("读取未完成工会战奖励失败: " + e.getMessage());
+                return;
             }
+            if (rows.isEmpty()) {
+                return;
+            }
+            plugin.sync(() -> {
+                for (com.liu.liuguild.db.GuildRepository.WarReward row : rows) {
+                    pendingRewardClaims.incrementAndGet();
+                    settleQueue.add(() -> {
+                        try {
+                            settlePersistedReward(row);
+                        } finally {
+                            pendingRewardClaims.decrementAndGet();
+                        }
+                    });
+                }
+            });
         });
     }
 
     private void settlePersistedReward(com.liu.liuguild.db.GuildRepository.WarReward row) {
         WarMode mode = mode(row.mode());
         if (mode == null) {
-            markRewardDone(row);
+            // 模式已删除：没有通行证/称号配置，直接完成，避免行永久占用。
+            rewardService.markDone(row);
             return;
         }
-        double money = row.money();
-        int passXp = row.passXp();
-        if (money > 0 && plugin.economy() != null && plugin.economy().available()) {
-            plugin.economy().deposit(plugin.offline(row.player()), money);
-        }
-        if (plugin.pass() != null && passXp > 0) plugin.pass().addXp(row.player(), mode.passId, passXp);
-        if (row.titleId() > 0 && plugin.playerTitle() != null) plugin.playerTitle().grant(row.player(), row.titleId());
-        markRewardDone(row);
-    }
-
-    private void markRewardDone(com.liu.liuguild.db.GuildRepository.WarReward row) {
-        plugin.async(() -> {
-            try { plugin.repo().markWarRewardDone(row.warId(), row.player()); }
-            catch (Exception e) { plugin.getLogger().warning("标记工会战奖励完成失败: " + e.getMessage()); }
-        });
-    }
-
-    /**
-     * 工会层奖励立即结算（内存 + 异步落库，开销很小）；
-     * 玩家层奖励（金币/通行证/称号/消息）进入分帧队列，
-     * 由 {@link #warTick} 在结算阶段每 tick 发放一批，避免一次性阻塞主线程。
-     */
-    private void applyRewards(GuildWar war, String winnerId) {
-        WarMode w = modeOf(war);
-        double mult = w.scheduled() ? Math.max(1.0, w.seasonPointsMultiplier) : 1.0;
-        // 平局时两方均按参与奖励结算，不发胜利称号。
-        boolean aWon = winnerId != null && winnerId.equals(war.guildA());
-        boolean bWon = winnerId != null && winnerId.equals(war.guildB());
-        boolean draw = winnerId == null || winnerId.isBlank();
-        long nominalA = wonGuildFunds(aWon, w, mult);
-        long nominalB = wonGuildFunds(bWon, w, mult);
-        long fundsA = rewardGuild(plugin.guilds().guild(war.guildA()), aWon, draw, w, mult);
-        long fundsB = rewardGuild(plugin.guilds().guild(war.guildB()), bWon, draw, w, mult);
-        for (UUID u : new ArrayList<>(war.rosterA())) {
-            settleQueue.add(() -> rewardPlayer(war, u, aWon, w, mult, fundsA, nominalA));
-        }
-        for (UUID u : new ArrayList<>(war.rosterB())) {
-            settleQueue.add(() -> rewardPlayer(war, u, bWon, w, mult, fundsB, nominalB));
-        }
-    }
-
-    /**
-     * 发放工会资金奖励（受该模式每日上限约束）。
-     *
-     * @return 实际（预计）发放的点数，用于结算消息展示
-     */
-    private long rewardGuild(Guild guild, boolean won, boolean draw, WarMode mode, double multiplier) {
-        if (guild == null) {
-            return 0;
-        }
-        long nominal = wonGuildFunds(won, mode, multiplier);
-        long granted = plugin.guilds().grantWarFunds(guild, nominal, mode.dailyGuildFundsCap);
-        // 平局不计入胜/负，避免双方损失数被平局虚增；胜负记录只在有明确胜者时更新。
-        if (!draw) {
-            if (won) {
-                guild.wins(guild.wins() + 1);
-            } else {
-                guild.losses(guild.losses() + 1);
-            }
-        }
-        plugin.guilds().saveGuild(guild);
-        return granted;
-    }
-
-    private void rewardPlayer(GuildWar war, UUID uuid, boolean win, WarMode mode, double multiplier,
-                              long guildFundsGranted, long guildFundsNominal) {
-        double money = (win ? mode.winPlayerMoney : mode.losePlayerMoney) * multiplier;
-        int passXp = (int) Math.min(Integer.MAX_VALUE,
-                Math.round((win ? mode.winPassXp : mode.losePassXp) * multiplier));
-        int titleId = win ? mode.winTitleId : 0;
-        boolean hasTitle = titleId > 0 && plugin.playerTitle() != null;
-
-        if (money > 0 && plugin.economy() != null && plugin.economy().available()) {
-            plugin.economy().deposit(plugin.offline(uuid), money);
-        }
-        if (plugin.pass() != null && passXp > 0) {
-            plugin.pass().addXp(uuid, mode.passId, passXp);
-        }
-        if (hasTitle) {
-            plugin.playerTitle().grant(uuid, titleId);
-        }
-        plugin.async(() -> {
-            try { plugin.repo().markWarRewardDone(war.id(), uuid); }
-            catch (Exception e) { plugin.getLogger().warning("标记工会战奖励完成失败: " + e.getMessage()); }
-        });
-
-        Player player = plugin.player(uuid);
-        if (player == null) {
-            return;
-        }
-        // 分行展示：只列出「实际有值」的奖励，没有的项不占一行
-        plugin.messages().sendRaw(player, win ? "war-reward-win-header" : "war-reward-lose-header");
-        if (money > 0) {
-            plugin.messages().sendRaw(player, "war-reward-line-money",
-                    "money", plugin.economy().format(money));
-        }
-        if (guildFundsGranted > 0) {
-            plugin.messages().sendRaw(player, "war-reward-line-funds", "funds", String.valueOf(guildFundsGranted));
-        } else if (guildFundsNominal > 0) {
-            plugin.messages().sendRaw(player, "war-reward-line-funds-capped",
-                    "cap", String.valueOf(mode.dailyGuildFundsCap));
-        }
-        if (passXp > 0) {
-            plugin.messages().sendRaw(player, "war-reward-line-pass",
-                    "pass_xp", String.valueOf(passXp),
-                    "pass", mode.passId == null || mode.passId.isBlank() ? "通行证" : mode.passId);
-        }
-        if (hasTitle) {
-            plugin.messages().sendRaw(player, "war-reward-line-title", "title", String.valueOf(titleId));
-        }
-        runRewardCommands(player, win, mode);
-        plugin.messages().sendRaw(player, "war-reward-footer");
-    }
-
-    /**
-     * 执行自定义指令奖励，并把每条指令的「自定义名称」分行展示给玩家。
-     * <p>{@code rewards.commands} 双方执行；{@code rewards.win-commands} 仅胜方；
-     * {@code rewards.lose-commands} 仅负方（含平局）。</p>
-     */
-    private void runRewardCommands(Player player, boolean win, WarMode mode) {
-        if (mode.extraRewards.isEmpty()) {
-            return;
-        }
-        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
-        for (WarMode.CommandReward reward : mode.extraRewards) {
-            if (!reward.appliesTo(win)) {
-                continue;
-            }
-            boolean executed = false;
-            for (String raw : reward.commands) {
-                String cmd = applyRewardPlaceholders(raw, player, guild, mode);
-                if (cmd.isBlank()) {
-                    continue;
-                }
-                try {
-                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
-                    executed = true;
-                } catch (Throwable t) {
-                    plugin.getLogger().warning("工会战指令奖励执行失败 [" + cmd + "]: " + t.getMessage());
-                }
-            }
-            // 名称就是奖励展示文字；执行过的奖励才分行显示
-            if (executed) {
-                plugin.messages().sendRaw(player, "war-reward-line-command", "label", reward.name);
-            }
-        }
-    }
-
-    /** 替换指令奖励里的占位符。 */
-    private String applyRewardPlaceholders(String cmd, Player player, Guild guild, WarMode mode) {
-        GuildWar war = current;
-        boolean sideA = war != null && guild != null && war.guildA().equals(guild.id());
-        int mine = war == null ? 0 : (sideA ? war.scoreA() : war.scoreB());
-        int theirs = war == null ? 0 : (sideA ? war.scoreB() : war.scoreA());
-        return cmd.replace("{player}", player.getName())
-                .replace("{uuid}", player.getUniqueId().toString())
-                .replace("{guild}", guild == null ? "" : guild.name())
-                .replace("{guild_id}", guild == null ? "" : guild.id())
-                .replace("{mode}", mode.key)
-                .replace("{score}", String.valueOf(mine))
-                .replace("{enemy_score}", String.valueOf(theirs));
-    }
-
-    private long wonGuildFunds(boolean win, WarMode mode, double multiplier) {
-        return Math.round((win ? mode.winGuildFunds : mode.loseGuildFunds) * multiplier);
+        rewardService.grantRecovered(row, mode);
     }
 
     /** 停止本服当前承办的比赛；取消不发放胜负奖励。 */
@@ -2057,39 +2075,6 @@ public final class WarManager implements GuildModule {
         }
         endWar(war);
         return true;
-    }
-
-    /**
-     * 管理员强制开战：直接匹配两支工会。
-     *
-     * @return null 表示已开始；否则返回失败原因对应的消息键
-     */
-    public String forceStart(Guild a, Guild b, String modeKey) {
-        if (a == null || b == null) {
-            return "guild-not-found";
-        }
-        if (a.id().equals(b.id())) {
-            return "same-guild";
-        }
-        if (warOf(a.id()) != null || warOf(b.id()) != null) {
-            return "war-in-progress";
-        }
-        WarMode mode = mode(modeKey);
-        if (modeKey != null && !modeKey.isBlank() && !conf().modes.containsKey(modeKey.toLowerCase(java.util.Locale.ROOT))) {
-            return "war-mode-unknown";
-        }
-        if (!mode.enabled) {
-            return "war-mode-disabled";
-        }
-        if (plugin.bus().isReady()) {
-            plugin.bus().dequeueGuild(a.id());
-            plugin.bus().dequeueGuild(b.id());
-        }
-        createMatch(
-                CrossServerBus.map("guildId", a.id(), "server", plugin.serverId(), "mode", mode.key),
-                CrossServerBus.map("guildId", b.id(), "server", plugin.serverId(), "mode", mode.key),
-                mode.key);
-        return null;
     }
 
     /** 管理员设置比分（a/b）。 */
@@ -2145,7 +2130,12 @@ public final class WarManager implements GuildModule {
         }
         final UUID uuid = player.getUniqueId();
         plugin.async(() -> {
-            plugin.bus().setPendingArena(uuid, arenaId);
+            if (!plugin.bus().setPendingArena(uuid, arenaId)) {
+                plugin.sync(() -> {
+                    if (player.isOnline()) plugin.messages().send(player, "war-transfer-failed");
+                });
+                return;
+            }
             plugin.sync(() -> {
                 if (player.isOnline()) {
                     plugin.bus().transfer().connect(player, host);
@@ -2183,6 +2173,10 @@ public final class WarManager implements GuildModule {
     }
 
     private void cancelWar(GuildWar war, String reasonKey) {
+        // 结算期（奖励已发、历史已写）只允许 cleanup 收尾，不能再降级为 CANCELLED。
+        if (war.state() == WarState.SETTLING) {
+            return;
+        }
         war.state(WarState.CANCELLED);
         observed.remove(war.id());
         settleQueue.clear();
@@ -2258,10 +2252,22 @@ public final class WarManager implements GuildModule {
         if (war.endedAt() <= 0) {
             war.endedAt(System.currentTimeMillis());
         }
+        final GuildWar finished = war;
         try {
-            plugin.repo().updateWar(war);
-        } catch (Exception e) {
-            plugin.getLogger().warning("工会战收尾写库失败: " + e.getMessage());
+            warIo.submit(() -> {
+                try {
+                    plugin.repo().updateWar(finished);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("工会战收尾写库失败: " + e.getMessage());
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // 写库线程已关闭（插件完全卸载后）：尽力同步写一次。
+            try {
+                plugin.repo().updateWar(finished);
+            } catch (Exception ex) {
+                plugin.getLogger().warning("工会战收尾写库失败: " + ex.getMessage());
+            }
         }
         current = null;
         // 广播终态，让其它子服移除镜像；否则跨服玩家会一直被判定为「正在工会战中」。
@@ -3173,8 +3179,21 @@ public final class WarManager implements GuildModule {
     private void clearWarBar() {
         BossBar bar = warBar;
         if (bar != null) {
-            for (Player p : Bukkit.getOnlinePlayers()) {
-                p.hideBossBar(bar);
+            // 只对可能显示过这条 BossBar 的人撤下，避免每场收尾遍历全服玩家。
+            GuildWar war = current;
+            if (war != null) {
+                for (UUID u : war.rosterA()) {
+                    Player p = plugin.player(u);
+                    if (p != null) p.hideBossBar(bar);
+                }
+                for (UUID u : war.rosterB()) {
+                    Player p = plugin.player(u);
+                    if (p != null) p.hideBossBar(bar);
+                }
+            }
+            for (UUID u : new ArrayList<>(spectators)) {
+                Player p = plugin.player(u);
+                if (p != null) p.hideBossBar(bar);
             }
         }
         warBar = null;

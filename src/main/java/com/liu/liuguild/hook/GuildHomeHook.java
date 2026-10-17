@@ -342,7 +342,7 @@ public final class GuildHomeHook {
             return false;
         }
         return member.rank() == GuildRank.LEADER
-                || (member.rank() == GuildRank.OFFICER && plugin.settings().guild.officerSetNotice);
+                || (member.rank() == GuildRank.OFFICER && plugin.settings().guild.officerSetHome);
     }
 
     private static boolean isNumber(String s) {

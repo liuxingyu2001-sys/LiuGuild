@@ -138,8 +138,8 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "description" -> guild.description();
             case "icon" -> guild.icon();
             case "open" -> guild.open() ? "open" : "closed";
-            case "created" -> new SimpleDateFormat("yyyy-MM-dd").format(new Date(guild.createdAt()));
-            case "online" -> String.valueOf(plugin.guilds().onlineMembers(guild).size());
+            case "created" -> com.liu.liuguild.util.TimeUtil.formatDate(guild.createdAt());
+            case "online" -> String.valueOf(plugin.guilds().onlineMemberCount(guild));
             case "kills" -> member == null ? "0" : String.valueOf(member.kills());
             case "deaths" -> member == null ? "0" : String.valueOf(member.deaths());
             case "checkin_streak" -> member == null ? "0" : String.valueOf(member.checkinStreak());

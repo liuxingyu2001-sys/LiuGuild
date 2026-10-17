@@ -208,27 +208,39 @@ public final class ShopService implements GuildModule, Listener {
                 player.getUniqueId(), player.getName(), System.currentTimeMillis());
         String opId = UUID.randomUUID().toString();
         UUID buyer = player.getUniqueId();
+        // 背包扣除前/后的精确快照：崩溃恢复时用 Arrays.equals 判断到底扣没扣，
+        // 不再用“背包里还有多少件”推断（玩家库存大于上架量时必然误判并吞物品）。
+        final ItemStack[] before = cloneItems(player.getInventory().getStorageContents());
+        final ItemStack[] after = cloneItems(before);
+        if (removeFromArray(after, base, take) != take) {
+            return "shop-hand-empty";
+        }
+        final String beforeData = com.liu.liuguild.util.ItemUtil.encode(before);
+        final String afterData = com.liu.liuguild.util.ItemUtil.encode(after);
+        if (beforeData == null || afterData == null || beforeData.isBlank() || afterData.isBlank()) {
+            return "shop-serialize-failed";
+        }
         plugin.async(() -> {
             try {
                 repo.savePending(new ShopRepository.Pending(opId, buyer, g.id(), "ADD", null,
-                        encoded, take, "TO_REMOVE"));
+                        encoded, take, "TO_REMOVE", beforeData, afterData));
             } catch (Exception e) {
                 plugin.getLogger().warning("创建上架交接记录失败: " + e.getMessage());
                 plugin.sync(() -> plugin.messages().send(player, "shop-listing-failed"));
                 return;
             }
             plugin.sync(() -> {
-                if (!player.isOnline() || countInInventory(player.getInventory(), base) < take) {
+                if (!player.isOnline()
+                        || !java.util.Arrays.equals(before, player.getInventory().getStorageContents())) {
                     deletePending(opId);
                     if (player.isOnline()) plugin.messages().send(player, "shop-listing-failed");
                     return;
                 }
-                removeFromInventory(player.getInventory(), base, take);
+                player.getInventory().setStorageContents(cloneItems(after));
                 plugin.async(() -> {
                     try {
-                        // 先持久化“已从背包扣除”，缩小扣除后崩溃导致的退物歧义窗口。
-                        try { repo.markPendingState(opId, "REMOVED"); }
-                        catch (Exception e) { plugin.getLogger().warning("标记上架交接状态失败: " + e.getMessage()); }
+                        // 扣背包后立即在同一事务里插入 listing 并把 pending 标记 DONE。
+                        // 崩溃只会留下 TO_REMOVE（按 after 快照精确退物），不会既扣物又丢记录。
                         repo.insert(l, opId, plugin.settings().guild.shopMaxListings);
                         cache.put(l.id(), l);
                         deletePending(opId);
@@ -236,12 +248,18 @@ public final class ShopService implements GuildModule, Listener {
                     } catch (Exception e) {
                         plugin.getLogger().warning("上架工会商品失败: " + e.getMessage());
                         plugin.sync(() -> {
-                            if (player.isOnline()) {
-                                give(player, base, take);
-                                deletePending(opId);
-                                plugin.messages().send(player, "shop-listing-failed");
+                            if (!player.isOnline()) {
+                                // 离线：保留 TO_REMOVE，登录后按快照退物。
+                                return;
                             }
-                            // 离线时保留 TO_REMOVE 记录，登录后 recoverPending 退物。
+                            ItemStack[] current = player.getInventory().getStorageContents();
+                            if (java.util.Arrays.equals(current, after)) {
+                                player.getInventory().setStorageContents(cloneItems(before));
+                            } else {
+                                give(player, base, take);
+                            }
+                            deletePending(opId);
+                            plugin.messages().send(player, "shop-listing-failed");
                         });
                     }
                 });
@@ -250,21 +268,44 @@ public final class ShopService implements GuildModule, Listener {
         return null;
     }
 
-    /** 收购已永久关闭；保留方法签名以兼容旧调用方，不移动钱或物品。 */
-    public void supply(Guild g, Player player, ShopListing l, int amount, Runnable onDone) {
-        plugin.messages().send(player, "shop-not-buying");
-        if (onDone != null) onDone.run();
+    private static ItemStack[] cloneItems(ItemStack[] items) {
+        ItemStack[] copy = items.clone();
+        for (int i = 0; i < copy.length; i++) {
+            if (copy[i] != null) copy[i] = copy[i].clone();
+        }
+        return copy;
     }
 
-    /** 改价（旧收购参数忽略）。 */
+    /** 在副本数组里扣除指定物品，返回实际扣除数量（主线程内存操作）。 */
+    private static int removeFromArray(ItemStack[] items, ItemStack base, int amount) {
+        int remaining = amount;
+        for (int i = 0; i < items.length && remaining > 0; i++) {
+            ItemStack item = items[i];
+            if (item == null || item.getType().isAir() || !item.isSimilar(base)) {
+                continue;
+            }
+            int take = Math.min(remaining, item.getAmount());
+            item.setAmount(item.getAmount() - take);
+            remaining -= take;
+            if (item.getAmount() <= 0) {
+                items[i] = null;
+            }
+        }
+        return amount - remaining;
+    }
+
+        /** 改价（旧收购参数忽略）。 */
     public void updatePrices(Guild g, ShopListing l, long price, long buyPrice) {
         long oldPrice = l.price();
         long oldBuyPrice = l.buyPrice();
         l.price(Math.max(0, price));
         l.buyPrice(0);
+        final String guildId = g == null ? l.guildId() : g.id();
         plugin.async(() -> {
             try {
                 repo.updatePrices(l.id(), l.price(), l.buyPrice());
+                // 广播必须在写库成功之后：否则其它子服会先 reload 到旧价，之后再无广播。
+                broadcast(guildId);
             } catch (Exception e) {
                 // 数据库失败时回滚内存价格，避免界面显示与真实扣款价格长期不一致。
                 l.price(oldPrice);
@@ -272,7 +313,6 @@ public final class ShopService implements GuildModule, Listener {
                 plugin.getLogger().warning("修改工会商品价格失败: " + e.getMessage());
             }
         });
-        broadcast(g == null ? l.guildId() : g.id());
     }
 
     /**
@@ -309,7 +349,7 @@ public final class ShopService implements GuildModule, Listener {
             int stock;
             try {
                 repo.savePending(new ShopRepository.Pending(opId, uuid, g.id(), "REMOVE", l.id(),
-                        itemData, 0, "PREPARED"));
+                        itemData, 0, "PREPARED", null, null));
                 stock = repo.removeAndTakeStock(l.id(), opId);
             } catch (Exception e) {
                 deletePending(opId);
@@ -331,10 +371,17 @@ public final class ShopService implements GuildModule, Listener {
                 return;
             }
             ShopRepository.Pending pending = new ShopRepository.Pending(opId, uuid, g.id(), "REMOVE",
-                    l.id(), itemData, stock, "READY");
+                    l.id(), itemData, stock, "DELIVERING", null, null);
+            boolean claimed;
+            try {
+                claimed = repo.claimDelivery(opId);
+            } catch (Exception e) {
+                claimed = false;
+            }
+            final boolean deliveryClaimed = claimed;
             plugin.sync(() -> {
                 cache.remove(l.id());
-                ShopRepository.Pending delivered = deliverNow(player, pending);
+                ShopRepository.Pending delivered = deliveryClaimed ? deliverNow(player, pending) : pending;
                 if (player != null) {
                     plugin.messages().send(player, delivered == null ? "shop-removed" : "shop-remove-failed",
                             "item", itemName(l.preview()), "amount", String.valueOf(stock));
@@ -418,7 +465,7 @@ public final class ShopService implements GuildModule, Listener {
         plugin.async(() -> {
             try {
                 repo.savePending(new ShopRepository.Pending(opId, buyer, l.guildId(), "BUY", l.id(),
-                        itemData, amount, "PREPARED"));
+                        itemData, amount, "PREPARED", null, null));
             } catch (Exception e) {
                 plugin.getLogger().warning("创建购买交接记录失败: " + e.getMessage());
                 plugin.sync(() -> {
@@ -443,16 +490,27 @@ public final class ShopService implements GuildModule, Listener {
                 });
                 return;
             }
+            // 先原子领取（READY→DELIVERING）再回主线程发货：崩溃后不会重复发货。
+            boolean claimed;
+            try {
+                claimed = repo.claimDelivery(opId);
+            } catch (Exception e) {
+                plugin.getLogger().warning("领取商店发货记录失败: " + e.getMessage());
+                claimed = false;
+            }
+            final boolean deliveryClaimed = claimed;
             ShopRepository.Pending pending = new ShopRepository.Pending(opId, buyer, l.guildId(), "BUY",
-                    l.id(), itemData, amount, "READY");
+                    l.id(), itemData, amount, "DELIVERING", null, null);
             plugin.sync(() -> {
                 l.stock(Math.max(0, l.stock() - amount));
-                ShopRepository.Pending notDelivered = deliverNow(player, pending);
-                if (notDelivered == null) {
-                    plugin.messages().send(player, "shop-bought",
-                            "item", itemName(preview), "amount", String.valueOf(amount), "cost", String.valueOf(paid));
-                    if (paid > net) plugin.messages().send(player, "shop-bought-tax",
-                            "tax", String.valueOf(paid - net), "net", String.valueOf(net));
+                if (deliveryClaimed) {
+                    ShopRepository.Pending notDelivered = deliverNow(player, pending);
+                    if (notDelivered == null) {
+                        plugin.messages().send(player, "shop-bought",
+                                "item", itemName(preview), "amount", String.valueOf(amount), "cost", String.valueOf(paid));
+                        if (paid > net) plugin.messages().send(player, "shop-bought-tax",
+                                "tax", String.valueOf(paid - net), "net", String.valueOf(net));
+                    }
                 }
                 plugin.guilds().reloadGuild(l.guildId());
                 plugin.broadcastGuildChange(l.guildId());
@@ -494,16 +552,32 @@ public final class ShopService implements GuildModule, Listener {
                                 && ("TO_REMOVE".equals(pending.state()) || "REMOVED".equals(pending.state()))) {
                             if (item == null || item.getType().isAir()) {
                                 deletePending(pending.opId());
+                            } else if (hasSnapshots(pending)) {
+                                // 精确比对：before = 还没扣；after = 已扣但 listing 未提交，退回物品。
+                                ItemStack[] current = player.getInventory().getStorageContents();
+                                ItemStack[] before = com.liu.liuguild.util.ItemUtil.decode(pending.beforeItems());
+                                ItemStack[] after = com.liu.liuguild.util.ItemUtil.decode(pending.afterItems());
+                                if (java.util.Arrays.equals(current, before)) {
+                                    deletePending(pending.opId());
+                                } else if (java.util.Arrays.equals(current, after)) {
+                                    give(player, item, pending.amount());
+                                    deletePending(pending.opId());
+                                } else {
+                                    plugin.getLogger().severe("商店上架交接恢复失败：玩家 " + player.getName()
+                                            + " 背包已变化，保留记录待人工处理。pending=" + pending.opId());
+                                }
                             } else if ("REMOVED".equals(pending.state())) {
-                                // 已持久化“背包已扣除但列表未写入”，必须退回。
+                                // 旧版记录（无快照）：状态已持久化“已扣除”，必须退回。
                                 give(player, item, pending.amount());
-                                deletePending(pending.opId());
-                            } else if (countInInventory(player.getInventory(), item) >= pending.amount()) {
-                                // 交接记录写入后还没真正从背包扣除。
                                 deletePending(pending.opId());
                             } else {
-                                give(player, item, pending.amount());
-                                deletePending(pending.opId());
+                                // 旧版记录（无快照）兜底：无法精确判断时按件数近似。
+                                if (countInInventory(player.getInventory(), item) >= pending.amount()) {
+                                    deletePending(pending.opId());
+                                } else {
+                                    give(player, item, pending.amount());
+                                    deletePending(pending.opId());
+                                }
                             }
                             continue;
                         }
@@ -512,8 +586,28 @@ public final class ShopService implements GuildModule, Listener {
                                 plugin.getLogger().severe("商店交接物品损坏，保留待人工处理: " + pending.opId());
                                 continue;
                             }
-                            give(player, item, pending.amount());
-                            deletePending(pending.opId());
+                            // 先领取再发货；领取失败说明已在别处处理/正在处理。
+                            plugin.async(() -> {
+                                boolean claimed;
+                                try {
+                                    claimed = repo.claimDelivery(pending.opId());
+                                } catch (Exception e) {
+                                    claimed = false;
+                                }
+                                if (!claimed) {
+                                    return;
+                                }
+                                plugin.sync(() -> {
+                                    if (!player.isOnline()) {
+                                        return;
+                                    }
+                                    give(player, item, pending.amount());
+                                    deletePending(pending.opId());
+                                });
+                            });
+                        } else if ("DELIVERING".equals(pending.state())) {
+                            // 已经领取过：可能已发货（只是没来得及删记录），不再重复发。
+                            plugin.getLogger().warning("商店发货记录处于 DELIVERING，已跳过以免重复发货: " + pending.opId());
                         } else {
                             plugin.getLogger().warning("未知商店交接状态: " + pending.state() + " / " + pending.opId());
                         }
@@ -523,6 +617,11 @@ public final class ShopService implements GuildModule, Listener {
                 }
             });
         });
+    }
+
+    private static boolean hasSnapshots(ShopRepository.Pending pending) {
+        return pending.beforeItems() != null && !pending.beforeItems().isBlank()
+                && pending.afterItems() != null && !pending.afterItems().isBlank();
     }
 
     /** 在线时立即发货；离线则保留 READY 记录，登录后恢复。 */
@@ -599,122 +698,7 @@ public final class ShopService implements GuildModule, Listener {
      * <p>顺序：先验钱与货（都能失败，且未产生任何变更）→ 扣货、扣工会资金、
      * 给成员打钱（都成功）→ 最后异步加库存。库存加失败只影响展示，不会让任何一方亏。</p>
      */
-    /** 不再调用的历史供货实现，禁止重新接入任何命令或 GUI。 */
-    private void disabledSupplyLegacy(Guild g, Player player, ShopListing l, int amount, Runnable onDone) {
-        Runnable done = onDone == null ? () -> {
-        } : onDone;
-        if (!plugin.settings().guild.shopEnabled) {
-            plugin.messages().send(player, "shop-disabled");
-            done.run();
-            return;
-        }
-        if (g == null || l == null || !l.guildId().equals(g.id())) {
-            plugin.messages().send(player, "shop-not-found");
-            done.run();
-            return;
-        }
-        if (!l.buying()) {
-            plugin.messages().send(player, "shop-not-buying");
-            done.run();
-            return;
-        }
-        if (amount <= 0) {
-            plugin.messages().send(player, "shop-amount-invalid");
-            done.run();
-            return;
-        }
-        if (amount > plugin.settings().guild.shopMaxSupply) {
-            plugin.messages().send(player, "shop-amount-too-many",
-                    "max", String.valueOf(plugin.settings().guild.shopMaxSupply));
-            done.run();
-            return;
-        }
-        ItemStack preview = l.preview();
-        if (preview == null) {
-            plugin.messages().send(player, "shop-not-found");
-            done.run();
-            return;
-        }
-        // 1) 手里够不够
-        int owned = countInInventory(player.getInventory(), preview);
-        if (owned < amount) {
-            plugin.messages().send(player, "shop-not-enough-items",
-                    "amount", String.valueOf(owned), "need", String.valueOf(amount));
-            done.run();
-            return;
-        }
-        long payout = safeMul(l.buyPrice(), amount);
-        // 2) 工会资金够不够
-        if (payout > g.bank()) {
-            plugin.messages().send(player, "shop-guild-bank-low",
-                    "cost", plugin.economy().format(payout),
-                    "bank", plugin.economy().format(g.bank()));
-            done.run();
-            return;
-        }
-        if (payout > 0 && !plugin.economy().available()) {
-            plugin.messages().send(player, "shop-no-economy");
-            done.run();
-            return;
-        }
-        // 3) 全都验过了，开始变更：先扣货 —— 后面任何一步失败都能把货原样退还
-        removeFromInventory(player.getInventory(), preview, amount);
-        if (payout <= 0) {
-            commitSupply(g, l, amount);
-            plugin.messages().send(player, "shop-supplied",
-                    "item", itemName(preview),
-                    "amount", String.valueOf(amount),
-                    "earned", plugin.economy().format(0));
-            done.run();
-            return;
-        }
-        // 4) 异步扣工会资金；成功了才发钱、才加库存
-        plugin.guilds().changeBank(g.id(), -payout).whenComplete((ok, ex) -> plugin.sync(() -> {
-            if (ex != null || !Boolean.TRUE.equals(ok)) {
-                // 扣工会资金失败：货还回去，交易取消
-                give(player, preview, amount);
-                plugin.messages().send(player, "shop-guild-bank-low",
-                        "cost", plugin.economy().format(payout),
-                        "bank", plugin.economy().format(g.bank()));
-                done.run();
-                return;
-            }
-            if (!plugin.economy().deposit(player, payout)) {
-                // 发钱失败：货还给玩家，钱退回工会（整体回滚）
-                give(player, preview, amount);
-                plugin.guilds().changeBank(g.id(), payout).whenComplete((back, backEx) -> {
-                    if (backEx != null || !Boolean.TRUE.equals(back)) {
-                        plugin.getLogger().severe("工会商店供货回滚失败: 工会=" + g.id()
-                                + " 玩家=" + player.getUniqueId() + " 金额=" + payout);
-                    }
-                });
-                plugin.messages().send(player, "shop-payout-failed");
-                done.run();
-                return;
-            }
-            commitSupply(g, l, amount);
-            plugin.messages().send(player, "shop-supplied",
-                    "item", itemName(preview),
-                    "amount", String.valueOf(amount),
-                    "earned", plugin.economy().format(payout));
-            done.run();
-        }));
-    }
-
-    /** 供货成功后的收尾：内存库存 + 异步落库 + 跨服广播。 */
-    private void commitSupply(Guild g, ShopListing l, int amount) {
-        l.stock(l.stock() + amount);
-        plugin.async(() -> {
-            try {
-                repo.increment(l.id(), amount);
-            } catch (Exception e) {
-                plugin.getLogger().warning("工会商品加库存失败: " + e.getMessage());
-            }
-        });
-        broadcast(g.id());
-    }
-
-    // =====================================================================
+            // =====================================================================
     // 工具
     // =====================================================================
 
@@ -836,12 +820,4 @@ public final class ShopService implements GuildModule, Listener {
                 Map.of("guild", guildId, "server", plugin.serverId())));
     }
 
-    /** 供 GUI 展示：按工会分组统计。 */
-    public Map<String, Integer> countsByGuild() {
-        Map<String, Integer> out = new LinkedHashMap<>();
-        for (ShopListing l : cache.values()) {
-            out.merge(l.guildId(), 1, Integer::sum);
-        }
-        return out;
     }
-}

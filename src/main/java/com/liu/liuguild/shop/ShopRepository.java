@@ -31,8 +31,14 @@ public final class ShopRepository {
     }
 
     /** 商店发货/退物的持久化交接记录。 */
+    /**
+     * 事务交接记录。
+     * <p>{@code beforeItems}/{@code afterItems} 是玩家背包快照（Base64），
+     * 用于崩溃恢复时精确判断“物品到底扣没扣”，不再靠背包件数推断。</p>
+     */
     public record Pending(String opId, UUID player, String guildId, String action, String listingId,
-                          String itemData, int amount, String state) { }
+                          String itemData, int amount, String state,
+                          String beforeItems, String afterItems) { }
 
     private static final String SELECT =
             "SELECT `listing_id`,`guild_id`,`item_data`,`stock`,`price`,`buy_price`,"
@@ -109,6 +115,17 @@ public final class ShopRepository {
             c.setAutoCommit(false);
             try (PreparedStatement ps = c.prepareStatement(sql)) {
                 if (maxListings > 0 && maxListings < Integer.MAX_VALUE) {
+                    // MySQL 下先锁工会行，避免两台子服同时 COUNT 到 N-1 后各自插入突破上限
+                    //（SQLite 单连接串行写，不需要 FOR UPDATE）。
+                    if (!db.isSqlite()) {
+                        try (PreparedStatement lock = c.prepareStatement("SELECT `guild_id` FROM `" + db.t("guilds")
+                                + "` WHERE `guild_id`=? FOR UPDATE")) {
+                            lock.setString(1, l.guildId());
+                            try (ResultSet ignored = lock.executeQuery()) {
+                                // 仅取行锁
+                            }
+                        }
+                    }
                     try (PreparedStatement count = c.prepareStatement("SELECT COUNT(*) FROM `" + db.t("guild_shop")
                             + "` WHERE `guild_id`=?")) {
                         count.setString(1, l.guildId());
@@ -178,7 +195,16 @@ public final class ShopRepository {
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try {
-                // 1) 扣买家个人工会资金：余额不足或不是该会成员都拒绝。
+                // 0) 成员校验独立于金额：0 价商品也必须只能由本会成员购买。
+                try (var ps = c.prepareStatement("SELECT 1 FROM `" + db.t("guild_members")
+                        + "` WHERE `player_uuid`=? AND `guild_id`=? LIMIT 1")) {
+                    ps.setString(1, buyer.toString());
+                    ps.setString(2, guildId);
+                    try (var rs = ps.executeQuery()) {
+                        if (!rs.next()) { c.rollback(); return false; }
+                    }
+                }
+                // 1) 扣买家个人工会资金：余额不足拒绝。
                 if (total > 0) {
                     try (var ps = c.prepareStatement("UPDATE `" + db.t("personal_funds")
                             + "` SET `balance`=`balance`-? WHERE `player_uuid`=? AND `balance`>=?"
@@ -269,8 +295,8 @@ public final class ShopRepository {
 
     public void savePending(Pending p) throws SQLException {
         String sql = "INSERT INTO `" + db.t("guild_shop_pending")
-                + "` (`op_id`,`player_uuid`,`guild_id`,`action`,`listing_id`,`item_data`,`amount`,`state`,`created_at`)"
-                + " VALUES (?,?,?,?,?,?,?,?,?)";
+                + "` (`op_id`,`player_uuid`,`guild_id`,`action`,`listing_id`,`item_data`,`amount`,`state`,"
+                + "`before_items`,`after_items`,`created_at`) VALUES (?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, p.opId());
             ps.setString(2, p.player().toString());
@@ -280,14 +306,17 @@ public final class ShopRepository {
             ps.setString(6, p.itemData());
             ps.setInt(7, p.amount());
             ps.setString(8, p.state());
-            ps.setLong(9, System.currentTimeMillis());
+            ps.setString(9, p.beforeItems());
+            ps.setString(10, p.afterItems());
+            ps.setLong(11, System.currentTimeMillis());
             ps.executeUpdate();
         }
     }
 
     public List<Pending> loadPending(UUID player) throws SQLException {
         List<Pending> out = new ArrayList<>();
-        String sql = "SELECT `op_id`,`player_uuid`,`guild_id`,`action`,`listing_id`,`item_data`,`amount`,`state` FROM `"
+        String sql = "SELECT `op_id`,`player_uuid`,`guild_id`,`action`,`listing_id`,`item_data`,`amount`,`state`,"
+                + "`before_items`,`after_items` FROM `"
                 + db.t("guild_shop_pending") + "` WHERE `player_uuid`=? ORDER BY `created_at`";
         try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, player.toString());
@@ -296,7 +325,7 @@ public final class ShopRepository {
                     UUID uuid;
                     try { uuid = UUID.fromString(rs.getString(2)); } catch (IllegalArgumentException e) { continue; }
                     out.add(new Pending(rs.getString(1), uuid, rs.getString(3), rs.getString(4), rs.getString(5),
-                            rs.getString(6), rs.getInt(7), rs.getString(8)));
+                            rs.getString(6), rs.getInt(7), rs.getString(8), rs.getString(9), rs.getString(10)));
                 }
             }
         }
@@ -308,6 +337,19 @@ public final class ShopRepository {
              PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_shop_pending") + "` WHERE `op_id`=?")) {
             ps.setString(1, opId);
             ps.executeUpdate();
+        }
+    }
+
+    /**
+     * 发货前领取：READY → DELIVERING 只有一次能成功，
+     * 避免“先给物品、后异步删记录”崩溃后重复发货。
+     */
+    public boolean claimDelivery(String opId) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_shop_pending")
+                     + "` SET `state`='DELIVERING' WHERE `op_id`=? AND `state`='READY'")) {
+            ps.setString(1, opId);
+            return ps.executeUpdate() == 1;
         }
     }
 
@@ -326,16 +368,7 @@ public final class ShopRepository {
         }
     }
 
-    public void delete(String listingId) throws SQLException {
-        String sql = "DELETE FROM `" + db.t("guild_shop") + "` WHERE `listing_id`=?";
-        try (Connection c = db.source().getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, listingId);
-            ps.executeUpdate();
-        }
-    }
-
-    public void deleteGuild(String guildId) throws SQLException {
+        public void deleteGuild(String guildId) throws SQLException {
         String sql = "DELETE FROM `" + db.t("guild_shop") + "` WHERE `guild_id`=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
@@ -364,17 +397,4 @@ public final class ShopRepository {
         }
     }
 
-    /** 原子加库存（成员供货 / 下架退回）。 */
-    public void increment(String listingId, int amount) throws SQLException {
-        if (amount <= 0) {
-            return;
-        }
-        String sql = "UPDATE `" + db.t("guild_shop") + "` SET `stock`=`stock`+? WHERE `listing_id`=?";
-        try (Connection c = db.source().getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setInt(1, amount);
-            ps.setString(2, listingId);
-            ps.executeUpdate();
-        }
     }
-}

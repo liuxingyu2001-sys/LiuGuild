@@ -84,12 +84,16 @@ public final class Database {
         hc.setJdbcUrl(cfg.jdbcUrl());
         hc.setUsername(cfg.user);
         hc.setPassword(cfg.password);
-        hc.setMaximumPoolSize(cfg.poolSize);
+        // SQLite 单写者：多连接只会把「快照升级写」冲突变成随机的 SQLITE_BUSY，
+        // busy_timeout 对快照失效不生效，因此固定单连接串行化。
+        hc.setMaximumPoolSize(cfg.isSqlite() ? 1 : cfg.poolSize);
         hc.setConnectionTimeout(cfg.connectionTimeoutMs);
         hc.setPoolName("LiuGuild-Pool");
         hc.setMinimumIdle(1);
         if (cfg.isSqlite()) {
             hc.addDataSourceProperty("busy_timeout", "10000");
+            hc.addDataSourceProperty("journal_mode", "WAL");
+            hc.addDataSourceProperty("synchronous", "NORMAL");
             hc.setConnectionInitSql("PRAGMA busy_timeout=10000");
         }
         ds = new HikariDataSource(hc);
@@ -168,6 +172,8 @@ public final class Database {
                     + "`bank` BIGINT NOT NULL DEFAULT 0,"
                     + "`warehouse_level` INT NOT NULL DEFAULT 0,"
                     + "`warehouse_expires_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "`warehouse_level_expires_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "`warehouse_permanent_level` INT NOT NULL DEFAULT 0,"
                     + "`war_funds_day` BIGINT NOT NULL DEFAULT 0,"
                     + "`war_funds_earned` BIGINT NOT NULL DEFAULT 0,"
                     + "`activity_day` BIGINT NOT NULL DEFAULT 0,"
@@ -222,11 +228,13 @@ public final class Database {
 
             // 工会仓库：物品以 ItemStack.serializeAsBytes 的 Base64 存储，可完整保留 NBT/组件
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_warehouse_state") + "` ("
-                    + "`guild_id` VARCHAR(36) NOT NULL PRIMARY KEY, `version` BIGINT NOT NULL DEFAULT 0)" + engine);
+                    + "`guild_id` VARCHAR(36) NOT NULL PRIMARY KEY, `version` BIGINT NOT NULL DEFAULT 0,"
+                    + "`deleted_at` BIGINT NOT NULL DEFAULT 0, `purge_at` BIGINT NOT NULL DEFAULT 0)" + engine);
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_warehouse") + "` ("
                     + "`guild_id` VARCHAR(36) NOT NULL,"
                     + "`slot` INT NOT NULL,"
                     + "`item_data` TEXT NOT NULL,"
+                    + "`amount` BIGINT NOT NULL DEFAULT 0,"
                     + "`updated_at` BIGINT NOT NULL DEFAULT 0,"
                     + "PRIMARY KEY (`guild_id`,`slot`)"
                     + ")" + engine);
@@ -253,8 +261,8 @@ public final class Database {
                     + "`guild_id` VARCHAR(36) NOT NULL,"
                     + "`session_token` VARCHAR(96) NOT NULL,"
                     + "`expected_version` BIGINT NOT NULL,"
-                    + "`before_items` " + (cfg.isSqlite() ? "TEXT," : "MEDIUMTEXT,")
-                    + "`after_items` " + (cfg.isSqlite() ? "TEXT," : "MEDIUMTEXT,")
+                    + "`before_items` " + (cfg.isSqlite() ? "TEXT" : "MEDIUMTEXT") + ","
+                    + "`after_items` " + (cfg.isSqlite() ? "TEXT" : "MEDIUMTEXT") + ","
                     + "`created_at` BIGINT NOT NULL DEFAULT 0,"
                     + "PRIMARY KEY (`player_uuid`)"
                     + ")" + engine);
@@ -265,6 +273,8 @@ public final class Database {
                     + "`action` VARCHAR(16) NOT NULL,"
                     + "`listing_id` VARCHAR(36),"
                     + "`item_data` " + (cfg.isSqlite() ? "TEXT," : "MEDIUMTEXT,")
+                    + "`before_items` " + (cfg.isSqlite() ? "TEXT" : "MEDIUMTEXT") + ","
+                    + "`after_items` " + (cfg.isSqlite() ? "TEXT" : "MEDIUMTEXT") + ","
                     + "`amount` INT NOT NULL DEFAULT 0,"
                     + "`state` VARCHAR(16) NOT NULL,"
                     + "`created_at` BIGINT NOT NULL DEFAULT 0,"
@@ -283,10 +293,12 @@ public final class Database {
                     + "`pass_xp` INT NOT NULL DEFAULT 0,"
                     + "`title_id` INT NOT NULL DEFAULT 0,"
                     + "`status` VARCHAR(16) NOT NULL DEFAULT 'PENDING',"
+                    + "`attempts` INT NOT NULL DEFAULT 0,"
+                    + "`claimed_at` BIGINT NOT NULL DEFAULT 0,"
                     + "`created_at` BIGINT NOT NULL DEFAULT 0,"
                     + "PRIMARY KEY (`war_id`,`player_uuid`)"
                     + ")" + engine);
-            index(st, t("guild_war_rewards") + "_status", t("guild_war_rewards"), "`status`");
+            index(st, t("guild_war_rewards") + "_status", t("guild_war_rewards"), "`status`,`created_at`");
 
             // 工会头衔定义
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_buffs") + "` ("
@@ -337,6 +349,12 @@ public final class Database {
             index(st, t("guild_wars") + "_state", t("guild_wars"), "`state`");
             index(st, t("guild_wars") + "_a", t("guild_wars"), "`guild_a`");
             index(st, t("guild_wars") + "_b", t("guild_wars"), "`guild_b`");
+            // 历史查询按 (guild, state, ended_at) 走索引，避免 ENDED 全量排序。
+            index(st, t("guild_wars") + "_a_hist", t("guild_wars"), "`guild_a`,`state`,`ended_at`");
+            index(st, t("guild_wars") + "_b_hist", t("guild_wars"), "`guild_b`,`state`,`ended_at`");
+            // 仓库/商店过期清理与奖励补扫的过滤列。
+            index(st, t("guilds") + "_wh_expires", t("guilds"), "`warehouse_expires_at`");
+            index(st, t("guild_warehouse_state") + "_purge", t("guild_warehouse_state"), "`purge_at`");
         }
     }
 
@@ -447,20 +465,57 @@ public final class Database {
         columns.add(new String[]{"guild_wars", "arena_world", "`arena_world` VARCHAR(128)"});
         columns.add(new String[]{"guild_wars", "tag_a", "`tag_a` VARCHAR(32)"});
         columns.add(new String[]{"guild_wars", "tag_b", "`tag_b` VARCHAR(32)"});
+        // 奖励 outbox 的领取状态（防重复发放）与商店上架交接的背包快照。
+        columns.add(new String[]{"guild_war_rewards", "attempts", "`attempts` INT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_war_rewards", "claimed_at", "`claimed_at` BIGINT NOT NULL DEFAULT 0"});
+        columns.add(new String[]{"guild_shop_pending", "before_items", "`before_items` " + (cfg.isSqlite() ? "TEXT" : "MEDIUMTEXT")});
+        columns.add(new String[]{"guild_shop_pending", "after_items", "`after_items` " + (cfg.isSqlite() ? "TEXT" : "MEDIUMTEXT")});
         try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
             for (String[] col : columns) {
-                String ddl = "ALTER TABLE `" + t(col[0]) + "` ADD COLUMN " + col[2];
+                String table = t(col[0]);
+                // 先查元数据再决定是否 ALTER：否则每次启动都要执行 30+ 次注定失败的 DDL。
+                if (columnExists(st, table, col[1])) {
+                    continue;
+                }
+                String ddl = "ALTER TABLE `" + table + "` ADD COLUMN " + col[2];
                 try {
                     st.executeUpdate(ddl);
-                    log.info("数据库升级：已添加 " + t(col[0]) + "." + col[1]);
+                    log.info("数据库升级：已添加 " + table + "." + col[1]);
                 } catch (SQLException e) {
                     if (!isColumnAlreadyExists(e)) {
-                        log.log(Level.WARNING, "数据库升级添加列失败 " + t(col[0]) + "." + col[1] + ": " + e.getMessage());
+                        log.log(Level.WARNING, "数据库升级添加列失败 " + table + "." + col[1] + ": " + e.getMessage());
                     }
                 }
             }
         } catch (SQLException e) {
             log.log(Level.WARNING, "数据库结构升级检查失败: " + e.getMessage());
+        }
+    }
+
+    /** 查询列是否存在（MySQL 查 information_schema，SQLite 用 PRAGMA table_info）。 */
+    private boolean columnExists(Statement st, String table, String column) {
+        try {
+            if (cfg.isSqlite()) {
+                try (ResultSet rs = st.executeQuery("PRAGMA table_info(`" + table + "`)")) {
+                    while (rs.next()) {
+                        if (column.equalsIgnoreCase(rs.getString("name"))) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+            try (PreparedStatement ps = st.getConnection().prepareStatement(
+                    "SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE()"
+                            + " AND table_name=? AND column_name=?")) {
+                ps.setString(1, table);
+                ps.setString(2, column);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next();
+                }
+            }
+        } catch (SQLException e) {
+            return false; // 判断失败时交给 ALTER + 错误处理兜底
         }
     }
 }

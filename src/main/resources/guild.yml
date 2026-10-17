@@ -21,8 +21,8 @@ guild:
     cooldown-seconds: 30
   bank:
     enabled: true
-    # 存款手续费百分比（0 = 不收）
-    deposit-tax-percent: 0.05
+    # 存款手续费百分比：5 = 5%，0 = 不收（代码按 /100 换算）
+    deposit-tax-percent: 5.0
   level:
     base-required-points: 1000
     required-growth: 1.5
@@ -36,6 +36,8 @@ guild:
     kick: true
     declare-war: true
     set-notice: true
+    # 官员是否可设置/删除工会驻地（此前复用 set-notice，关掉改公告会连带收回驻地权限）
+    set-home: true
   # 工会图标：见 icons.yml 定义可用图标
   icon:
     # 新工会默认图标 id（对应 icons.yml 的键）

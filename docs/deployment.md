@@ -115,5 +115,28 @@
 
 - 所有玩家触发的数据库/Redis 写入均在异步线程；删除、结算等回主线程。
 - 工会缓存整体原子替换，避免重载期间短暂「无工会」。
-- 工会战结算在比赛结束时于主线程同步发放（每场一次），大规模奖励场景可关注 TPS。
-- SQLite 使用 WAL + `busy_timeout`；高并发写入请改用 MySQL。
+- 工会战结算写库在独立单线程 `warIo` 完成；玩家奖励在主线程分帧发放（每 tick 一批），
+  outbox 行先领取再发放，跨服/重启不会重复发。
+- 仓库整仓/背包的物品序列化已移出主线程，持久化按槽位差量写入。
+- SQLite 固定单连接（WAL + `busy_timeout`）；高并发/多服请使用 MySQL。
+
+## 8. 测试
+
+```bash
+mvn -o test          # 单元测试（SQLite，真实 JDBC）
+mvn -o clean package # 打包并跑测试
+```
+
+MySQL/MariaDB 方言与并发测试默认跳过，需要可用的 MySQL 兼容服务：
+
+```bash
+mvn -o -Dliuguild.test.mysql=true \
+    -Dliuguild.test.mysql.host=127.0.0.1 \
+    -Dliuguild.test.mysql.port=3306 \
+    -Dliuguild.test.mysql.user=root \
+    -Dliuguild.test.mysql.password=*** \
+    -Dtest=GuildRepositoryMySqlTest test
+```
+
+测试会创建随机命名的 `liuguild_it_<随机>` 库并在结束时删除，不会使用已有库；
+覆盖唯一索引、关服 upsert、原子等级/人数、重复入会与奖励并发领取。

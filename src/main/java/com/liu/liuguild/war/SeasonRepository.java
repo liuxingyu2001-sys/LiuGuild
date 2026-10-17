@@ -19,6 +19,11 @@ public final class SeasonRepository {
             s.executeUpdate("CREATE TABLE IF NOT EXISTS " + t("entries") + " (event_id VARCHAR(36) NOT NULL, player VARCHAR(36) NOT NULL, guild_id VARCHAR(64) NOT NULL, source VARCHAR(64) NOT NULL, world VARCHAR(128) NOT NULL, x DOUBLE NOT NULL, y DOUBLE NOT NULL, z DOUBLE NOT NULL, yaw FLOAT NOT NULL, pitch FLOAT NOT NULL, state VARCHAR(16) NOT NULL, PRIMARY KEY(event_id,player))");
             s.executeUpdate("CREATE TABLE IF NOT EXISTS " + t("players") + " (player VARCHAR(36) PRIMARY KEY, event_id VARCHAR(36) NOT NULL)");
             s.executeUpdate("CREATE TABLE IF NOT EXISTS " + t("results") + " (event_id VARCHAR(36) NOT NULL, guild_id VARCHAR(64) NOT NULL, place_no INT NOT NULL, points BIGINT NOT NULL, deaths INT NOT NULL, reward BIGINT NOT NULL, PRIMARY KEY(event_id,guild_id))");
+            // 轮询按状态过滤、返程按 (event,state) 过滤：补索引避免全表扫描。
+            try { s.executeUpdate("CREATE INDEX IF NOT EXISTS idx_season_events_state ON " + t("events") + " (state)"); }
+            catch (SQLException ignored) { }
+            try { s.executeUpdate("CREATE INDEX IF NOT EXISTS idx_season_entries_event_state ON " + t("entries") + " (event_id,state)"); }
+            catch (SQLException ignored) { }
         }
     }
     public boolean create(Event event) throws SQLException {
@@ -78,17 +83,24 @@ public final class SeasonRepository {
         List<Entry> result=new ArrayList<>();
         try(var c=db.source().getConnection(); var p=c.prepareStatement("SELECT * FROM " + t("entries") + " WHERE event_id=?")) {
             p.setString(1,event);
-            try(var r=p.executeQuery()) { while(r.next()) result.add(entry(r)); }
+            try(var r=p.executeQuery()) { while(r.next()) { Entry e = entry(r); if (e != null) result.add(e); } }
         }
         return result;
     }
     private Entry entry(ResultSet r) throws SQLException {
-        return new Entry(r.getString("event_id"),UUID.fromString(r.getString("player")),r.getString("guild_id"),r.getString("source"),r.getString("world"),r.getDouble("x"),r.getDouble("y"),r.getDouble("z"),r.getFloat("yaw"),r.getFloat("pitch"),r.getString("state"));
+        UUID player;
+        try {
+            player = UUID.fromString(r.getString("player"));
+        } catch (IllegalArgumentException e) {
+            // 一行脏数据不能让整个赛季轮询永久失败（否则所有子服都无法推进）。
+            return null;
+        }
+        return new Entry(r.getString("event_id"),player,r.getString("guild_id"),r.getString("source"),r.getString("world"),r.getDouble("x"),r.getDouble("y"),r.getDouble("z"),r.getFloat("yaw"),r.getFloat("pitch"),r.getString("state"));
     }
     public List<Entry> pendingReturns() throws SQLException {
         List<Entry> result=new ArrayList<>();
         try(var c=db.source().getConnection(); var p=c.prepareStatement("SELECT e.* FROM " + t("entries") + " e JOIN " + t("events") + " s ON s.id=e.event_id WHERE s.state IN ('FINISHED','CANCELLED') AND e.state<>'RETURNED'"); var r=p.executeQuery()) {
-            while(r.next()) result.add(entry(r));
+            while(r.next()) { Entry e = entry(r); if (e != null) result.add(e); }
         }
         return result;
     }

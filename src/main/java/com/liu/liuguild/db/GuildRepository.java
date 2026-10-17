@@ -10,6 +10,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -78,8 +79,10 @@ public final class GuildRepository {
     }
 
     public boolean nameOrTagTaken(String name, String tag, String exceptId) throws SQLException {
+        // 直接等值：name/tag 列本身已是大小写不敏感（SQLite COLLATE NOCASE / MySQL ci 排序规则），
+        // 套一层 LOWER() 会让唯一索引失效、退化成全表扫描。
         String sql = "SELECT `guild_id` FROM `" + db.t("guilds")
-                + "` WHERE (LOWER(`name`)=LOWER(?) OR LOWER(`tag`)=LOWER(?)) AND `guild_id`<>? LIMIT 1";
+                + "` WHERE (`name`=? OR `tag`=?) AND `guild_id`<>? LIMIT 1";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, name);
@@ -100,7 +103,11 @@ public final class GuildRepository {
     }
 
     private boolean exists(String column, String value) throws SQLException {
-        String sql = "SELECT 1 FROM `" + db.t("guilds") + "` WHERE LOWER(`" + column + "`)=LOWER(?) LIMIT 1";
+        String col = switch (column == null ? "" : column) {
+            case "name", "tag" -> column;
+            default -> throw new IllegalArgumentException("Unsupported column: " + column);
+        };
+        String sql = "SELECT 1 FROM `" + db.t("guilds") + "` WHERE `" + col + "`=? LIMIT 1";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, value);
@@ -130,10 +137,14 @@ public final class GuildRepository {
     }
 
     private void bindGuild(PreparedStatement ps, Guild g) throws SQLException {
+        bindGuild(ps, g, g.updatedAt());
+    }
+
+    private void bindGuild(PreparedStatement ps, Guild g, long updatedAt) throws SQLException {
         ps.setString(1, g.id()); ps.setString(2, g.name()); ps.setString(3, g.tag());
         ps.setString(4, g.leaderUuid() == null ? null : g.leaderUuid().toString()); ps.setString(5, g.leaderName());
         ps.setString(6, g.description()); ps.setString(7, g.notice()); ps.setString(8, g.icon()); ps.setString(9, g.iconData());
-        ps.setInt(10, g.open() ? 1 : 0); ps.setLong(11, g.createdAt()); ps.setLong(12, g.updatedAt()); ps.setLong(13, g.points());
+        ps.setInt(10, g.open() ? 1 : 0); ps.setLong(11, g.createdAt()); ps.setLong(12, updatedAt); ps.setLong(13, g.points());
         ps.setInt(14, g.level()); ps.setInt(15, g.wins()); ps.setInt(16, g.losses()); ps.setLong(17, g.bank()); ps.setString(18, g.homeServer()); ps.setInt(19, g.memberCount());
         ps.setLong(20, g.lastActiveAt());
         if (g.memberPvp() == null) {
@@ -163,7 +174,7 @@ public final class GuildRepository {
             try {
                 String existingId = null;
                 try (var ps = c.prepareStatement("SELECT `guild_id` FROM `" + db.t("guilds")
-                        + "` WHERE LOWER(`name`)=LOWER(?)" + (db.isSqlite() ? "" : " FOR UPDATE"))) {
+                        + "` WHERE `name`=?" + (db.isSqlite() ? "" : " FOR UPDATE"))) {
                     ps.setString(1, guild.name());
                     try (var rs = ps.executeQuery()) { if (rs.next()) existingId = rs.getString(1); }
                 }
@@ -240,11 +251,19 @@ public final class GuildRepository {
         }
     }
 
+    /**
+     * 整行保存（乐观锁）的列清单。
+     *
+     * <p>{@code points}/{@code bank}/{@code warehouse_*} 只走原子 UPDATE；
+     * {@code level}/{@code member_count} 也只走各自的原子路径（{@link #raiseLevel}、
+     * {@link #setLevel}、{@link #insertMemberAndIncrement}/{@link #removeMember}、
+     * {@link #setMemberCount}），否则整行保存会把其它子服刚写入的等级/人数覆盖回旧值。</p>
+     */
     private String guildUpdateSql() {
         return "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
                 + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,"
-                + "`level`=?,`wins`=?,`losses`=?,"
-                + "`home_server`=?,`member_count`=?,`last_active_at`=?,`member_pvp`=? WHERE `guild_id`=? AND `updated_at`<=?";
+                + "`wins`=?,`losses`=?,"
+                + "`home_server`=?,`last_active_at`=?,`member_pvp`=? WHERE `guild_id`=? AND `updated_at`<=?";
     }
 
     private void bindGuildUpdate(PreparedStatement ps, Guild g, long newUpdatedAt, long expectedUpdatedAt) throws SQLException {
@@ -258,48 +277,91 @@ public final class GuildRepository {
         ps.setString(8, g.iconData());
         ps.setInt(9, g.open() ? 1 : 0);
         ps.setLong(10, newUpdatedAt);
-        ps.setInt(11, g.level());
-        ps.setInt(12, g.wins());
-        ps.setInt(13, g.losses());
-        ps.setString(14, g.homeServer());
-        ps.setInt(15, g.memberCount());
-        ps.setLong(16, g.lastActiveAt());
+        ps.setInt(11, g.wins());
+        ps.setInt(12, g.losses());
+        ps.setString(13, g.homeServer());
+        ps.setLong(14, g.lastActiveAt());
         if (g.memberPvp() == null) {
-            ps.setNull(17, java.sql.Types.INTEGER);
+            ps.setNull(15, java.sql.Types.INTEGER);
         } else {
-            ps.setInt(17, g.memberPvp() ? 1 : 0);
+            ps.setInt(15, g.memberPvp() ? 1 : 0);
         }
-        ps.setString(18, g.id());
-        ps.setLong(19, expectedUpdatedAt);
+        ps.setString(16, g.id());
+        ps.setLong(17, expectedUpdatedAt);
     }
 
     /**
-     * 关服前批量保存全部工会与成员（单事务 + 批处理），消除异步写入的最后一小段丢失窗口。
+     * 关服前批量保存全部工会与成员（单事务 + 批处理）。
+     *
+     * <p>使用 upsert：本 tick 刚创建、还没等到异步 INSERT 的工会/成员也能落库，
+     * 否则关服时 UPDATE 命中 0 行会直接丢掉新建工会（钱已扣）和新入会成员。
+     * 冲突更新时<b>不</b>覆盖 {@code points}/{@code bank}/{@code level}/{@code member_count}，
+     * 这些列以原子写入为准。</p>
      */
     public void flushAll(List<Guild> guilds, List<GuildMember> members) throws SQLException {
+        flushAll(guilds, members, Long.MAX_VALUE);
+    }
+
+    /**
+     * 关服批量刷写。
+     *
+     * <p>{@code since} = 进程启动时间：只有本进程内新建的工会/成员才用 upsert 补插，
+     * 更早的行只 UPDATE —— 否则本服内存里一条尚未收到删除广播的旧记录，
+     * 会在关服时把别服已经解散的工会/踢掉的成员重新写回数据库。</p>
+     */
+    public void flushAll(List<Guild> guilds, List<GuildMember> members, long since) throws SQLException {
         if (guilds.isEmpty() && members.isEmpty()) {
             return;
         }
-        String memberSql = "UPDATE `" + db.t("guild_members") + "` SET `player_name`=?,`guild_id`=?,`rank`=?,"
-                + "`contributed`=?,`kills`=?,`deaths`=?,`last_checkin`=?,`checkin_streak`=? WHERE `player_uuid`=? AND `guild_id`=?";
+        List<Guild> upsertGuilds = new ArrayList<>();
+        List<Guild> updateGuilds = new ArrayList<>();
+        for (Guild g : guilds) {
+            (g.createdAt() >= since && since != Long.MAX_VALUE ? upsertGuilds : updateGuilds).add(g);
+        }
+        List<GuildMember> upsertMembers = new ArrayList<>();
+        List<GuildMember> updateMembers = new ArrayList<>();
+        for (GuildMember m : members) {
+            (m.joinedAt() >= since && since != Long.MAX_VALUE ? upsertMembers : updateMembers).add(m);
+        }
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
-            try (PreparedStatement gs = c.prepareStatement(guildUpdateSql());
-                 PreparedStatement ms = c.prepareStatement(memberSql)) {
+            try {
                 long now = System.currentTimeMillis();
-                for (Guild g : guilds) {
-                    bindGuildUpdate(gs, g, now, g.updatedAt());
-                    gs.addBatch();
+                if (!upsertGuilds.isEmpty()) {
+                    try (PreparedStatement ps = c.prepareStatement(guildUpsertSql())) {
+                        for (Guild g : upsertGuilds) {
+                            bindGuild(ps, g, now);
+                            ps.addBatch();
+                        }
+                        checkBatch(ps.executeBatch(), "工会");
+                    }
                 }
-                for (GuildMember m : members) {
-                    bindMemberUpdate(ms, m);
-                    ms.addBatch();
+                if (!updateGuilds.isEmpty()) {
+                    try (PreparedStatement ps = c.prepareStatement(guildUpdateSql())) {
+                        for (Guild g : updateGuilds) {
+                            bindGuildUpdate(ps, g, now, g.updatedAt());
+                            ps.addBatch();
+                        }
+                        checkBatch(ps.executeBatch(), "工会");
+                    }
                 }
-                if (!guilds.isEmpty()) {
-                    gs.executeBatch();
+                if (!upsertMembers.isEmpty()) {
+                    try (PreparedStatement ps = c.prepareStatement(memberUpsertSql())) {
+                        for (GuildMember m : upsertMembers) {
+                            bindMember(ps, m);
+                            ps.addBatch();
+                        }
+                        checkBatch(ps.executeBatch(), "成员");
+                    }
                 }
-                if (!members.isEmpty()) {
-                    ms.executeBatch();
+                if (!updateMembers.isEmpty()) {
+                    try (PreparedStatement ps = c.prepareStatement(memberUpdateSql())) {
+                        for (GuildMember m : updateMembers) {
+                            bindMemberUpdate(ps, m);
+                            ps.addBatch();
+                        }
+                        checkBatch(ps.executeBatch(), "成员");
+                    }
                 }
                 c.commit();
             } catch (SQLException e) {
@@ -311,17 +373,88 @@ public final class GuildRepository {
         }
     }
 
-    /** 原子递减成员计数，避免退会时整行保存覆盖其它子服的新数据。 */
-    public void decrementMemberCount(String guildId) throws SQLException {
-        try (Connection c = db.source().getConnection();
-             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
-                     + "` SET `member_count`=CASE WHEN `member_count`>0 THEN `member_count`-1 ELSE 0 END WHERE `guild_id`=?")) {
-            ps.setString(1, guildId);
-            ps.executeUpdate();
+    private String memberUpdateSql() {
+        return "UPDATE `" + db.t("guild_members") + "` SET `player_name`=?,`guild_id`=?,`rank`=?,"
+                + "`contributed`=?,`kills`=?,`deaths`=?,`last_checkin`=?,`checkin_streak`=?"
+                + " WHERE `player_uuid`=? AND `guild_id`=?";
+    }
+
+    private static void checkBatch(int[] counts, String what) {
+        for (int n : counts) {
+            if (n == Statement.EXECUTE_FAILED) {
+                throw new IllegalStateException(what + "批量保存出现失败项");
+            }
+            // 0 = MySQL「值未变化」；-2 = SUCCESS_NO_INFO，均为合法返回。
         }
     }
 
-    /** 条件删除成员并原子递减计数；成员关系已不属于该工会时不减计数。 */
+    /** 关服 upsert：SQLite / MySQL 两种方言。 */
+    private String guildUpsertSql() {
+        String table = db.t("guilds");
+        String columns = "(`guild_id`,`name`,`tag`,`leader_uuid`,`leader_name`,`description`,`notice`,`icon`,`icon_data`,"
+                + "`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,"
+                + "`last_active_at`,`member_pvp`)";
+        String values = "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String[] updated = {"name", "tag", "leader_uuid", "leader_name", "description", "notice", "icon", "icon_data",
+                "open", "updated_at", "wins", "losses", "home_server", "last_active_at", "member_pvp"};
+        StringBuilder tail = new StringBuilder();
+        for (String col : updated) {
+            if (tail.length() > 0) tail.append(',');
+            tail.append('`').append(col).append("`=")
+                    .append(db.isSqlite() ? "excluded.`" + col + "`" : "VALUES(`" + col + "`)");
+        }
+        if (db.isSqlite()) {
+            return "INSERT INTO `" + table + "` " + columns + " VALUES " + values
+                    + " ON CONFLICT(`guild_id`) DO UPDATE SET " + tail;
+        }
+        return "INSERT INTO `" + table + "` " + columns + " VALUES " + values
+                + " ON DUPLICATE KEY UPDATE " + tail;
+    }
+
+    /** 成员 upsert：冲突时不覆盖 joined_at。 */
+    private String memberUpsertSql() {
+        String table = db.t("guild_members");
+        String columns = "(`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`,"
+                + "`last_checkin`,`checkin_streak`)";
+        String values = "(?,?,?,?,?,?,?,?,?,?)";
+        String[] updated = {"player_name", "guild_id", "rank", "contributed", "kills", "deaths", "last_checkin", "checkin_streak"};
+        StringBuilder tail = new StringBuilder();
+        for (String col : updated) {
+            if (tail.length() > 0) tail.append(',');
+            tail.append('`').append(col).append("`=")
+                    .append(db.isSqlite() ? "excluded.`" + col + "`" : "VALUES(`" + col + "`)");
+        }
+        if (db.isSqlite()) {
+            return "INSERT INTO `" + table + "` " + columns + " VALUES " + values
+                    + " ON CONFLICT(`player_uuid`) DO UPDATE SET " + tail;
+        }
+        return "INSERT INTO `" + table + "` " + columns + " VALUES " + values
+                + " ON DUPLICATE KEY UPDATE " + tail;
+    }
+
+    /** 原子设置工会等级（管理员；允许下调）。 */
+    public boolean setLevel(String guildId, int level) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                     + "` SET `level`=? WHERE `guild_id`=?")) {
+            ps.setInt(1, Math.max(1, level));
+            ps.setString(2, guildId);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /** 原子设置成员计数（仅用于数据校验修复）。 */
+    public boolean setMemberCount(String guildId, int count) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                     + "` SET `member_count`=? WHERE `guild_id`=?")) {
+            ps.setInt(1, Math.max(0, count));
+            ps.setString(2, guildId);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+        /** 条件删除成员并原子递减计数；成员关系已不属于该工会时不减计数。 */
     public boolean removeMember(UUID uuid, String guildId) throws SQLException {
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
@@ -864,6 +997,162 @@ public final class GuildRepository {
         return out;
     }
 
+    /**
+     * 领取某场工会战的全部待发奖励（PENDING → PROCESSING）。
+     * <p>只有 UPDATE 命中 1 行的行才算领取成功，因此两台子服同时结算也只会有一台发奖。</p>
+     */
+    public java.util.List<WarReward> claimWarRewardsForWar(String warId) throws SQLException {
+        java.util.List<WarReward> out = new ArrayList<>();
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                java.util.List<WarReward> candidates = new ArrayList<>();
+                try (PreparedStatement ps = c.prepareStatement("SELECT `player_uuid`,`guild_id`,`win`,`mode`,`money`,"
+                        + "`pass_xp`,`title_id` FROM `" + db.t("guild_war_rewards")
+                        + "` WHERE `war_id`=? AND `status`='PENDING'"
+                        // MySQL 并发领取时锁行，避免“Record has changed since last read”；
+                        // SQLite 固定单连接，不需要（也不支持 FOR UPDATE）。
+                        + (db.isSqlite() ? "" : " FOR UPDATE"))) {
+                    ps.setString(1, warId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            WarReward row = readReward(warId, rs);
+                            if (row != null) candidates.add(row);
+                        }
+                    }
+                }
+                out = claimRows(c, candidates);
+                c.commit();
+            } catch (SQLException e) {
+                try { c.rollback(); } catch (SQLException ignored) { }
+                throw e;
+            } finally {
+                c.setAutoCommit(true);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 领取全局待发奖励（补偿扫描用，最多 limit 条）。
+     */
+    public java.util.List<WarReward> claimPendingWarRewards(int limit) throws SQLException {
+        java.util.List<WarReward> out = new ArrayList<>();
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                java.util.List<WarReward> candidates = new ArrayList<>();
+                try (PreparedStatement ps = c.prepareStatement("SELECT `war_id`,`player_uuid`,`guild_id`,`win`,`mode`,"
+                        + "`money`,`pass_xp`,`title_id` FROM `" + db.t("guild_war_rewards")
+                        + "` WHERE `status`='PENDING' ORDER BY `created_at` LIMIT ?"
+                        + (db.isSqlite() ? "" : " FOR UPDATE"))) {
+                    ps.setInt(1, Math.max(1, limit));
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            WarReward row = readReward(rs.getString(1), rs);
+                            if (row != null) candidates.add(row);
+                        }
+                    }
+                }
+                out = claimRows(c, candidates);
+                c.commit();
+            } catch (SQLException e) {
+                try { c.rollback(); } catch (SQLException ignored) { }
+                throw e;
+            } finally {
+                c.setAutoCommit(true);
+            }
+        }
+        return out;
+    }
+
+    /** 逐行 CAS 领取；调用方负责事务。 */
+    private java.util.List<WarReward> claimRows(Connection c, java.util.List<WarReward> candidates) throws SQLException {
+        java.util.List<WarReward> claimed = new ArrayList<>();
+        if (candidates.isEmpty()) {
+            return claimed;
+        }
+        long now = System.currentTimeMillis();
+        try (PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_war_rewards")
+                + "` SET `status`='PROCESSING',`claimed_at`=?,`attempts`=`attempts`+1"
+                + " WHERE `war_id`=? AND `player_uuid`=? AND `status`='PENDING'")) {
+            for (WarReward row : candidates) {
+                ps.setLong(1, now);
+                ps.setString(2, row.warId());
+                ps.setString(3, row.player().toString());
+                if (ps.executeUpdate() == 1) {
+                    claimed.add(row);
+                }
+            }
+        }
+        return claimed;
+    }
+
+    private WarReward readReward(String warId, ResultSet rs) {
+        try {
+            return new WarReward(warId, java.util.UUID.fromString(rs.getString("player_uuid")),
+                    rs.getString("guild_id"), rs.getInt("win") != 0, rs.getString("mode"),
+                    rs.getDouble("money"), rs.getInt("pass_xp"), rs.getInt("title_id"));
+        } catch (IllegalArgumentException | SQLException ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * 发放失败时把行退回 PENDING；尝试次数超过 5 次标记 FAILED，避免无限重试。
+     */
+    public void releaseWarReward(String warId, java.util.UUID player) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_war_rewards")
+                     + "` SET `status`=CASE WHEN `attempts`>=5 THEN 'FAILED' ELSE 'PENDING' END,"
+                     + "`claimed_at`=0 WHERE `war_id`=? AND `player_uuid`=? AND `status`='PROCESSING'")) {
+            ps.setString(1, warId);
+            ps.setString(2, player.toString());
+            ps.executeUpdate();
+        }
+    }
+
+    /** 关服时把本场已领取但未发放的奖励退回 PENDING，下次启动继续发。 */
+    public int releaseWarRewardsForWar(String warId) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_war_rewards")
+                     + "` SET `status`='PENDING',`claimed_at`=0 WHERE `war_id`=? AND `status`='PROCESSING'")) {
+            ps.setString(1, warId);
+            return ps.executeUpdate();
+        }
+    }
+
+    /** 关服时把所有已领取未发放的奖励退回 PENDING（下次启动继续补发）。 */
+    public int releaseAllProcessingWarRewards() throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_war_rewards")
+                     + "` SET `status`='PENDING',`claimed_at`=0 WHERE `status`='PROCESSING'")) {
+            return ps.executeUpdate();
+        }
+    }
+
+    /** 超时仍停在 PROCESSING 的行标记 FAILED（宁可人工处理，也不重复发钱）。 */
+    public int failStaleWarRewards(long claimedBefore) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_war_rewards")
+                     + "` SET `status`='FAILED' WHERE `status`='PROCESSING' AND `claimed_at`>0 AND `claimed_at`<?")) {
+            ps.setLong(1, claimedBefore);
+            return ps.executeUpdate();
+        }
+    }
+
+    /** 各状态奖励行数（供状态命令/排障）。 */
+    public int countWarRewards(String status) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("SELECT COUNT(*) FROM `" + db.t("guild_war_rewards")
+                     + "` WHERE `status`=?")) {
+            ps.setString(1, status);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
     public void markWarRewardDone(String warId, java.util.UUID player) throws SQLException {
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_war_rewards")
@@ -952,6 +1241,16 @@ public final class GuildRepository {
             }
         }
         return out;
+    }
+
+    /** 清理已发放完成的历史奖励行（DONE），避免 outbox 表无限增长。 */
+    public int purgeWarRewardsBefore(long before) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_war_rewards")
+                     + "` WHERE `status`='DONE' AND `created_at`<? AND `created_at`>0")) {
+            ps.setLong(1, before);
+            return ps.executeUpdate();
+        }
     }
 
     public void purgeWarsBefore(long before) throws SQLException {

@@ -67,12 +67,17 @@ public final class WarehouseRepository {
                     ps.setString(3, guildId);
                     if (ps.executeUpdate() != 1) { c.rollback(); return false; }
                 }
-                try (var ps = c.prepareStatement("DELETE FROM `" + db.t("guild_warehouse") + "` WHERE `guild_id`=?")) {
-                    ps.setString(1, guildId);
-                    ps.executeUpdate();
-                }
-                try (var ps = c.prepareStatement("INSERT INTO `" + db.t("guild_warehouse")
-                        + "` (`guild_id`,`slot`,`item_data`,`amount`,`updated_at`) VALUES (?,?,?,?,?)")) {
+                // 差量写：只 upsert 当前槽位，再删除超出范围的尾部槽位，
+                // 避免每次存取都把整仓删光重插（写放大与主键页抖动）。
+                int maxSlot = 0;
+                String upsert = db.isSqlite()
+                        ? "INSERT INTO `" + db.t("guild_warehouse") + "` (`guild_id`,`slot`,`item_data`,`amount`,`updated_at`)"
+                        + " VALUES (?,?,?,?,?) ON CONFLICT(`guild_id`,`slot`) DO UPDATE SET"
+                        + " `item_data`=excluded.`item_data`,`amount`=excluded.`amount`,`updated_at`=excluded.`updated_at`"
+                        : "INSERT INTO `" + db.t("guild_warehouse") + "` (`guild_id`,`slot`,`item_data`,`amount`,`updated_at`)"
+                        + " VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE"
+                        + " `item_data`=VALUES(`item_data`),`amount`=VALUES(`amount`),`updated_at`=VALUES(`updated_at`)";
+                try (var ps = c.prepareStatement(upsert)) {
                     for (var e : items.entrySet()) {
                         if (e.getKey() < 0 || e.getValue().itemData() == null || e.getValue().itemData().isBlank()
                                 || e.getValue().amount() <= 0 || e.getValue().amount() > Integer.MAX_VALUE)
@@ -83,8 +88,15 @@ public final class WarehouseRepository {
                         ps.setLong(4, e.getValue().amount());
                         ps.setLong(5, System.currentTimeMillis());
                         ps.addBatch();
+                        maxSlot = Math.max(maxSlot, e.getKey() + 1);
                     }
                     ps.executeBatch();
+                }
+                try (var ps = c.prepareStatement("DELETE FROM `" + db.t("guild_warehouse")
+                        + "` WHERE `guild_id`=? AND `slot`>=?")) {
+                    ps.setString(1, guildId);
+                    ps.setInt(2, maxSlot);
+                    ps.executeUpdate();
                 }
                 c.commit();
                 return true;

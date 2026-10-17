@@ -42,32 +42,30 @@ public final class GuildManager {
     // 缓存引用可整体原子替换，避免重载期间出现短暂的“无工会”状态。
     private volatile Map<String, Guild> guilds = new ConcurrentHashMap<>();
     private volatile Map<UUID, String> memberIndex = new ConcurrentHashMap<>();
-    private final Map<String, String> nameIndex = new ConcurrentHashMap<>();
-    private final Map<String, String> tagIndex = new ConcurrentHashMap<>();
+    // 名称/标签索引同样整体替换：clear()+重填会让主线程查询出现“工会不存在”的空档。
+    private volatile Map<String, String> nameIndex = new ConcurrentHashMap<>();
+    private volatile Map<String, String> tagIndex = new ConcurrentHashMap<>();
     /** 正在创建中的名称/标签预留（归一化），避免并发创建同名。 */
     private final Set<String> pendingNames = ConcurrentHashMap.newKeySet();
     private final Set<String> pendingTags = ConcurrentHashMap.newKeySet();
-    private final Map<UUID, Invite> invites = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> inviteCooldown = new ConcurrentHashMap<>();
+    /** 入会邀请子系统（本地登记 + 跨服投递）。 */
+    private final GuildInvites inviteService;
+    /** 僵尸工会清理与跨服在线统计。 */
+    private final GuildCleanup cleanupService;
+    /** 排行榜排序缓存。 */
+    private final GuildRanking ranking;
     /** 本地写版本；异步全量重载发现版本变化时丢弃旧快照重试，避免覆盖刚发生的变更。 */
     private final java.util.concurrent.atomic.AtomicLong mutationVersion = new java.util.concurrent.atomic.AtomicLong();
 
     public GuildManager(LiuGuild plugin) {
         this.plugin = plugin;
+        this.inviteService = new GuildInvites(plugin, this);
+        this.cleanupService = new GuildCleanup(plugin, this);
+        this.ranking = new GuildRanking(this);
     }
 
     private GuildSettings conf() {
         return plugin.settings().guild;
-    }
-
-    private static final class Invite {
-        final String guildId;
-        final long expiresAt;
-
-        Invite(String guildId, long expiresAt) {
-            this.guildId = guildId;
-            this.expiresAt = expiresAt;
-        }
     }
 
     // =====================================================================
@@ -113,12 +111,14 @@ public final class GuildManager {
     }
 
     private void rebuildIndexes() {
-        nameIndex.clear();
-        tagIndex.clear();
+        Map<String, String> names = new ConcurrentHashMap<>();
+        Map<String, String> tags = new ConcurrentHashMap<>();
         for (Guild g : guilds.values()) {
-            nameIndex.put(g.name().toLowerCase(Locale.ROOT), g.id());
-            tagIndex.put(g.tag().toLowerCase(Locale.ROOT), g.id());
+            names.put(g.name().toLowerCase(Locale.ROOT), g.id());
+            tags.put(g.tag().toLowerCase(Locale.ROOT), g.id());
         }
+        nameIndex = names;
+        tagIndex = tags;
     }
 
     public Guild guild(String id) {
@@ -158,48 +158,10 @@ public final class GuildManager {
     }
 
     public List<Guild> top(String column, int limit) {
-        List<Guild> list = topSorted(column);
-        return list.subList(0, Math.min(Math.max(0, limit), list.size()));
+        return ranking.top(column, limit);
     }
 
-    /** 按列缓存的全量排序列表；排行榜占位符会被高频调用，避免每次重新排序。 */
-    private static final long TOP_CACHE_MS = 3000L;
-    private final Map<String, Object[]> topCache = new ConcurrentHashMap<>();
-
-    private List<Guild> topSorted(String column) {
-        String key = column == null ? "points" : column;
-        long now = System.currentTimeMillis();
-        Object[] cached = topCache.get(key);
-        if (cached != null && now - (Long) cached[1] < TOP_CACHE_MS) {
-            @SuppressWarnings("unchecked")
-            List<Guild> hit = (List<Guild>) cached[0];
-            return hit;
-        }
-        List<Guild> list = new ArrayList<>(guilds.values());
-        switch (key) {
-            case "level" -> list.sort((a, b) -> Integer.compare(b.level(), a.level()));
-            case "wins" -> list.sort((a, b) -> Integer.compare(b.wins(), a.wins()));
-            case "losses" -> list.sort((a, b) -> Integer.compare(b.losses(), a.losses()));
-            case "bank" -> list.sort((a, b) -> Long.compare(b.bank(), a.bank()));
-            case "members" -> list.sort((a, b) -> Integer.compare(b.memberCount(), a.memberCount()));
-            default -> list.sort((a, b) -> Long.compare(b.points(), a.points()));
-        }
-        topCache.put(key, new Object[]{list, now});
-        return list;
-    }
-
-    /** 失效某工会缓存：从内存移除，下次访问前由异步 reloadGuild 补回。 */
-    public void invalidate(String guildId) {
-        Guild g = guilds.remove(guildId);
-        if (g != null) {
-            for (UUID u : g.memberMap().keySet()) {
-                memberIndex.remove(u);
-            }
-        }
-        reloadGuild(guildId);
-    }
-
-    /** 只刷新某成员关联的工会，避免 MEMBER_CHANGED 空 guild 时全量 reloadAll。 */
+        /** 只刷新某成员关联的工会，避免 MEMBER_CHANGED 空 guild 时全量 reloadAll。 */
     public void reloadMember(UUID uuid) {
         if (uuid == null) return;
         plugin.async(() -> {
@@ -260,6 +222,18 @@ public final class GuildManager {
     // 创建 / 解散
     // =====================================================================
 
+    /** 从工会名生成标签：去空格后截断到上限。 */
+    private static String deriveTag(String name, int tagMax) {
+        if (name == null) {
+            return "";
+        }
+        String t = name.replace(" ", "").replace("　", "").trim();
+        return t.length() > tagMax ? t.substring(0, tagMax) : t;
+    }
+
+    /** 进程启动时间：关服 upsert 只补插“本进程内新建”的行，避免把别服已删除的工会/成员复活。 */
+    private final long startedAt = System.currentTimeMillis();
+
     public boolean create(Player player, String name, String tag) {
         if (!player.hasPermission("liuguild.create")) {
             plugin.messages().send(player, "no-permission");
@@ -268,6 +242,11 @@ public final class GuildManager {
         GuildSettings c = conf();
         String cleanName = Text.clean(name);
         String cleanTag = Text.clean(tag);
+        if (cleanTag.isEmpty()) {
+            // 标签是可选项：省略时从名称截取，避免 /guild create MyGuild 因名称超过 tag-max 必然失败。
+            cleanTag = deriveTag(cleanName, c.tagMax);
+        }
+        final String tagValue = cleanTag;
         if (Text.hasFormatting(name) || Text.hasFormatting(tag)
                 || cleanName.length() < c.nameMin || cleanName.length() > c.nameMax) {
             plugin.messages().send(player, "create-name-invalid", "min", c.nameMin, "max", c.nameMax);
@@ -325,7 +304,7 @@ public final class GuildManager {
         rebuildIndexes();
         plugin.async(() -> {
             try {
-                if (plugin.repo().nameOrTagTaken(cleanName, cleanTag, id)) {
+                if (plugin.repo().nameOrTagTaken(cleanName, tagValue, id)) {
                     rollbackCreate(player, g, id, c, "create-name-taken");
                     return;
                 }
@@ -366,46 +345,34 @@ public final class GuildManager {
         });
     }
 
-    // =====================================================================
-    // 僵尸工会清理
-    // =====================================================================
-
-    /** 找出当前符合“不活跃”判定、可被清理的工会（需在主线程调用）。 */
-    public List<Guild> findInactiveGuilds() {
-        GuildSettings c = conf();
-        long now = System.currentTimeMillis();
-        List<Guild> out = new ArrayList<>();
-        for (Guild g : guilds.values()) {
-            // 必须同时考虑其它子服：只要跨服有任一成员在线，就不能算不活跃。
-            int online = anyMemberOnline(g) ? 1 : 0;
-            if (GuildSettings.isInactive(now, g.lastActiveAt(), c.cleanupInactiveDays,
-                    g.memberCount(), c.cleanupMaxMembers, online)) {
-                out.add(g);
-            }
-        }
-        return out;
-    }
-
-    /** 异步扫描不活跃工会；完成回调在主线程。 */
-    public void findInactiveGuildsAsync(java.util.function.Consumer<List<Guild>> callback) {
-        plugin.async(() -> {
-            List<Guild> targets = findInactiveGuilds();
-            plugin.sync(() -> callback.accept(targets));
-        });
-    }
-
     /** 关服前同步刷写全部内存数据（主线程调用，尽力而为）。 */
     public void saveAllSync() {
+        // 先补做关服窗口内没跑完的解散删除，否则重启后这些工会会“复活”。
+        flushPendingDisbands();
         List<Guild> gs = new ArrayList<>(guilds.values());
         List<GuildMember> ms = new ArrayList<>();
         for (Guild g : gs) {
             ms.addAll(g.memberMap().values());
         }
         try {
-            plugin.repo().flushAll(gs, ms);
+            plugin.repo().flushAll(gs, ms, startedAt);
             plugin.getLogger().info("关服前已刷写 " + gs.size() + " 个工会 / " + ms.size() + " 名成员。");
         } catch (Exception e) {
             plugin.getLogger().warning("关服前刷写工会数据失败: " + e.getMessage());
+        }
+    }
+
+    /** 待执行的解散删除（解散先删内存、异步删库；关服时必须补跑）。 */
+    private final Set<String> pendingDisbands = ConcurrentHashMap.newKeySet();
+
+    private void flushPendingDisbands() {
+        for (String id : new ArrayList<>(pendingDisbands)) {
+            try {
+                plugin.repo().deleteGuild(id, plugin.settings().warehouse.disbandRetentionDays);
+                pendingDisbands.remove(id);
+            } catch (Exception e) {
+                plugin.getLogger().warning("关服前删除已解散工会失败 " + id + ": " + e.getMessage());
+            }
         }
     }
 
@@ -423,7 +390,15 @@ public final class GuildManager {
                 issues.add("工会 " + g.name() + " member_count=" + g.memberCount() + " 实际=" + actual);
                 if (fix) {
                     g.memberCount(actual);
-                    saveGuild(g);
+                    // member_count 只走原子路径：整行保存不再写这一列。
+                    String gid = g.id();
+                    plugin.async(() -> {
+                        try {
+                            plugin.repo().setMemberCount(gid, actual);
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("修正成员数失败 " + gid + ": " + e.getMessage());
+                        }
+                    });
                 }
             }
             if (g.leaderUuid() != null && !g.memberMap().containsKey(g.leaderUuid())) {
@@ -453,75 +428,33 @@ public final class GuildManager {
         return issues;
     }
 
+    // =====================================================================
+    // 僵尸工会清理（实现见 GuildCleanup）
+    // =====================================================================
+
+    /** 找出当前符合“不活跃”判定、可被清理的工会（会访问 Redis，需异步调用）。 */
+    public List<Guild> findInactiveGuilds() {
+        return cleanupService.findInactiveGuilds();
+    }
+
+    /** 异步扫描不活跃工会；完成回调在主线程。 */
+    public void findInactiveGuildsAsync(java.util.function.Consumer<List<Guild>> callback) {
+        cleanupService.findInactiveGuildsAsync(callback);
+    }
+
     /** 本服或其它子服是否有成员在线（跨服检查仅在 Redis 可用时进行）。 */
     public boolean anyMemberOnline(Guild g) {
-        return countNetworkOnline(g) > 0;
+        return cleanupService.anyMemberOnline(g);
     }
 
     /** 全服在线成员数（本服 + 其它子服，去重）。跨服检查会访问 Redis，请在异步线程调用。 */
     public int countNetworkOnline(Guild g) {
-        if (g == null) {
-            return 0;
-        }
-        int count = onlineMembers(g).size();
-        if (plugin.bus() != null && plugin.bus().isReady()) {
-            for (UUID uuid : g.memberMap().keySet()) {
-                if (plugin.player(uuid) != null) {
-                    continue;
-                }
-                if (plugin.bus().serverOf(uuid) != null) {
-                    count++;
-                }
-            }
-        }
-        return count;
+        return cleanupService.countNetworkOnline(g);
     }
 
-    /**
-     * 清理不活跃工会。
-     *
-     * @param dryRun true 时只返回命中列表，不删除
-     * @return 命中（或已删除）的工会列表
-     */
-    public List<Guild> purgeInactive(boolean dryRun) {
-        List<Guild> targets = findInactiveGuilds();
-        if (dryRun) {
-            return targets;
-        }
-        for (Guild g : targets) {
-            disband(g, conf().cleanupBroadcast, GuildDisbandEvent.Cause.INACTIVE);
-        }
-        return targets;
-    }
-
-    /** 自动清理入口（只能在主线程调用）；未启用或无命中时返回空列表。 */
+        /** 自动清理入口（只能在主线程调用）。 */
     public void autoCleanup() {
-        GuildSettings c = conf();
-        if (!c.cleanupEnabled) {
-            return;
-        }
-        // 扫描涉及跨服探活（阻塞 Redis），放异步；删除回主线程。
-        plugin.async(() -> {
-            // 共享配置下多台子服会同时触发，用 Redis 抢锁保证每个周期只清理一次。
-            long intervalSec = Math.max(60, c.cleanupIntervalMinutes * 60L);
-            if (plugin.bus() != null && plugin.bus().isReady()
-                    && !plugin.bus().acquireOnce("cleanup", intervalSec)) {
-                return;
-            }
-            List<Guild> targets = findInactiveGuilds();
-            if (targets.isEmpty()) {
-                return;
-            }
-            plugin.sync(() -> {
-                if (!c.cleanupDryRun) {
-                    for (Guild g : targets) {
-                        disband(g, c.cleanupBroadcast, GuildDisbandEvent.Cause.INACTIVE);
-                    }
-                }
-                plugin.getLogger().info("不活跃工会清理（" + (c.cleanupDryRun ? "dry-run" : "已执行")
-                        + "，阈值 " + c.cleanupInactiveDays + " 天）：" + targets.size() + " 个");
-            });
-        });
+        cleanupService.autoCleanup();
     }
 
     public void disband(Guild g, boolean broadcast) {
@@ -534,6 +467,7 @@ public final class GuildManager {
         }
         if (broadcast) announceGuild(g.id(), plugin.messages().component("disband-broadcast", "guild", g.name()), null);
         mutationVersion.incrementAndGet();
+        pendingDisbands.add(g.id());
         guilds.remove(g.id());
         for (UUID u : g.memberMap().keySet()) {
             memberIndex.remove(u);
@@ -542,9 +476,11 @@ public final class GuildManager {
         plugin.async(() -> {
             try {
                 plugin.repo().deleteGuild(g.id(), plugin.settings().warehouse.disbandRetentionDays);
+                pendingDisbands.remove(g.id());
                 plugin.broadcastGuildChange(g.id());
             } catch (Exception e) {
-                plugin.getLogger().warning("解散工会写库失败: " + e.getMessage());
+                // 保留在 pendingDisbands：关服前 saveAllSync 会重试，避免重启后工会复活。
+                plugin.getLogger().warning("解散工会写库失败（将在关服前重试）: " + e.getMessage());
             }
         });
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
@@ -597,7 +533,7 @@ public final class GuildManager {
         GuildMember m = new GuildMember(player.getUniqueId(), player.getName(), g.id(), GuildRank.MEMBER, now, 0, 0, 0);
         g.putMember(m);
         memberIndex.put(player.getUniqueId(), g.id());
-        invites.remove(player.getUniqueId());
+        inviteService.clear(player.getUniqueId());
 
         plugin.async(() -> {
             try {
@@ -630,107 +566,25 @@ public final class GuildManager {
         });
     }
 
-    public void invite(Player actor, Guild g, String targetName) {
-        GuildSettings c = conf();
-        GuildMember actorM = g.member(actor.getUniqueId());
-        if (actorM == null) {
-            plugin.messages().send(actor, "not-in-guild");
-            return;
-        }
-        boolean leader = actorM.rank() == GuildRank.LEADER;
-        boolean officer = actorM.rank() == GuildRank.OFFICER && c.officerInvite;
-        if (!leader && !officer) {
-            plugin.messages().send(actor, "no-permission-rank");
-            return;
-        }
-        long now = System.currentTimeMillis();
-        Long last = inviteCooldown.get(actor.getUniqueId());
-        if (last != null && now - last < c.inviteCooldownSeconds * 1000L) {
-            long left = (c.inviteCooldownSeconds * 1000L - (now - last)) / 1000L + 1;
-            plugin.messages().send(actor, "cooldown", "seconds", left);
-            return;
-        }
-        Player target = plugin.playerExact(targetName);
-        if (target != null) {
-            finishInvite(actor, g, target, target.getUniqueId(), target.getName(), now);
-            return;
-        }
-        // 跨服解析玩家 UUID（Redis 查询为网络 IO，放到异步线程，避免卡主线程）
-        if (!plugin.bus().isReady()) {
-            plugin.messages().send(actor, "player-not-found", "player", targetName);
-            return;
-        }
-        plugin.async(() -> {
-            UUID targetId = plugin.bus().resolveOnlineUuid(targetName);
-            String server = targetId == null ? null : plugin.bus().serverOf(targetId);
-            plugin.sync(() -> {
-                if (targetId == null) {
-                    plugin.messages().send(actor, "player-not-found", "player", targetName);
-                    return;
-                }
-                finishInvite(actor, g, null, targetId, targetName, System.currentTimeMillis());
-                if (server != null && !server.equals(plugin.serverId())) {
-                    java.util.Map<String, String> payload = CrossServerBus.map(
-                            "target", targetId.toString(), "guild", g.id(), "name", g.name(), "server", plugin.serverId());
-                    plugin.async(() -> plugin.bus().publishTo(server, "GUILD_INVITE", payload));
-                }
-            });
-        });
-    }
+    // =====================================================================
+    // 邀请（实现见 GuildInvites）
+    // =====================================================================
 
-    /** 完成邀请登记并通知邀请人（target 可为 null，表示目标是跨服玩家）。 */
-    private void finishInvite(Player actor, Guild g, Player target, UUID targetId, String targetDisplay, long now) {
-        if (isInGuild(targetId)) {
-            Guild cur = guildOf(targetId);
-            plugin.messages().send(actor, "already-in-guild", "guild", cur == null ? "" : cur.name());
-            return;
-        }
-        long expires = now + conf().inviteExpireSeconds * 1000L;
-        invites.put(targetId, new Invite(g.id(), expires));
-        inviteCooldown.put(actor.getUniqueId(), now);
-        if (target != null) {
-            target.sendMessage(plugin.messages().component("invite-received", "guild", g.name()));
-        }
-        plugin.messages().send(actor, "invite-sent", "player", targetDisplay);
+    public void invite(Player actor, Guild g, String targetName) {
+        inviteService.invite(actor, g, targetName);
     }
 
     /** 收到跨服邀请时调用（在目标服的本地内存登记）。 */
     public void receiveRemoteInvite(UUID target, String guildId, String guildName) {
-        if (target == null || guildId == null) {
-            return;
-        }
-        invites.put(target, new Invite(guildId, System.currentTimeMillis() + conf().inviteExpireSeconds * 1000L));
-        plugin.sync(() -> {
-            Player p = plugin.player(target);
-            if (p != null) {
-                p.sendMessage(plugin.messages().component("invite-received", "guild", guildName == null ? "" : guildName));
-            }
-        });
+        inviteService.receiveRemoteInvite(target, guildId, guildName);
     }
 
     public boolean accept(Player player, String guildName) {
-        Invite inv = invites.get(player.getUniqueId());
-        if (inv == null) {
-            plugin.messages().send(player, "invite-none");
-            return false;
-        }
-        if (System.currentTimeMillis() > inv.expiresAt) {
-            invites.remove(player.getUniqueId());
-            plugin.messages().send(player, "invite-expired");
-            return false;
-        }
-        Guild g = guilds.get(inv.guildId);
-        if (g == null) {
-            plugin.messages().send(player, "guild-not-found", "name", guildName);
-            return false;
-        }
-        return join(player, g, true);
+        return inviteService.accept(player, guildName);
     }
 
     public void deny(Player player, String guildName) {
-        Invite inv = invites.remove(player.getUniqueId());
-        Guild g = inv == null ? null : guilds.get(inv.guildId);
-        plugin.messages().send(player, "deny-success", "guild", g == null ? guildName : g.name());
+        inviteService.deny(player, guildName);
     }
 
     /** 玩家当前待处理的入会邀请（一玩家最多一条，供 GUI 展示）。 */
@@ -743,17 +597,7 @@ public final class GuildManager {
      * 避免玩家只能对着聊天里的 {@code /guild accept <工会>} 手动输入。</p>
      */
     public List<PendingInvite> pendingInvites(UUID uuid) {
-        List<PendingInvite> out = new ArrayList<>();
-        if (uuid == null) {
-            return out;
-        }
-        Invite inv = invites.get(uuid);
-        if (inv == null || inv.expiresAt <= System.currentTimeMillis()) {
-            return out;
-        }
-        Guild g = guilds.get(inv.guildId);
-        out.add(new PendingInvite(inv.guildId, g == null ? inv.guildId : g.name(), inv.expiresAt));
-        return out;
+        return inviteService.pendingInvites(uuid);
     }
 
     // =====================================================================
@@ -1179,6 +1023,11 @@ public final class GuildManager {
         }
         if (!def.hasPermission(actor)) {
             plugin.messages().send(actor, "no-permission");
+            return false;
+        }
+        // 已经是当前图标：不重复扣费、不写库（GUI 会把当前图标也列出来，误点不该花钱）。
+        if (iconId.equals(g.icon())) {
+            plugin.messages().send(actor, "set-icon-same");
             return false;
         }
         double cost = conf().iconChangeCost;
@@ -1625,8 +1474,16 @@ public final class GuildManager {
             return;
         }
         int max = conf().maxLevel;
-        g.level(Math.max(1, Math.min(max, level)));
-        saveGuild(g);
+        int target = Math.max(1, Math.min(max, level));
+        g.level(target);
+        plugin.async(() -> {
+            try {
+                plugin.repo().setLevel(g.id(), target);
+                plugin.broadcastGuildChange(g.id());
+            } catch (Exception e) {
+                plugin.getLogger().warning("设置工会等级失败: " + e.getMessage());
+            }
+        });
     }
 
     /** 管理员强制设置点数（不重算等级）。 */
@@ -1647,17 +1504,7 @@ public final class GuildManager {
         });
     }
 
-    public void recomputeLevel(Guild g) {
-        int old = g.level();
-        int lvl = levelForPoints(g.points());
-        g.level(lvl);
-        if (lvl > old) {
-            Bukkit.getPluginManager().callEvent(new GuildLevelUpEvent(g, old, lvl));
-            notifyGuild(g.id(), plugin.messages().component("guild-level-up", "guild", g.name(), "level", lvl), null);
-        }
-    }
-
-    /** 纯函数：给定点数时对应的工会等级（不触发事件、不读模型）。 */
+        /** 纯函数：给定点数时对应的工会等级（不触发事件、不读模型）。 */
     private int levelForPoints(long points) {
         GuildSettings c = conf();
         long cumulative = 0;
@@ -1717,10 +1564,7 @@ public final class GuildManager {
 
     /** 清理解除过期邀请与冷却记录（心跳调用，防止内存泄漏）。 */
     public void purge() {
-        long now = System.currentTimeMillis();
-        invites.entrySet().removeIf(e -> e.getValue().expiresAt < now);
-        long cooldownMs = Math.max(1, conf().inviteCooldownSeconds) * 1000L;
-        inviteCooldown.entrySet().removeIf(e -> now - e.getValue() > cooldownMs * 4);
+        inviteService.purge();
     }
 
     /** 向本服所有在线玩家广播（用于匹配提示等）。 */
@@ -1752,6 +1596,20 @@ public final class GuildManager {
     // =====================================================================
     // 在线成员工具
     // =====================================================================
+
+    /** 在线成员数（不分配列表，供 PAPI/GUI 高频调用）。 */
+    public int onlineMemberCount(Guild g) {
+        if (g == null) {
+            return 0;
+        }
+        int n = 0;
+        for (UUID u : g.memberMap().keySet()) {
+            if (plugin.player(u) != null) {
+                n++;
+            }
+        }
+        return n;
+    }
 
     public List<Player> onlineMembers(Guild g) {
         List<Player> out = new ArrayList<>();

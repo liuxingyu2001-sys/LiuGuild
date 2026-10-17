@@ -1,6 +1,7 @@
 package com.liu.liuguild.warehouse;
 
 import com.liu.liuguild.LiuGuild;
+import org.bukkit.entity.Player;
 
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +32,8 @@ public final class WarehouseLock {
 
     /** 本地会话（同时也用于记录持有者名字）。 */
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
+    /** 按工会分段加锁：避免一个工会的 Redis 抢占阻塞其它工会的仓库打开。 */
+    private final Map<String, Object> keyLocks = new ConcurrentHashMap<>();
 
     private final LiuGuild plugin;
 
@@ -76,10 +79,16 @@ public final class WarehouseLock {
      *
      * @return 抢到返回 {@link Session}；已被别人占用返回 {@code null}
      */
-    public synchronized Session acquire(String guildId, UUID player, String playerName) {
+    public Session acquire(String guildId, UUID player, String playerName) {
         if (guildId == null || player == null) {
             return null;
         }
+        synchronized (keyLocks.computeIfAbsent(guildId, k -> new Object())) {
+            return acquireLocked(guildId, player, playerName);
+        }
+    }
+
+    private Session acquireLocked(String guildId, UUID player, String playerName) {
         // 同一个人重复打开（GUI 重开）直接复用，避免自我死锁
         Session existing = sessions.get(guildId);
         if (existing != null && existing.player.equals(player)) {
@@ -187,9 +196,17 @@ public final class WarehouseLock {
                 if (plugin != null && plugin.settings().main.crossServerEnabled) sessions.remove(e.getKey(), s);
                 continue;
             }
-            if (!plugin.bus().refreshLock(lockKey(e.getKey()), s.token, TTL_SECONDS)) {
-                // 锁已失效：丢弃会话，避免本地以为自己还持有
+            com.liu.liuguild.crossserver.CrossServerBus.LockState state =
+                    plugin.bus().refreshLockState(lockKey(e.getKey()), s.token, TTL_SECONDS);
+            if (state != com.liu.liuguild.crossserver.CrossServerBus.LockState.OK) {
+                // 锁已失效或 Redis 不可用：丢弃会话并关闭界面，避免继续写入造成数据冲突。
                 sessions.remove(e.getKey(), s);
+                UUID holder = s.player;
+                plugin.sync(() -> {
+                    if (plugin.warehouse() != null) plugin.warehouse().kick(holder);
+                    Player p = plugin.player(holder);
+                    if (p != null) plugin.messages().send(p, "wh-lock-lost");
+                });
             }
         }
     }

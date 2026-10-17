@@ -5,7 +5,7 @@
 | 指令 | 说明 |
 |---|---|
 | `/guild`、`/guild gui` | 打开工会主菜单 |
-| `/guild create <名称> [标签]` | 创建工会（扣除创建费） |
+| `/guild create <名称> [标签]` | 创建工会（扣除创建费）；标签省略时自动从名称截取 |
 | `/guild disband confirm` | 会长解散工会（二次确认） |
 | `/guild join <名称>` | 加入开放加入的工会 |
 | `/guild leave` | 退出工会（会长需先转让/解散） |
@@ -93,7 +93,8 @@
 | `/guildadmin mode start <模式>` | **强制开启赛季模式**（公告 + 可选自动入队） |
 | `/guildadmin war list` | 进行中的工会战与队列 |
 | `/guildadmin war <warId>` | 单场工会战详情 |
-| `/guildadmin disband <工会>` | 强制解散 |
+| `/guildadmin disband <工会>` | 强制解散（对应 GUI 权限 `liuguild.admin.disband`） |
+| `/guildadmin rename <工会> <新名称> [新标签]` | 给任意工会改名（绕开冷却与费用，权限 `liuguild.admin.rename`） |
 | `/guildadmin setlevel <工会> <等级>` | 设置等级 |
 | `/guildadmin setpoints <工会> <点数>` | 设置点数 |
 | `/guildadmin forceend [warId]` | 强制结束工会战 |

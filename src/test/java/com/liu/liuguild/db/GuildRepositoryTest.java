@@ -14,6 +14,7 @@ import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -404,11 +405,11 @@ class GuildRepositoryTest {
         repo.insertGuildWithLeader(g, leader);
 
         g.points(9999);
-        g.level(7);
         leader.addKill();
         leader.addDeath();
-        // 点数不再随整行保存写入（只走原子 UPDATE），这里单独原子设置以验证其独立持久化
+        // 点数/等级不再随整行保存写入（只走原子 UPDATE），这里单独原子设置以验证其独立持久化
         repo.setPoints(id, 9999);
+        repo.setLevel(id, 7);
         repo.flushAll(java.util.List.of(g), java.util.List.of(leader));
 
         assertEquals(9999, repo.loadGuild(id).points());
@@ -416,6 +417,100 @@ class GuildRepositoryTest {
         GuildMember loaded = repo.loadMembers(id).get(0);
         assertEquals(1, loaded.kills());
         assertEquals(1, loaded.deaths());
+    }
+
+    /** 整行保存不能再把其它子服刚原子写入的等级/人数覆盖回旧值。 */
+    @Test
+    void flushDoesNotOverwriteAtomicLevelOrMemberCount() throws Exception {
+        String id = UUID.randomUUID().toString();
+        Guild g = guild(id, "Atomic", "AT");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", id, GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+
+        // 模拟另一台子服已经升级、加人
+        repo.setLevel(id, 9);
+        try (var c = db.source().getConnection()) {
+            try (var ps = c.prepareStatement("UPDATE `" + db.t("guilds") + "` SET member_count=3 WHERE guild_id=?")) {
+                ps.setString(1, id);
+                ps.executeUpdate();
+            }
+        }
+
+        // 本服缓存仍是旧值，整行保存必须放过这两列
+        g.level(2);
+        g.memberCount(1);
+        repo.flushAll(java.util.List.of(g), java.util.List.of(leader));
+
+        Guild loaded = repo.loadGuild(id);
+        assertEquals(9, loaded.level(), "整行保存不能回退等级");
+        assertEquals(3, loaded.memberCount(), "整行保存不能覆盖 member_count");
+    }
+
+    /** 关服 upsert：新建但尚未异步写入的工会/成员也能落库。 */
+    @Test
+    void flushAllInsertsRowsThatWereNeverPersisted() throws Exception {
+        String id = UUID.randomUUID().toString();
+        Guild g = guild(id, "Fresh", "FR");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", id, GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        // 只改内存、不调用 insertGuildWithLeader：模拟创建后立刻关服（since=0 表示本进程内新建）
+        repo.flushAll(java.util.List.of(g), java.util.List.of(leader), 0L);
+
+        assertNotNull(repo.loadGuild(id));
+        assertEquals(1, repo.loadMembers(id).size());
+    }
+
+    /** 关服刷写不能把“别服已经删除”的旧工会/成员按内存缓存复活。 */
+    @Test
+    void flushAllDoesNotResurrectDeletedRowsFromStaleCache() throws Exception {
+        String id = UUID.randomUUID().toString();
+        Guild g = guild(id, "Gone", "GN");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", id, GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+        repo.deleteGuild(id, 0);
+
+        // 内存里仍留着旧对象，但 createdAt/joinedAt 早于本进程启动时间
+        repo.flushAll(java.util.List.of(g), java.util.List.of(leader), System.currentTimeMillis() + 1000L);
+
+        assertNull(repo.loadGuild(id), "已删除的工会不能被关服刷写复活");
+        assertTrue(repo.loadMembers(id).isEmpty(), "已删除的成员不能被关服刷写复活");
+    }
+
+    /** 奖励 outbox 必须先领取再发放：并发/重启时同一条只能被一台子服领走。 */
+    @Test
+    void warRewardClaimIsExclusiveAndReleasable() throws Exception {
+        UUID player = UUID.randomUUID();
+        var row = new GuildRepository.WarReward("war-claim", player, "g1", true, "match", 100, 5, 0);
+        repo.saveWarRewards(java.util.List.of(row));
+
+        var first = repo.claimWarRewardsForWar("war-claim");
+        assertEquals(1, first.size(), "第一次应领取到奖励");
+        assertTrue(repo.claimWarRewardsForWar("war-claim").isEmpty(), "已领取的行不能被再次领取");
+
+        repo.releaseWarReward("war-claim", player);
+        assertEquals(1, repo.claimWarRewardsForWar("war-claim").size(), "释放后应可重新领取");
+
+        repo.markWarRewardDone("war-claim", player);
+        assertTrue(repo.loadPendingWarRewards(10).isEmpty());
+    }
+
+    /** 超过重试上限的发放失败行转为 FAILED，不再无限重试。 */
+    @Test
+    void warRewardReleaseMarksFailedAfterAttemptLimit() throws Exception {
+        UUID player = UUID.randomUUID();
+        repo.saveWarRewards(java.util.List.of(
+                new GuildRepository.WarReward("war-fail", player, "g1", false, "match", 0, 0, 0)));
+        for (int i = 0; i < 4; i++) {
+            assertEquals(1, repo.claimWarRewardsForWar("war-fail").size());
+            repo.releaseWarReward("war-fail", player);
+        }
+        // 第 5 次领取后 attempts=5，再释放应标记 FAILED 而不是继续重试。
+        assertEquals(1, repo.claimWarRewardsForWar("war-fail").size());
+        repo.releaseWarReward("war-fail", player);
+        assertEquals(1, repo.countWarRewards("FAILED"));
+        assertTrue(repo.loadPendingWarRewards(10).isEmpty());
     }
 
     @Test

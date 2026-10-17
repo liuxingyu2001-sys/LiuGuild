@@ -26,6 +26,8 @@ public final class GuildSettings {
     public boolean officerKick = true;
     public boolean officerDeclareWar = true;
     public boolean officerSetNotice = true;
+    /** 官员是否能设置/删除工会驻地（与“改公告”解耦）。 */
+    public boolean officerSetHome = true;
     public String defaultIcon = "default";
     public double iconChangeCost = 5000.0;
 
@@ -170,6 +172,7 @@ public final class GuildSettings {
         s.officerKick = c.getBoolean("guild.officer.kick", s.officerKick);
         s.officerDeclareWar = c.getBoolean("guild.officer.declare-war", s.officerDeclareWar);
         s.officerSetNotice = c.getBoolean("guild.officer.set-notice", s.officerSetNotice);
+        s.officerSetHome = c.getBoolean("guild.officer.set-home", s.officerSetHome);
         s.defaultIcon = c.getString("guild.icon.default", s.defaultIcon);
         s.iconChangeCost = c.getDouble("guild.icon.change-cost", s.iconChangeCost);
         s.homeEnabled = c.getBoolean("guild.home.enabled", s.homeEnabled);

@@ -265,8 +265,26 @@ public final class SparrowUiHook {
             return false;
         }
         return openWindow(player, holder.title(), inv, holder::actionAt,
-                (slot, click) -> plugin.sync(() -> plugin.gui().dispatch(player, holder, slot,
-                        click.clickType().isRightClick(), click.clickType().isShiftClick())));
+                (slot, click) -> {
+                    if (!GuiManager.isActionClick(click.clickType())) {
+                        return; // Q/数字键/中键等不当作普通左键
+                    }
+                    plugin.sync(() -> plugin.gui().dispatch(player, holder, slot,
+                            click.clickType().isRightClick(), click.clickType().isShiftClick()));
+                });
+    }
+
+    /** 插件关闭/重载时清理全部会话，避免 Window 持有 Player/Inventory 泄漏。 */
+    public void clearSessions() {
+        for (UUID id : new java.util.ArrayList<>(sessionWindows.keySet())) {
+            Window w = sessionWindows.remove(id);
+            if (w != null) {
+                try {
+                    w.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
     }
 
     /** 结束该玩家当前 Sparrow 会话（不打开新窗口）。 */

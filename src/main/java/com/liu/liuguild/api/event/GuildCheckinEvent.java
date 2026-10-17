@@ -2,9 +2,21 @@ package com.liu.liuguild.api.event;
 
 import com.liu.liuguild.model.Guild;
 import org.bukkit.entity.Player;
+import org.bukkit.event.HandlerList;
 
 /** 成员完成每日签到（个人工会资金已入账，连续天数已更新）。 */
 public class GuildCheckinEvent extends GuildEvent {
+
+    private static final HandlerList HANDLERS = new HandlerList();
+
+    @Override
+    public HandlerList getHandlers() {
+        return HANDLERS;
+    }
+
+    public static HandlerList getHandlerList() {
+        return HANDLERS;
+    }
 
     private final Player player;
     private final int streak;

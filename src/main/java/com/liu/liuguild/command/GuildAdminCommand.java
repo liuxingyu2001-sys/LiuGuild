@@ -30,7 +30,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUBS = List.of(
             "help", "reload", "status", "import", "arena", "kit", "mode", "war",
             "disband", "setlevel", "setpoints", "setbank", "forceend", "info", "gui", "cleanup",
-            "guilds", "player", "broadcast");
+            "guilds", "player", "broadcast", "rename", "verify", "doctor");
 
     private final LiuGuild plugin;
 
@@ -54,6 +54,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             Map.entry("guilds", "liuguild.admin.guilds"),
             Map.entry("player", "liuguild.admin.player"),
             Map.entry("broadcast", "liuguild.admin.broadcast"),
+            Map.entry("rename", "liuguild.admin.rename"),
             Map.entry("gui", "liuguild.admin.gui"));
 
     public GuildAdminCommand(LiuGuild plugin) {
@@ -89,6 +90,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "mode" -> mode(sender, args);
             case "war" -> war(sender, args);
             case "disband" -> disband(sender, args);
+            case "rename" -> rename(sender, args);
             case "setlevel" -> setLevel(sender, args);
             case "setpoints" -> setPoints(sender, args);
             case "setbank" -> setBank(sender, args);
@@ -160,6 +162,21 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
 
     private static String cn(String s) {
         return s.replace('&', '\u00a7');
+    }
+
+    /** 严格解析整数：输错直接提示并返回 null（不再静默回落成 48/0 等默认值）。 */
+    private Integer parseInt(CommandSender sender, String raw, boolean allowNegative) {
+        try {
+            int v = Integer.parseInt(raw == null ? "" : raw.trim());
+            if (!allowNegative && v < 0) {
+                plugin.messages().send(sender, "input-invalid-number");
+                return null;
+            }
+            return v;
+        } catch (NumberFormatException e) {
+            plugin.messages().send(sender, "input-invalid-number");
+            return null;
+        }
     }
 
     // =====================================================================
@@ -252,9 +269,11 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             }
             case "setradius" -> {
                 if (require(sender, args, 4)) {
-                    plugin.configs().set("arena.yml", "arenas." + args[2] + ".radius", NumberUtil.toInt(args[3], 48));
+                    Integer radius = parseInt(sender, args[3], false);
+                    if (radius == null) return;
+                    plugin.configs().set("arena.yml", "arenas." + args[2] + ".radius", radius);
                     plugin.reloadSettings();
-                    plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", "radius=" + args[3]);
+                    plugin.messages().sendRaw(sender, "arena-set", "arena", args[2], "value", "radius=" + radius);
                 }
             }
             case "settempworld" -> {
@@ -263,7 +282,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     if (args[4].equalsIgnoreCase("true") || args[4].equalsIgnoreCase("false")) {
                         value = Boolean.parseBoolean(args[4]);
                     } else if (args[3].equalsIgnoreCase("time")) {
-                        value = NumberUtil.toInt(args[4], -1);
+                        Integer time = parseInt(sender, args[4], true);
+                        if (time == null) return;
+                        value = time;
                     }
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".temporary-world." + args[3], value);
                     plugin.reloadSettings();
@@ -272,6 +293,10 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             }
             case "setgamerule" -> {
                 if (require(sender, args, 5)) {
+                    if (!args[4].equalsIgnoreCase("true") && !args[4].equalsIgnoreCase("false")) {
+                        plugin.messages().send(sender, "input-invalid-number");
+                        return;
+                    }
                     boolean value = Boolean.parseBoolean(args[4]);
                     plugin.configs().set("arena.yml",
                             "arenas." + args[2] + ".temporary-world.gamerules." + args[3], value);
@@ -285,7 +310,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     if (args[4].equalsIgnoreCase("true") || args[4].equalsIgnoreCase("false")) {
                         value = Boolean.parseBoolean(args[4]);
                     } else if (args[3].toLowerCase(Locale.ROOT).contains("delay")) {
-                        value = NumberUtil.toInt(args[4], 0);
+                        Integer delay = parseInt(sender, args[4], false);
+                        if (delay == null) return;
+                        value = delay;
                     }
                     plugin.configs().set("arena.yml", "arenas." + args[2] + ".after-war." + args[3], value);
                     plugin.reloadSettings();
@@ -302,13 +329,16 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 }
                 Location loc = p.getLocation();
                 String base = "arenas." + args[2] + ".after-war.end-spawn.";
-                plugin.configs().set("arena.yml", base + "enabled", true);
-                plugin.configs().set("arena.yml", base + "world", loc.getWorld().getName());
-                plugin.configs().set("arena.yml", base + "x", round(loc.getX()));
-                plugin.configs().set("arena.yml", base + "y", round(loc.getY()));
-                plugin.configs().set("arena.yml", base + "z", round(loc.getZ()));
-                plugin.configs().set("arena.yml", base + "yaw", round(loc.getYaw()));
-                plugin.configs().set("arena.yml", base + "pitch", round(loc.getPitch()));
+                java.util.Map<String, Object> batch = new java.util.LinkedHashMap<>();
+                batch.put(base + "enabled", true);
+                batch.put(base + "world", loc.getWorld().getName());
+                batch.put(base + "x", round(loc.getX()));
+                batch.put(base + "y", round(loc.getY()));
+                batch.put(base + "z", round(loc.getZ()));
+                batch.put(base + "yaw", round(loc.getYaw()));
+                batch.put(base + "pitch", round(loc.getPitch()));
+                // 一次加锁 + 一次整文件读写，避免 7 次读改写。
+                plugin.configs().setAll("arena.yml", batch);
                 plugin.reloadSettings();
                 sender.sendMessage(cn("&a已将竞技场 &f" + args[2] + " &a的集合点设为当前位置（世界 &f" + loc.getWorld().getName() + "&a）。"));
             }
@@ -537,11 +567,16 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     plugin.messages().send(sender, "admin-war-stop-all-requested");
                     return;
                 }
-                if (plugin.seasons() != null && plugin.seasons().stop()) {
+                // 先按显式 id 找普通工会战；没给 id 或找不到时才尝试停赛季，
+                // 避免 `/guildadmin war stop <某场战 id>` 先把正在进行的赛季停掉。
+                GuildWar w = args.length >= 3 ? plugin.war().warById(args[2]) : null;
+                if (w == null && plugin.seasons() != null && plugin.seasons().stop()) {
                     sender.sendMessage(cn("&e正在取消本服赛季混战并归还装备。"));
                     return;
                 }
-                GuildWar w = args.length >= 3 ? plugin.war().warById(args[2]) : plugin.war().currentWar();
+                if (w == null) {
+                    w = plugin.war().currentWar();
+                }
                 if (w == null) {
                     plugin.messages().send(sender, "war-not-in-war");
                     return;
@@ -557,7 +592,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 if (!require(sender, args, 5)) {
                     return;
                 }
-                int value = NumberUtil.toInt(args[4], 0);
+                Integer parsed = parseInt(sender, args[4], false);
+                if (parsed == null) return;
+                int value = parsed;
                 if (plugin.war().setScore(args[2], args[3], value)) {
                     sender.sendMessage(cn("&a已将工会战 &f" + args[2].substring(0, Math.min(8, args[2].length()))
                             + " &a的 " + args[3].toUpperCase(Locale.ROOT) + " 方比分设为 &f" + value));
@@ -647,9 +684,10 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(sender, "guild-not-found", "name", args[1]);
             return;
         }
-        int level = NumberUtil.toInt(args[2], g.level());
-        plugin.guilds().setLevel(g, level);
-        plugin.messages().send(sender, "admin-setlevel", "guild", g.name(), "level", level);
+        Integer parsed = parseInt(sender, args[2], false);
+        if (parsed == null) return;
+        plugin.guilds().setLevel(g, parsed);
+        plugin.messages().send(sender, "admin-setlevel", "guild", g.name(), "level", g.level());
     }
 
     private void setPoints(CommandSender sender, String[] args) {
@@ -661,9 +699,10 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(sender, "guild-not-found", "name", args[1]);
             return;
         }
-        long points = NumberUtil.toLong(args[2], g.points());
-        plugin.guilds().setPoints(g, points);
-        plugin.messages().send(sender, "admin-setpoints", "guild", g.name(), "points", points);
+        Integer parsed = parseInt(sender, args[2], false);
+        if (parsed == null) return;
+        plugin.guilds().setPoints(g, parsed);
+        plugin.messages().send(sender, "admin-setpoints", "guild", g.name(), "points", parsed);
     }
 
     /** /guildadmin rename <工会> <新名称> [新标签] —— 绕开冷却与费用。 */
@@ -776,8 +815,11 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(sender, "war-not-in-war");
             return;
         }
-        plugin.war().forceEnd(war.id());
-        plugin.messages().send(sender, "admin-forceend", "war", war.id());
+        if (plugin.war().forceEnd(war.id())) {
+            plugin.messages().send(sender, "admin-forceend", "war", war.id());
+        } else {
+            plugin.messages().send(sender, "admin-war-not-hosted", "host", war.hostServer());
+        }
     }
 
     private void info(CommandSender sender, String[] args) {
@@ -800,6 +842,20 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
     }
 
     private void doctor(CommandSender sender) {
+        // 数据健康检查是阻塞 JDBC（Hikari 连接超时最长 5s）：先异步做完再回主线程输出。
+        plugin.async(() -> {
+            boolean healthy;
+            try {
+                healthy = plugin.db().healthy();
+            } catch (Throwable t) {
+                healthy = false;
+            }
+            final boolean dbHealthy = healthy;
+            plugin.sync(() -> doDoctor(sender, dbHealthy));
+        });
+    }
+
+    private void doDoctor(CommandSender sender, boolean dbHealthy) {
         var s = plugin.settings();
         java.util.List<String> ok = new java.util.ArrayList<>();
         java.util.List<String> bad = new java.util.ArrayList<>();
@@ -809,7 +865,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         } else {
             ok.add("server-id = " + plugin.serverId());
         }
-        if (!plugin.db().healthy()) {
+        if (!dbHealthy) {
             bad.add("数据库连接不健康（database.yml）");
         } else {
             ok.add("数据库连接正常（" + (plugin.db().isSqlite() ? "SQLite" : "MySQL") + "）");

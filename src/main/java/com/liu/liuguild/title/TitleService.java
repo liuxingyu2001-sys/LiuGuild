@@ -193,12 +193,7 @@ public final class TitleService implements GuildModule {
         return t == null ? "" : t.display();
     }
 
-    /** 玩家头衔纯文本（去掉颜色标签，用于聊天行内插入）。 */
-    public String displayPlain(UUID player) {
-        return display(player);
-    }
-
-    /** 玩家够格装备的头衔列表。 */
+        /** 玩家够格装备的头衔列表。 */
     public List<GuildTitle> usableBy(String guildId, GuildRank rank) {
         List<GuildTitle> out = new ArrayList<>();
         for (GuildTitle t : titlesOf(guildId)) {

@@ -66,12 +66,29 @@ public final class GuiUtil {
         return build(viewer, def.material, def.fallbackMaterial, def.name, def.lore, ph, null);
     }
 
+    /** 自定义图标反序列化缓存：数据量小、单次解析为毫秒级，列表页每页会重复解析十几个。 */
+    private static final int ICON_CACHE_MAX = 128;
+    private static final java.util.Map<String, ItemStack> ICON_CACHE =
+            java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<String, ItemStack> eldest) {
+                    return size() > ICON_CACHE_MAX;
+                }
+            });
+
     /** 工会图标：优先使用导入的自定义图标数据，其次 icons.yml 定义。 */
     public static ItemStack guildIcon(LiuGuild plugin, Player viewer, Guild guild, Material fallback) {
         if (guild != null && !guild.iconData().isBlank()) {
-            ItemStack custom = deserializeItem(guild.iconData());
+            String data = guild.iconData();
+            ItemStack custom = ICON_CACHE.get(data);
+            if (custom == null) {
+                custom = deserializeItem(data);
+                if (custom != null) {
+                    ICON_CACHE.put(data, custom);
+                }
+            }
             if (custom != null) {
-                return custom;
+                return custom.clone();
             }
         }
         IconDef def = guild == null ? null : plugin.settings().icons.icon(guild.icon());
@@ -98,7 +115,9 @@ public final class GuiUtil {
     public static Component render(Player viewer, String text, Map<String, String> ph) {
         String out = text == null ? "" : text;
         LiuGuild plugin = LiuGuild.get();
-        if (plugin != null && plugin.papi() != null && viewer != null) {
+        // 没有 % 占位符时跳过 PAPI：GUI 一次刷新有数百行，未装 PAPI 时每次调用都会构造一次
+        // 被吞掉的 NoClassDefFoundError。
+        if (plugin != null && plugin.papi() != null && viewer != null && out.indexOf('%') >= 0) {
             out = plugin.papi().apply(viewer, out);
         }
         // 物品名称/描述默认会被客户端渲染为斜体，这里显式关闭默认斜体
@@ -109,6 +128,8 @@ public final class GuiUtil {
 
     /** 允许携带颜色格式的占位符；其余（玩家名/工会名等）按纯文本插入，避免注入。 */
     private static final java.util.Set<String> RICH_KEYS = java.util.Set.of("notice", "description", "icon_name");
+
+    /** 供 GUI 复用的标题渲染：同一模板只解析一次。 */
 
     private static Object[] flatten(Map<String, String> ph) {
         Object[] arr = new Object[ph.size() * 2];

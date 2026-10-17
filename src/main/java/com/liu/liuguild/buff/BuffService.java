@@ -25,6 +25,10 @@ public final class BuffService implements GuildModule, Listener {
     private final LiuGuild plugin;
     private final BuffRepository repo;
     private Map<String, Map<String, Long>> active = Map.of();
+    /** 配置里 effect 名 -> 已解析的效果类型（reload 时重建，避免每 tick 查 Registry）。 */
+    private volatile Map<String, PotionEffectType> effectTypes = Map.of();
+    /** 工会 -> 生效中的效果（refresh 时重建，apply 只做只读遍历）。 */
+    private volatile Map<String, Map<PotionEffectType, ActiveBuff>> activeEffects = Map.of();
     private final Map<UUID, Set<PotionEffectType>> owned = new HashMap<>();
     private final Set<UUID> buying = new HashSet<>();
     private final Map<UUID, Double> xpRemainder = new HashMap<>();
@@ -46,7 +50,50 @@ public final class BuffService implements GuildModule, Listener {
         }, 20, 20);
         refreshTask = Bukkit.getScheduler().runTaskTimer(plugin, this::refresh, 200, 200);
     }
-    public void reload() { generation++; active = Map.of(); refresh(); }
+    public void reload() {
+        generation++;
+        active = Map.of();
+        activeEffects = Map.of();
+        effectTypes = parseEffectTypes();
+        refresh();
+    }
+
+    private Map<String, PotionEffectType> parseEffectTypes() {
+        Map<String, PotionEffectType> out = new HashMap<>();
+        for (var buff : settings().buffs.values()) {
+            PotionEffectType type = effectType(buff.effect());
+            if (type != null) out.put(buff.effect(), type);
+        }
+        return out;
+    }
+
+    /** 由 {@link #active} + 配置重建「工会 -> 效果」，主线程调用。 */
+    private void rebuildActiveEffects() {
+        Map<String, Map<PotionEffectType, ActiveBuff>> out = new HashMap<>();
+        long now = System.currentTimeMillis();
+        for (var entry : active.entrySet()) {
+            Map<PotionEffectType, ActiveBuff> perGuild = new HashMap<>();
+            for (var buff : settings().buffs.values()) {
+                PotionEffectType type = effectTypes.get(buff.effect());
+                if (type == null) {
+                    continue;
+                }
+                long expiresAt = entry.getValue().getOrDefault(buff.id(), 0L);
+                if (expiresAt <= now) {
+                    continue;
+                }
+                perGuild.merge(type, new ActiveBuff(buff.amplifier(), expiresAt),
+                        (a, b) -> a.amplifier() >= b.amplifier() ? a : b);
+            }
+            if (!perGuild.isEmpty()) {
+                out.put(entry.getKey(), perGuild);
+            }
+        }
+        activeEffects = out;
+    }
+
+    private record ActiveBuff(int amplifier, long expiresAt) {
+    }
     public void disable() {
         running = false;
         if (task != null) task.cancel();
@@ -71,10 +118,20 @@ public final class BuffService implements GuildModule, Listener {
         plugin.async(() -> {
             try {
                 var snapshot = repo.loadActive(System.currentTimeMillis());
-                plugin.sync(() -> { refreshing = false; if (running && version == generation) active = snapshot; });
+                plugin.sync(() -> {
+                    refreshing = false;
+                    if (running && version == generation) {
+                        active = snapshot;
+                        rebuildActiveEffects();
+                    }
+                });
             } catch (Exception e) {
                 plugin.getLogger().warning("读取工会增益失败: " + e.getMessage());
-                plugin.sync(() -> { refreshing = false; active = Map.of(); });
+                plugin.sync(() -> {
+                    refreshing = false;
+                    active = Map.of();
+                    activeEffects = Map.of();
+                });
             }
         });
     }
@@ -117,35 +174,75 @@ public final class BuffService implements GuildModule, Listener {
         if (!settings().enabled || (plugin.war() != null && plugin.war().isWarRestricted(player.getUniqueId()))) return null;
         return plugin.guilds().guildOf(player.getUniqueId());
     }
-    private PotionEffectType effect(BuffSettings.Buff buff) {
-        String key = switch (buff.effect()) {
-            case "SPEED" -> "speed"; case "HASTE" -> "haste"; case "WATER_BREATHING" -> "water_breathing"; default -> "";
+    /** 效果名（配置值）→ 原版效果类型；只在 reload 时调用。 */
+    static PotionEffectType effectType(String effect) {
+        String key = switch (effect == null ? "" : effect.toUpperCase(Locale.ROOT)) {
+            case "SPEED" -> "speed";
+            case "HASTE" -> "haste";
+            case "WATER_BREATHING" -> "water_breathing";
+            default -> "";
         };
         return key.isEmpty() ? null : Registry.EFFECT.get(NamespacedKey.minecraft(key));
     }
+
     private void apply(Player player) {
+        UUID uuid = player.getUniqueId();
         Guild guild = eligible(player);
-        Map<PotionEffectType, BuffSettings.Buff> desired = new HashMap<>();
+        Map<PotionEffectType, ActiveBuff> desired = guild == null
+                ? Map.of() : activeEffects.getOrDefault(guild.id(), Map.of());
+        Set<PotionEffectType> mine = owned.get(uuid);
         long now = System.currentTimeMillis();
-        if (guild != null) for (var buff : settings().buffs.values()) {
-            PotionEffectType type = effect(buff);
-            if (type != null && expires(guild.id(), buff.id()) > now)
-                desired.merge(type, buff, (a,b) -> a.amplifier() >= b.amplifier() ? a : b);
+        if (mine != null) {
+            // 先移除已失效/已不属于本服发放的效果（先收集再删，避免边迭代边结构修改）
+            List<PotionEffectType> stale = new ArrayList<>();
+            for (PotionEffectType type : mine) {
+                if (!desired.containsKey(type)) {
+                    stale.add(type);
+                }
+            }
+            for (PotionEffectType type : stale) {
+                remove(player, type);
+            }
+            if (mine.isEmpty()) {
+                owned.remove(uuid);
+                mine = null;
+            }
         }
-        Set<PotionEffectType> mine = owned.computeIfAbsent(player.getUniqueId(), u -> new HashSet<>());
-        for (PotionEffectType type : new HashSet<>(mine)) if (!desired.containsKey(type)) remove(player, type);
+        if (desired.isEmpty()) {
+            return;
+        }
+        if (mine == null) {
+            mine = new HashSet<>();
+            owned.put(uuid, mine);
+        }
         for (var entry : desired.entrySet()) {
-            var current = player.getPotionEffect(entry.getKey());
-            // Never overwrite an effect not issued by this service, even a weaker one.
-            if (current != null && !mine.contains(entry.getKey())) continue;
-            long remaining = expires(guild.id(), entry.getValue().id()) - now;
-            int ticks = (int) Math.min(60, Math.max(1, remaining / 50));
+            PotionEffectType type = entry.getKey();
+            ActiveBuff buff = entry.getValue();
+            long remaining = buff.expiresAt() - now;
+            if (remaining <= 0) {
+                continue;
+            }
+            PotionEffect current = player.getPotionEffect(type);
+            boolean ours = mine.contains(type);
+            // 不覆盖其它插件/药水自己给的效果（即使更弱）
+            if (current != null && !ours) {
+                continue;
+            }
+            // 剩余时间还充足就不必每秒重发，减少药水事件与属性刷新。
+            if (current != null && ours && current.getDuration() > 40
+                    && current.getAmplifier() >= buff.amplifier()) {
+                continue;
+            }
+            int ticks = (int) Math.min(100, Math.max(20, remaining / 50));
             changing = true;
             try {
-                if (player.addPotionEffect(new PotionEffect(entry.getKey(), ticks, entry.getValue().amplifier(), true, false, true))) mine.add(entry.getKey());
-            } finally { changing = false; }
+                if (player.addPotionEffect(new PotionEffect(type, ticks, buff.amplifier(), true, false, true))) {
+                    mine.add(type);
+                }
+            } finally {
+                changing = false;
+            }
         }
-        if (mine.isEmpty()) owned.remove(player.getUniqueId());
     }
     private void remove(Player player, PotionEffectType type) {
         changing = true;

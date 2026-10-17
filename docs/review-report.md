@@ -177,7 +177,7 @@ ls target/Liu-LiuGuild-0.1.0.jar
 - **SCAN 替代 KEYS**：`RedisBridge.onlineServers` 改用游标 `SCAN`，避免在共享 Redis 上阻塞。
 
 ### 生命周期与热重载
-- **区分重载**：新增 `reloadConfig()`（仅配置/消息/定时任务）与 `reloadAll()`（含数据重读）。竞技场/套装/模式等 GUI 与指令编辑只做配置热重载，不再全表重读。
+- **区分重载**：新增 `reloadSettings()`（仅配置/消息/定时任务）与 `reloadAll()`（含数据重读）。竞技场/套装/模式等 GUI 与指令编辑只做配置热重载，不再全表重读。
 - **配置检查**：启动后自动校验并在控制台列出可操作告警（缺经济、缺 HuskHomes/mcMMO、场地/模式引用错误、模板缺失、Redis 未连接等），`/guildadmin status` 同步展示。
 
 ### 权限
@@ -215,7 +215,7 @@ ls target/Liu-LiuGuild-0.1.0.jar
 | **工会战结算/奖励** | 多服重复发 | 仅承办服 `endWar` → `applyRewards`（原有机制，已确认） |
 | **在线心跳** | 互相覆盖 | 每玩家独立 `presence:<uuid>` 键（原有机制，已确认） |
 | **工会变更/公告/聊天** | 重复投递 | 接收端按 `server` 字段跳过来源服（原有机制，已确认） |
-| **配置热重载** | 一次编辑引发全服全表重读 | 自动热重载改为**仅配置**（`reloadConfig`），不再重读工会数据 |
+| **配置热重载** | 一次编辑引发全服全表重读 | 自动热重载改为**仅配置**（`reloadSettings`），不再重读工会数据 |
 
 ### 配置互相覆盖与注释丢失
 
@@ -263,3 +263,82 @@ ls target/Liu-LiuGuild-0.1.0.jar
 
 ### 验证
 - `mvn -o clean package -Dlicense.enabled=false` → **BUILD SUCCESS**，**41** 用例全绿。
+
+
+---
+
+## 十四、0.3.4 稳定性加固（本轮）
+
+针对 0.3.4 的全量复审，落地了以下修复（详细清单见提交说明）：
+
+### 关服与崩溃恢复
+- `async` 在 `onDisable` 后自动降级到 `liuguild-teardown` 收尾线程，`sync/syncDelayed` 直接跳过，避免
+  `IllegalPluginAccessException` 打断 cleanup（此前会导致玩家不还原、临时世界目录残留）。
+- 关服刷写改 upsert，并只对本进程内新建的工会/成员补插；`pendingDisbands` 在关服前补做删除，
+  解决“新建工会丢失 / 已解散工会复活”。
+- 商店上架交接改为背包 before/after 快照精确比对；发货改为 `READY→DELIVERING` 先领取再发，
+  消除“按件数推断吞物品”和“崩溃后重复发货”。
+- 仓库 `loading` 状态在所有失败分支清理，修复“一次 DB 抖动后该玩家永久打不开仓库”。
+
+### 数据一致性
+- `level`/`member_count` 移出整行保存，只走原子 UPDATE（管理员设等级、数据校验收口到专用方法）。
+- 奖励 outbox 改为 `PENDING→PROCESSING` 原子领取；失败退回重试，超限/超时标 FAILED；
+  5 分钟定时补扫；关服时未发完的行退回 PENDING。
+- `database.yml` 加入关键配置名单；非关键配置解析失败不再移动/覆盖用户文件，只复制带时间戳的备份。
+
+### 性能
+- 战斗结算写库移入 `warIo` 单线程；结算分帧每 tick 执行（含启动补偿）。
+- 仓库整仓/背包 NBT 编码移出主线程，持久化改为差量 upsert + 尾部删除。
+- 文本模板预处理缓存、GUI 标题只解析一次、无 `%` 时跳过 PAPI、自定义图标反序列化缓存。
+- 在线心跳改用 pipeline、TTL 由心跳周期推导；僵尸清理/在线人数改用一次 `MGET`。
+- 赛季轮询在无赛事时退避到 5 秒；SQLite 固定单连接并设置 WAL/NORMAL。
+- 工会变更广播按 500ms 窗口合并并在窗口末尾补发。
+
+### 正确性与接口
+- 12 个事件各自持有 `HandlerList`；GUI 只响应左/右键（含 Shift）并加点击冷却；当前图标不可再点（不重复扣费）。
+- 管理面板动作按命令层权限节点校验；补上 `/guildadmin rename` 分发。
+- `/guild create` 标签可选（自动从名称生成）；管理命令数字参数不再静默回落；存款税率默认值改为 5（百分比语义）。
+
+
+---
+
+## 十五、0.3.4 收尾：职责拆分、软依赖与 MySQL 覆盖
+
+### 职责拆分（行为不变，均有测试回归）
+- `GuildManager`（1769 → 1627 行）拆出：
+  - `GuildInvites`：邀请登记、跨服投递、接受/拒绝、过期清理；
+  - `GuildCleanup`：僵尸工会扫描、跨服在线统计、自动清理与历史清理；
+  - `GuildRanking`：排行榜排序缓存。
+- `GuiManager`（2616 → 2557 行）拆出：
+  - `GuiActions`：按钮 id → 动作映射、管理动作 → 权限节点、有效点击类型；
+  - `GuiPlaceholders`：基础/详情/主菜单占位符与 `flatten`。
+- `WarManager` 拆出 `WarRewards`：outbox 行构建、玩家/工会发放、失败退回、指令奖励与占位符。
+- 场地生命周期（世界创建/销毁）仍由 `WarManager` 持有：它与战斗状态机、传送到回调强耦合，
+  为避免行为回归本轮不做进一步拆分。
+
+### 软依赖
+- 对直接引用第三方类的钩子（liudungeon / packetevents / Vault / PlaceholderAPI）先做
+  `PluginManager.getPlugin(...)` 门禁，再构造；缺失时根本不会触发其类初始化。
+- `safe()` 捕获异常时写 FINE 日志，降级不再完全静默。
+- 验证：Java `checkcast` 对 `null` 不会因目标类缺失而抛 `NoClassDefFoundError`（本地字节码实验），
+  所以“`safe()` 返回 null 后赋值”本身是安全的；门禁只是减少无谓异常与日志噪音。
+
+### MySQL 测试
+- 新增 `GuildRepositoryMySqlTest`（默认跳过）：`-Dliuguild.test.mysql=true` 开启，
+  自动建随机测试库、结束删除；覆盖唯一索引、关服 upsert、原子等级/人数、重复入会、
+  奖励并发领取。
+- 已在本地 MariaDB 11.8 上实跑通过，并因此发现并修复：并发领取奖励时 MariaDB 会报
+  `Record has changed since last read`，领取 SELECT 增加 `FOR UPDATE` 行锁后消除（SQLite 不需要）。
+- 说明：CI/生产前仍建议在目标 MySQL 版本上执行该测试。
+
+### 死代码清理
+移除约 400 行未使用代码：`GuildManager.invalidate/recomputeLevel/purgeInactive`、
+`decrementMemberCount`、`ShopService.supply/disabledSupplyLegacy/commitSupply/countsByGuild`、
+`ShopRepository.increment/delete`、`TitleService.displayPlain`、
+`TitleRepository.saveTitle/deleteTitle/loadAllTitles/loadTitles`、
+`WarehouseService.legacyRent/legacyUpgrade/purge/isOpen/busyMessage`。
+
+### 验证
+- `mvn -o test`：251 用例全绿（SQLite 真实 JDBC）。
+- `mvn -o clean package`：BUILD SUCCESS，产物 `target/Liu-LiuGuild-0.3.4.jar`。
+- `GuildRepositoryMySqlTest` 在本地 MariaDB 11.8 上 5 用例全绿（默认跳过）。

@@ -85,8 +85,9 @@ public final class CrossServerBus {
                         + "（不影响单服工会功能；配好 cross-server.redis 后重启即可启用）");
                 return;
             }
-            bridge.subscribe(this::handleIncoming);
-            ready = true;
+            // ready 只在订阅真正建立后置位：否则发起服 publish 成功却收不到自己的回声，
+            // WAR_MATCHED / SEASON_OPEN 这类靠回声生效的消息会丢。
+            bridge.subscribe(this::handleIncoming, () -> ready = true);
             bridge.refreshHeartbeat();
             plugin.getLogger().info("跨服已就绪：server-id=" + conf.serverId
                     + "，Redis " + conf.redisHost + ":" + conf.redisPort
@@ -202,6 +203,29 @@ public final class CrossServerBus {
         return Boolean.TRUE.equals(ok);
     }
 
+    /** 续期结果：区分「锁已不属于我」和「Redis 暂时不可用」，避免一次抖动就丢锁。 */
+    public enum LockState { OK, LOST, UNAVAILABLE }
+
+    /** 续期（三态）：Redis 不可用时返回 UNAVAILABLE，调用方不应丢弃本地会话。 */
+    public LockState refreshLockState(String key, String token, long ttlSeconds) {
+        if (token == null || token.isBlank()) {
+            return LockState.LOST;
+        }
+        if (!bridge.isHealthy()) {
+            return LockState.UNAVAILABLE;
+        }
+        Boolean ok = bridge.withJedis(jedis -> {
+            Object r = jedis.eval(COMPARE_EXPIRE_SCRIPT,
+                    List.of(bridge.prefix() + LOCK_PREFIX + key),
+                    List.of(token, String.valueOf(Math.max(1, ttlSeconds))));
+            return toLong(r) > 0;
+        });
+        if (ok == null) {
+            return LockState.UNAVAILABLE;
+        }
+        return ok ? LockState.OK : LockState.LOST;
+    }
+
     /**
      * 释放锁：仅当锁仍属于该 token 时才删除，避免误删他人刚抢到的锁。
      *
@@ -221,6 +245,12 @@ public final class CrossServerBus {
         });
         return Boolean.TRUE.equals(ok);
     }
+
+    /** 在线状态比对删除：presence 属于本服、name 属于该 UUID 时才删（防止跨服传送竞态）。 */
+    private static final String COMPARE_DELETE_SCRIPT =
+            "if redis.call('get', KEYS[1]) == ARGV[1] then redis.call('del', KEYS[1]) end "
+                    + "if KEYS[2] ~= '' and redis.call('get', KEYS[2]) == ARGV[2] then redis.call('del', KEYS[2]) end "
+                    + "return 1";
 
     /** 比对并删除（原子）。 */
     private static final String COMPARE_DEL_SCRIPT =
@@ -270,11 +300,14 @@ public final class CrossServerBus {
             }
             bridge.refreshHeartbeat();
             bridge.withJedis(jedis -> {
-                int ttl = RedisBridge.HEARTBEAT_TTL_SECONDS;
+                int ttl = bridge.heartbeatTtlSeconds();
+                // 单次 pipeline：2×在线人数 条 SETEX 只付 1 个 RTT，而不是每条一个往返。
+                redis.clients.jedis.Pipeline pipe = jedis.pipelined();
                 for (Player p : snapshot) {
-                    jedis.setex(bridge.keyPresence(p.getUniqueId()), ttl, conf.serverId);
-                    jedis.setex(bridge.keyName(p.getName().toLowerCase(java.util.Locale.ROOT)), ttl, p.getUniqueId().toString());
+                    pipe.setex(bridge.keyPresence(p.getUniqueId()), ttl, conf.serverId);
+                    pipe.setex(bridge.keyName(p.getName().toLowerCase(java.util.Locale.ROOT)), ttl, p.getUniqueId().toString());
                 }
+                pipe.sync();
                 return null;
             });
         });
@@ -286,7 +319,7 @@ public final class CrossServerBus {
             return;
         }
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> bridge.withJedis(jedis -> {
-            int ttl = RedisBridge.HEARTBEAT_TTL_SECONDS;
+            int ttl = bridge.heartbeatTtlSeconds();
             jedis.setex(bridge.keyPresence(uuid), ttl, conf.serverId);
             if (name != null) {
                 jedis.setex(bridge.keyName(name.toLowerCase(java.util.Locale.ROOT)), ttl, uuid.toString());
@@ -299,14 +332,43 @@ public final class CrossServerBus {
         if (!bridge.isHealthyIgnoringDegrade()) {
             return;
         }
-        // Redis 操作为网络 IO，异步执行，避免阻塞主线程（如 PlayerQuitEvent）
+        // Redis 操作为网络 IO，异步执行，避免阻塞主线程（如 PlayerQuitEvent）。
+        // 用 compare-and-delete：玩家从 A 服传到 B 服时，A 的 quit 不能把 B 刚登记的
+        // presence/name 删掉（否则一个心跳周期内跨服邀请/待办解析都会失败）。
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> bridge.withJedis(jedis -> {
-            jedis.del(bridge.keyPresence(uuid));
-            if (name != null) {
-                jedis.del(bridge.keyName(name.toLowerCase(java.util.Locale.ROOT)));
-            }
+            String nameKey = name == null ? "" : bridge.keyName(name.toLowerCase(java.util.Locale.ROOT));
+            jedis.eval(COMPARE_DELETE_SCRIPT,
+                    java.util.List.of(bridge.keyPresence(uuid), nameKey),
+                    java.util.List.of(conf.serverId, uuid.toString()));
             return null;
         }));
+    }
+
+    /**
+     * 批量查询这些 UUID 中在线（任意子服）的数量：单次 MGET，避免逐人 GET 的 N 次往返。
+     *
+     * @return 在线数；Redis 不可用时返回 -1
+     */
+    public int onlineCount(java.util.Collection<UUID> uuids) {
+        if (uuids == null || uuids.isEmpty()) {
+            return 0;
+        }
+        String[] keys = new String[uuids.size()];
+        int i = 0;
+        for (UUID u : uuids) {
+            keys[i++] = bridge.keyPresence(u);
+        }
+        Long n = bridge.withJedis(jedis -> {
+            java.util.List<String> vals = jedis.mget(keys);
+            long online = 0;
+            for (String v : vals) {
+                if (v != null) {
+                    online++;
+                }
+            }
+            return online;
+        });
+        return n == null ? -1 : n.intValue();
     }
 
     /** 玩家当前所在服务器；未知返回 null。 */
@@ -331,24 +393,27 @@ public final class CrossServerBus {
     // 工会战匹配队列
     // =====================================================================
 
-    public void queueGuild(String guildId, Map<String, String> meta) {
-        bridge.withJedis(jedis -> {
+    /** @return true = 已写入 Redis；false = 跨服不可用/写失败（调用方不能提示“已排队”）。 */
+    public boolean queueGuild(String guildId, Map<String, String> meta) {
+        Boolean ok = bridge.withJedis(jedis -> {
             jedis.zadd(bridge.keyWarQueue(), System.currentTimeMillis(), guildId);
             Map<String, String> m = new LinkedHashMap<>(meta);
             m.put("queuedAt", String.valueOf(System.currentTimeMillis()));
             m.put("server", conf.serverId);
             jedis.hset(bridge.keyWarQueueMeta(guildId), m);
             jedis.expire(bridge.keyWarQueueMeta(guildId), 1800);
-            return null;
+            return Boolean.TRUE;
         });
+        return Boolean.TRUE.equals(ok);
     }
 
-    public void dequeueGuild(String guildId) {
-        bridge.withJedis(jedis -> {
+    public boolean dequeueGuild(String guildId) {
+        Boolean ok = bridge.withJedis(jedis -> {
             jedis.zrem(bridge.keyWarQueue(), guildId);
             jedis.del(bridge.keyWarQueueMeta(guildId));
-            return null;
+            return Boolean.TRUE;
         });
+        return Boolean.TRUE.equals(ok);
     }
 
     public boolean isQueued(String guildId) {
@@ -441,11 +506,12 @@ public final class CrossServerBus {
         publish("WAR_STATE", m);
     }
 
-    public void setPendingWar(UUID uuid, String warId) {
-        bridge.withJedis(jedis -> {
+    public boolean setPendingWar(UUID uuid, String warId) {
+        Boolean ok = bridge.withJedis(jedis -> {
             jedis.setex(bridge.keyWarPending(uuid), 180, warId);
-            return null;
+            return Boolean.TRUE;
         });
+        return Boolean.TRUE.equals(ok);
     }
 
     public String consumePendingWar(UUID uuid) {
@@ -459,11 +525,12 @@ public final class CrossServerBus {
     }
 
     /** 跨服竞技场传送：出发服写标记，承办服入职后消费并传送到场地。 */
-    public void setPendingArena(UUID uuid, String arenaId) {
-        bridge.withJedis(jedis -> {
+    public boolean setPendingArena(UUID uuid, String arenaId) {
+        Boolean ok = bridge.withJedis(jedis -> {
             jedis.setex(bridge.keyArenaPending(uuid), 180, arenaId);
-            return null;
+            return Boolean.TRUE;
         });
+        return Boolean.TRUE.equals(ok);
     }
 
     public String consumePendingArena(UUID uuid) {

@@ -72,7 +72,7 @@ public final class Text {
      * 用于 GUI 模板中既显示玩家名（需转义）又显示公告（允许颜色）的场景。
      */
     public static Component fmtSelective(String template, java.util.Set<String> richKeys, Object... kv) {
-        String source = linkCommands(legacyToMini(template == null ? "" : template));
+        String source = prepare(template);
         List<TagResolver> resolvers = new ArrayList<>();
         if (kv != null) {
             for (int i = 0; i + 1 < kv.length; i += 2) {
@@ -87,8 +87,39 @@ public final class Text {
         return MM.deserialize(source, TagResolver.resolver(resolvers));
     }
 
+    /**
+     * 模板预处理缓存（legacyToMini + linkCommands）。模板是有限的配置/消息集合，
+     * 命中率接近 100%，可省掉每条消息两次正则/逐字符扫描；reload 时整体清空。
+     */
+    private static final int PREPARED_CACHE_MAX = 512;
+    private static final java.util.Map<String, String> PREPARED = java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<String, String> eldest) {
+                    return size() > PREPARED_CACHE_MAX;
+                }
+            });
+
+    private static String prepare(String template) {
+        if (template == null || template.isEmpty()) {
+            return "";
+        }
+        String hit = PREPARED.get(template);
+        if (hit != null) {
+            return hit;
+        }
+        String prepared = linkCommands(legacyToMini(template));
+        PREPARED.put(template, prepared);
+        return prepared;
+    }
+
+    /** 配置/消息重载后清空模板缓存（模板内容可能已变化）。 */
+    public static void invalidateCache() {
+        PREPARED.clear();
+    }
+
     private static Component render(String template, boolean richValues, Object... kv) {
-        String source = linkCommands(legacyToMini(template == null ? "" : template));
+        String source = prepare(template);
         List<TagResolver> resolvers = new ArrayList<>();
         if (kv != null) {
             for (int i = 0; i + 1 < kv.length; i += 2) {

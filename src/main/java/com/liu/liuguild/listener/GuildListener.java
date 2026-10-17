@@ -63,6 +63,8 @@ public final class GuildListener implements GuildModule, Listener {
         plugin.bus().clearPresence(event.getPlayer().getUniqueId(), event.getPlayer().getName());
         plugin.guildChat().forget(event.getPlayer());
         plugin.war().onPlayerQuit(event.getPlayer());
+        // Sparrow 会话窗口持有 Player/Inventory，退出时必须清掉。
+        if (plugin.sparrowUi() != null) plugin.sparrowUi().closeWindow(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)

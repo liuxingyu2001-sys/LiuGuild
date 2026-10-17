@@ -39,6 +39,8 @@ public final class ArenaDef {
      * 任意数量的命名出生点，按点名排序后自动分为两组；旁观点不参加分配。
      */
     public final Map<String, Spawn> spawns = new LinkedHashMap<>();
+    /** 出生点名称缓存：每场战斗/tick 会多次读取，避免重复 new+sort。 */
+    private volatile List<String> spawnNameCache;
 
     /** 临时（动态）世界设置，仅在 template 生效且有 liudungeon 时使用。 */
     public final TempWorld tempWorld = new TempWorld();
@@ -119,6 +121,7 @@ public final class ArenaDef {
         a.spawnA = a.teamSpawn("A");
         a.spawnB = a.teamSpawn("B");
         a.spawnSpectator = a.spawns.get("spectator");
+        a.spawnNameCache = null;
     }
 
     private static Spawn defaultSpawn(String name) {
@@ -158,6 +161,10 @@ public final class ArenaDef {
 
     /** 全部非旁观的命名出生点（用于展示 / 管理）。 */
     public List<String> spawnPointNames() {
+        List<String> cached = spawnNameCache;
+        if (cached != null) {
+            return cached;
+        }
         List<String> out = new ArrayList<>();
         for (String k : spawns.keySet()) {
             if (!"spectator".equals(k)) {
@@ -165,7 +172,9 @@ public final class ArenaDef {
             }
         }
         out.sort(String::compareTo);
-        return out;
+        List<String> frozen = List.copyOf(out);
+        spawnNameCache = frozen;
+        return frozen;
     }
 
     private static void readTempWorld(ConfigurationSection sec, TempWorld tw) {

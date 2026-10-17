@@ -36,6 +36,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -94,6 +95,10 @@ public final class LiuGuild extends JavaPlugin {
     private BukkitTask presenceTask;
     private BukkitTask cleanupTask;
     private volatile long configFingerprint;
+    /** 关服中：Bukkit 调度器已拒绝新任务，异步收尾改走自建线程。 */
+    private volatile boolean shuttingDown;
+    /** 关服收尾线程（单线程，daemon）：只执行数据库/文件类的清理，不碰 Bukkit 对象。 */
+    private java.util.concurrent.ExecutorService teardownExecutor;
 
     public static LiuGuild get() {
         return instance;
@@ -106,6 +111,7 @@ public final class LiuGuild extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
+        shuttingDown = false;
         saveDefaultConfig();
 
         // 配置
@@ -124,13 +130,14 @@ public final class LiuGuild extends JavaPlugin {
         }
         repo = new GuildRepository(database);
 
-        // 软依赖钩子（缺失自动降级）
-        economy = safe(EconomyHook::new);
+        // 软依赖钩子（缺失自动降级）。对直接引用第三方类的钩子先做插件存在性判断，
+        // 避免在缺少依赖时触发类初始化失败（虽然 safe() 能兜住，但会多一轮异常且无日志）。
+        economy = hasPlugin("Vault") ? safe(EconomyHook::new) : null;
         pass = safe(() -> new PassHook(this));
         craftEngine = safe(CraftEngineHook::new);
-        dungeon = safe(() -> new DungeonHook(this));
+        dungeon = hasPlugin("liudungeon") ? safe(() -> new DungeonHook(this)) : null;
         sparrow = safe(SparrowSyncHook::new);
-        papi = safe(PapiHook::new);
+        papi = hasPlugin("PlaceholderAPI") ? safe(PapiHook::new) : null;
         playerTitle = safe(PlayerTitleHook::new);
         luckyPeaches = safe(LuckyPeachesHook::new);
         notBounties = safe(() -> new NotBountiesHook(this));
@@ -138,7 +145,7 @@ public final class LiuGuild extends JavaPlugin {
         guildHome = safe(() -> new com.liu.liuguild.hook.GuildHomeHook(this));
         sparrowUi = safe(() -> new com.liu.liuguild.hook.SparrowUiHook(this));
         if (sparrowUi != null) sparrowUi.init();
-        packetEvents = safe(() -> new com.liu.liuguild.hook.PacketEventsHook(this));
+        packetEvents = hasPlugin("packetevents") ? safe(() -> new com.liu.liuguild.hook.PacketEventsHook(this)) : null;
         if (packetEvents != null) packetEvents.init();
         liuShop = safe(() -> new com.liu.liuguild.hook.LiuShopHook(this));
         if (liuShop != null) liuShop.init();
@@ -201,8 +208,13 @@ public final class LiuGuild extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        // 先置关服标志：此后 async 不再走 Bukkit 调度器（插件已禁用时会抛
+        // IllegalPluginAccessException，把 cleanup 链整条打断），改为自建线程收尾。
+        shuttingDown = true;
         if (pass != null) pass.close();
         if (guildChat != null) guildChat.close();
+        if (packetEvents != null) packetEvents.close();
+        if (sparrowUi != null) sparrowUi.clearSessions();
         if (modules != null) {
             modules.disableAll();
         }
@@ -221,6 +233,8 @@ public final class LiuGuild extends JavaPlugin {
         if (cleanupTask != null) {
             cleanupTask.cancel();
         }
+        // 关服收尾线程里的删除只依赖数据库：必须在关池前排队完成。
+        drainTeardown(5000L);
         if (guilds != null && database != null) {
             guilds.saveAllSync();
         }
@@ -272,7 +286,7 @@ public final class LiuGuild extends JavaPlugin {
      * 导致 Bukkit 首次调用 {@code getConfig()} 时进入本方法而 NPE。</p>
      */
     public void reloadSettings() {
-        if (configManager == null) {
+        if (configManager == null || shuttingDown) {
             return;
         }
         configManager.load();
@@ -324,8 +338,15 @@ public final class LiuGuild extends JavaPlugin {
         try {
             return supplier.get();
         } catch (Throwable t) {
+            // 降级是预期行为，但不能完全静默：debug 日志里能看到是哪个可选组件初始化失败。
+            getLogger().fine("可选组件初始化失败，已降级: " + t);
             return null;
         }
+    }
+
+    /** 软依赖是否已安装（不触发其类加载）。 */
+    private boolean hasPlugin(String name) {
+        return getServer().getPluginManager().getPlugin(name) != null;
     }
 
     // =====================================================================
@@ -480,20 +501,100 @@ public final class LiuGuild extends JavaPlugin {
 
     // ---- 调度 ----
 
+    /**
+     * 异步执行。
+     * <p>关服后 Bukkit 调度器会拒绝注册任务（{@code IllegalPluginAccessException}），
+     * 这里降级到自建收尾线程，保证托管装备清理、临时世界目录删除等收尾 IO 不被中断。</p>
+     */
     public void async(Runnable task) {
-        getServer().getScheduler().runTaskAsynchronously(this, task);
+        if (task == null) {
+            return;
+        }
+        if (!shuttingDown && isEnabled()) {
+            try {
+                getServer().getScheduler().runTaskAsynchronously(this, task);
+                return;
+            } catch (IllegalPluginAccessException ignored) {
+                // 与 onDisable 并发时降级到收尾线程
+            }
+        }
+        runTeardown(task);
     }
 
     public void sync(Runnable task) {
+        if (task == null) {
+            return;
+        }
         if (Bukkit.isPrimaryThread()) {
             task.run();
-        } else {
-            getServer().getScheduler().runTask(this, task);
+            return;
+        }
+        if (!shuttingDown && isEnabled()) {
+            try {
+                getServer().getScheduler().runTask(this, task);
+                return;
+            } catch (IllegalPluginAccessException ignored) {
+                // 关服中无法再排主线程任务，直接跳过（此时只剩收尾状态回写）
+            }
         }
     }
 
     public void syncDelayed(Runnable task, long delayTicks) {
-        getServer().getScheduler().runTaskLater(this, task, Math.max(0, delayTicks));
+        if (task == null) {
+            return;
+        }
+        if (shuttingDown || !isEnabled()) {
+            return;
+        }
+        try {
+            getServer().getScheduler().runTaskLater(this, task, Math.max(0, delayTicks));
+        } catch (IllegalPluginAccessException ignored) {
+        }
+    }
+
+    private java.util.concurrent.ExecutorService teardown() {
+        java.util.concurrent.ExecutorService ex = teardownExecutor;
+        if (ex != null) {
+            return ex;
+        }
+        synchronized (this) {
+            if (teardownExecutor == null) {
+                teardownExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                    Thread t = new Thread(r, "liuguild-teardown");
+                    t.setDaemon(true);
+                    return t;
+                });
+            }
+            return teardownExecutor;
+        }
+    }
+
+    private void runTeardown(Runnable task) {
+        try {
+            teardown().execute(task);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // 收尾线程已关闭（插件已完全卸载）：尽力执行，异常由任务自身兜住。
+            try {
+                task.run();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 等待收尾线程完成已排队的 IO，再关闭（不接收新任务）。 */
+    private void drainTeardown(long millis) {
+        java.util.concurrent.ExecutorService ex = teardownExecutor;
+        if (ex == null) {
+            return;
+        }
+        ex.shutdown();
+        try {
+            if (!ex.awaitTermination(millis, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                getLogger().warning("关服收尾任务仍在执行，已超时（剩余任务可能未完成）");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     // ---- 跨服工会数据同步 ----
@@ -511,11 +612,35 @@ public final class LiuGuild extends JavaPlugin {
         async(() -> bus.publish(type, data));
     }
 
-    /** 广播某工会数据已变更，令其它子服重载。 */
+    /** 同一工会的变更广播合并窗口（毫秒）：高频资金发放不再逐笔触发其它子服重载。 */
+    private static final long GUILD_BROADCAST_MIN_MS = 500L;
+    private final java.util.Map<String, Long> lastGuildBroadcast = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<String> trailingGuildBroadcast = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** 广播某工会数据已变更，令其它子服重载（窗口内合并，结束时补发一次保证最终一致）。 */
     public void broadcastGuildChange(String guildId) {
         if (bus == null || guildId == null) {
             return;
         }
+        long now = System.currentTimeMillis();
+        Long last = lastGuildBroadcast.get(guildId);
+        if (last != null && now - last < GUILD_BROADCAST_MIN_MS) {
+            if (trailingGuildBroadcast.add(guildId)) {
+                syncDelayed(() -> {
+                    trailingGuildBroadcast.remove(guildId);
+                    sendGuildChanged(guildId);
+                }, 12L);
+            }
+            return;
+        }
+        sendGuildChanged(guildId);
+        if (lastGuildBroadcast.size() > 2000) {
+            lastGuildBroadcast.entrySet().removeIf(e -> now - e.getValue() > 5L * 60L * 1000L);
+        }
+    }
+
+    private void sendGuildChanged(String guildId) {
+        lastGuildBroadcast.put(guildId, System.currentTimeMillis());
         publishAsync("GUILD_CHANGED", com.liu.liuguild.crossserver.CrossServerBus.map(
                 "guild", guildId, "server", serverId()));
     }
@@ -607,8 +732,9 @@ public final class LiuGuild extends JavaPlugin {
         out.add("&7语言: &f" + s.main.language + " &7自动重载: &f" + s.main.autoReload);
         // 数据库
         try (var c = database.source().getConnection()) {
+            // 只借一次连接：healthy() 会再开一次连接 + SELECT 1，状态命令没必要付两次往返。
             out.add("&7存储: &f" + (database.isSqlite() ? "SQLite" : "MySQL")
-                    + " &7健康: &f" + database.healthy() + " &7连接有效: &f" + c.isValid(2));
+                    + " &7连接有效: &f" + c.isValid(2));
         } catch (Throwable t) {
             out.add("&7存储: &c异常 (" + t.getMessage() + ")");
         }

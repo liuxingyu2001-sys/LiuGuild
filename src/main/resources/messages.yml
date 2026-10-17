@@ -369,6 +369,8 @@ zh_CN:
 
   # ---- 图标 ----
   set-icon: "<green>工会图标已更换为 <white>{icon}</white>。"
+  set-icon-same: "<yellow>这已经是当前使用的图标，不会重复扣费。"
+  wh-lock-lost: "<yellow>仓库会话已失效（锁过期或跨服连接中断），已关闭界面以防数据冲突，请重新打开。"
   set-icon-unknown: "<red>未知的图标：<white>{icon}</white>。"
   set-icon-no-permission: "<red>你没有权限使用该图标。"
 

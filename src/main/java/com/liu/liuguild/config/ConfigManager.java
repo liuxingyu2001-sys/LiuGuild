@@ -23,7 +23,7 @@ public final class ConfigManager {
 
     /** 这些配置损坏时不能静默重建，否则可能重置数据库/跨服/仓库等关键状态。 */
     private static final java.util.Set<String> CRITICAL_CONFIGS = java.util.Set.of(
-            "config.yml", "server.yml", "cross-server.yml", "warehouse.yml", "buffs.yml");
+            "config.yml", "server.yml", "cross-server.yml", "database.yml", "warehouse.yml", "buffs.yml");
 
     private static String redact(String path, Object value) {
         String p = path == null ? "" : path.toLowerCase(java.util.Locale.ROOT);
@@ -171,6 +171,7 @@ public final class ConfigManager {
 
         messages.copyDefault();
         messages.reload(main.language);
+        com.liu.liuguild.util.Text.invalidateCache();
     }
 
     /** 游戏内编辑直接保存到共享目录中的同名 YAML。 */
@@ -187,9 +188,41 @@ public final class ConfigManager {
         }
     }
 
+    /**
+     * 批量写入同一文件：一次加锁、一次读盘、一次原子写。
+     * <p>GUI/指令一次改多个键（如设置出生点的 7 个字段）时避免 N 次整文件读改写。</p>
+     */
+    public boolean setAll(String fileName, java.util.Map<String, Object> values) {
+        if (values == null || values.isEmpty()) {
+            return true;
+        }
+        if (!java.util.Arrays.asList(MODULES).contains(fileName)) {
+            return false;
+        }
+        try {
+            updateFile(configRoot, fileName, values);
+            return true;
+        } catch (Exception e) {
+            plugin.getLogger().warning("保存配置 " + fileName + " 失败，原文件保留: " + e.getMessage());
+            return false;
+        }
+    }
+
     /** 删除直接从配置文件移除节点。 */
     public boolean remove(String fileName, String path) {
         return set(fileName, path, null);
+    }
+
+    static void updateFile(File root, String name, java.util.Map<String, Object> values) throws Exception {
+        withConfigLock(root, () -> {
+            YamlConfiguration config = new YamlConfiguration();
+            config.options().parseComments(true);
+            config.load(new File(root, name));
+            for (var e : values.entrySet()) {
+                config.set(e.getKey(), e.getValue());
+            }
+            atomicSave(config, new File(root, name));
+        });
     }
 
     /** 从磁盘重新读取，避免用本服内存配置覆盖其它服的修改或写入 server.yml 的本服值。 */
@@ -219,6 +252,10 @@ public final class ConfigManager {
 
     /** 旧覆盖层只迁移一次；成功保存并备份后才删除旧文件。 */
     private void migrateLegacyOverrides() {
+        // 迁移只用于旧版本升级；overrides/ 不存在时不必为 14 个模块各抢一次文件锁。
+        if (!overrideRoot.isDirectory()) {
+            return;
+        }
         for (String name : MODULES) {
             try {
                 if (migrateLegacyFile(configRoot, name)) {
@@ -393,40 +430,42 @@ public final class ConfigManager {
             return fallback;
         }
         YamlConfiguration cfg = new YamlConfiguration();
-        boolean parsed = true;
         try {
             cfg.load(f);
         } catch (Exception e) {
             if (CRITICAL_CONFIGS.contains(name)) {
+                // 数据库/跨服/经济等关键配置损坏时不能带默认值启动，否则可能连到空库或换服。
                 throw new IllegalArgumentException(name + " 解析失败，保留原文件和现有运行配置", e);
             }
-            parsed = false;
-            plugin.getLogger().warning("配置 " + name + " 解析失败，将用内置默认重建: " + e.getMessage());
+            // 其余模块：保留用户文件（绝不覆盖，坐标/价格/菜单都是人工成果），
+            // 本次加载退回内置默认并复制一份带时间戳的备份供排查。
+            plugin.getLogger().severe("配置 " + name + " 解析失败，本次使用内置默认值（原文件保持不变）: "
+                    + e.getMessage());
+            backupBroken(f);
+            YamlConfiguration fresh = new YamlConfiguration();
+            readResourceInto(fresh, name);
+            return fresh;
         }
-        if (parsed) {
-            // 升级兼容：新版本新增的 GUI 菜单/按钮自动补齐（不覆盖已有值）。
-            if (MERGE_DEFAULT_MODULES.contains(name)) {
-                YamlConfiguration defaults = new YamlConfiguration();
-                readResourceInto(defaults, name);
-                fillMissing(cfg, defaults);
-            }
-            return cfg;
+        // 升级兼容：新版本新增的 GUI 菜单/按钮自动补齐（不覆盖已有值）。
+        if (MERGE_DEFAULT_MODULES.contains(name)) {
+            YamlConfiguration defaults = new YamlConfiguration();
+            readResourceInto(defaults, name);
+            fillMissing(cfg, defaults);
         }
-        File broken = new File(configRoot, name + ".broken");
+        return cfg;
+    }
+
+    /** 复制（而不是移动/覆盖）损坏配置，保留现场且不破坏上一次备份。 */
+    private void backupBroken(File file) {
         try {
-            Files.move(f.toPath(), broken.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            plugin.getLogger().warning("备份损坏配置 " + name + " 失败: " + e.getMessage());
+            File backups = new File(configRoot, "broken-backups");
+            Files.createDirectories(backups.toPath());
+            File target = new File(backups, file.getName() + "." + System.currentTimeMillis() + ".broken");
+            Files.copy(file.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            plugin.getLogger().warning("已备份疑似损坏的配置到 " + target.getName() + "（未覆盖原文件）");
+        } catch (Exception e) {
+            plugin.getLogger().warning("备份疑似损坏的配置 " + file.getName() + " 失败: " + e.getMessage());
         }
-        YamlConfiguration fresh = new YamlConfiguration();
-        readResourceInto(fresh, name);
-        try {
-            atomicSave(fresh, f);
-            plugin.getLogger().warning("已用内置默认重建 " + name + "（原文件备份为 " + broken.getName() + "）。");
-        } catch (IOException e) {
-            plugin.getLogger().severe("重建默认配置 " + name + " 失败: " + e.getMessage());
-        }
-        return fresh;
     }
 
     /** 把 defaults 中缺失的叶子键补进 target（target 已有值不受影响）。 */

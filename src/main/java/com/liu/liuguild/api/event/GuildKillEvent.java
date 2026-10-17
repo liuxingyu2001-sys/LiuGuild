@@ -2,9 +2,21 @@ package com.liu.liuguild.api.event;
 
 import com.liu.liuguild.model.GuildWar;
 import org.bukkit.entity.Player;
+import org.bukkit.event.HandlerList;
 
 /** 工会战中的一次击杀（分数已计入）。 */
 public class GuildKillEvent extends GuildWarEvent {
+
+    private static final HandlerList HANDLERS = new HandlerList();
+
+    @Override
+    public HandlerList getHandlers() {
+        return HANDLERS;
+    }
+
+    public static HandlerList getHandlerList() {
+        return HANDLERS;
+    }
 
     private final Player killer;
     private final Player victim;

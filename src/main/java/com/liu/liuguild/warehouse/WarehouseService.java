@@ -53,6 +53,7 @@ public final class WarehouseService implements GuildModule, Listener {
     private volatile boolean running;
     private volatile long lifecycle;
     private BukkitTask heartbeatTask;
+    private BukkitTask purgeTask;
 
     /** 已打开的仓库（玩家 → 会话），用于关服/掉线时兜底保存。 */
     private final Map<UUID, Open> open = new ConcurrentHashMap<>();
@@ -156,12 +157,23 @@ public final class WarehouseService implements GuildModule, Listener {
         lifecycle++;
         Bukkit.getPluginManager().registerEvents(this, plugin);
         long period = lock.heartbeatSeconds() * 20L;
+        // 心跳保持轻量：只续期，避免 DB 慢时把续期一起拖到锁超时。
         heartbeatTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
-            if (!running) return;
-            lock.heartbeat();
-            try { repo.cleanExpired(plugin.settings().warehouse, System.currentTimeMillis()); }
-            catch (Exception e) { plugin.getLogger().warning("空间过期清理失败: " + e.getMessage()); }
+            if (running) lock.heartbeat();
         }, period, period);
+        // 过期清理按分钟级执行，并用 Redis 抢锁保证多服只跑一台（保留期本来就是“天”粒度）。
+        purgeTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+            if (!running) return;
+            if (plugin.bus() != null && plugin.bus().isReady()
+                    && !plugin.bus().acquireOnce("warehouse-purge", 300)) {
+                return;
+            }
+            try {
+                repo.cleanExpired(plugin.settings().warehouse, System.currentTimeMillis());
+            } catch (Exception e) {
+                plugin.getLogger().warning("空间过期清理失败: " + e.getMessage());
+            }
+        }, 20L * 60L * 5L, 20L * 60L * 5L);
     }
 
     @Override
@@ -173,6 +185,10 @@ public final class WarehouseService implements GuildModule, Listener {
         if (heartbeatTask != null) {
             heartbeatTask.cancel();
             heartbeatTask = null;
+        }
+        if (purgeTask != null) {
+            purgeTask.cancel();
+            purgeTask = null;
         }
         for (Open o : open.values()) {
             o.closed = true;
@@ -283,7 +299,11 @@ public final class WarehouseService implements GuildModule, Listener {
         }
         final long openedLifecycle = lifecycle;
         UUID uuid = player.getUniqueId();
-        if (!loading.add(uuid)) return false;
+        if (!loading.add(uuid)) {
+            // 上一次恢复/打开尚未结束：给出提示，避免玩家以为命令没生效。
+            plugin.messages().send(player, "wh-busy");
+            return false;
+        }
         player.closeInventory();
         // 先处理上次崩溃遗留的背包/仓库交接，再允许重新打开。
         recoverPending(player, () -> openNow(player, g, openedLifecycle, uuid));
@@ -313,14 +333,28 @@ public final class WarehouseService implements GuildModule, Listener {
                 version = repo.loadSnapshot(pending.guildId()).version();
             } catch (Exception e) {
                 plugin.getLogger().warning("读取仓库交接记录失败: " + e.getMessage());
+                // 不能让 loading 永久占位：否则该玩家之后每次打开仓库都会被静默拒绝。
+                plugin.sync(() -> failOpen(player, "wh-storage-failed"));
                 return;
             }
             plugin.sync(() -> applyPending(player, pending, version, after));
         });
     }
 
+    /** 恢复/打开失败时清理 loading 并给玩家可见提示（主线程）。 */
+    private void failOpen(Player player, String messageKey) {
+        UUID uuid = player.getUniqueId();
+        loading.remove(uuid);
+        if (player.isOnline() && messageKey != null) {
+            plugin.messages().send(player, messageKey);
+        }
+    }
+
     private void applyPending(Player player, WarehouseRepository.Pending pending, long version, Runnable after) {
-        if (!player.isOnline()) return;
+        if (!player.isOnline()) {
+            loading.remove(player.getUniqueId());
+            return;
+        }
         UUID uuid = player.getUniqueId();
         try {
             ItemStack[] current = cloneItems(player.getInventory().getStorageContents());
@@ -334,6 +368,7 @@ public final class WarehouseService implements GuildModule, Listener {
                 } else {
                     plugin.getLogger().severe("仓库交接恢复失败：玩家 " + player.getName()
                             + " 背包已变化，保留记录待人工处理。pending=" + pending.sessionToken());
+                    failOpen(player, "wh-storage-failed");
                     return;
                 }
             }
@@ -346,6 +381,7 @@ public final class WarehouseService implements GuildModule, Listener {
             });
         } catch (Exception e) {
             plugin.getLogger().warning("恢复仓库交接失败: " + e.getMessage());
+            failOpen(player, "wh-storage-failed");
         }
     }
 
@@ -661,73 +697,7 @@ public final class WarehouseService implements GuildModule, Listener {
         });
     }
 
-    private void legacyRent(Player player, Guild g, int days) {
-        if (player == null || g == null) {
-            return;
-        }
-        var c = plugin.settings().guild;
-        if (!c.warehouseEnabled) {
-            plugin.messages().send(player, "wh-disabled");
-            return;
-        }
-        if (!c.warehouseRequireRent) {
-            plugin.messages().send(player, "wh-rent-not-needed");
-            return;
-        }
-        if (!canManage(g, player)) {
-            plugin.messages().send(player, "wh-no-permission");
-            return;
-        }
-        if (days <= 0) {
-            plugin.messages().send(player, "wh-rent-invalid");
-            return;
-        }
-        long now = System.currentTimeMillis();
-        long maxMs = c.warehouseRentMaxDays > 0 ? c.warehouseRentMaxDays * DAY_MILLIS : Long.MAX_VALUE;
-        long base = Math.max(now, g.warehouseExpiresAt());
-        long after = base > Long.MAX_VALUE - (long) days * DAY_MILLIS
-                ? Long.MAX_VALUE : base + (long) days * DAY_MILLIS;
-        if (after - now > maxMs) {
-            plugin.messages().send(player, "wh-rent-max", "max", String.valueOf(c.warehouseRentMaxDays));
-            return;
-        }
-        long cost = com.liu.liuguild.config.GuildSettings.warehouseRentCost(c.warehouseRentPricePerDay, days);
-        if (g.points() < cost) {
-            plugin.messages().send(player, "wh-points-low",
-                    "cost", String.valueOf(cost), "points", String.valueOf(g.points()));
-            return;
-        }
-        long durationMs = (long) days * DAY_MILLIS;
-        plugin.async(() -> {
-            boolean ok;
-            try {
-                ok = plugin.repo().rentWarehouse(g.id(), cost, now, durationMs);
-            } catch (Exception e) {
-                plugin.getLogger().warning("购买工会仓库时长失败: " + e.getMessage());
-                ok = false;
-            }
-            // 原子写入后在同一异步任务里回读，拿到精确的新点数/到期时间，
-            // 避免用 reloadGuild 造成主线程读到旧缓存（界面不会刷新）。
-            final boolean success = ok;
-            Guild fresh = success ? loadFresh(g.id()) : null;
-            plugin.sync(() -> {
-                if (!success) {
-                    plugin.messages().send(player, "wh-rent-failed");
-                    return;
-                }
-                applyWarehouseState(g.id(), fresh);
-                plugin.broadcastGuildChange(g.id());
-                plugin.messages().send(player, "wh-rent-success",
-                        "days", String.valueOf(days), "cost", String.valueOf(cost));
-                if (player.isOnline()) {
-                    Guild shown = plugin.guilds().guild(g.id());
-                    openMenu(player, shown == null ? g : shown);
-                }
-            });
-        });
-    }
-
-    /** 异步读取工会行；失败返回 null。 */
+        /** 异步读取工会行；失败返回 null。 */
     private Guild loadFresh(String guildId) {
         try {
             return plugin.repo().loadGuild(guildId);
@@ -754,61 +724,7 @@ public final class WarehouseService implements GuildModule, Listener {
         cached.warehouseExpiresAt(fresh.warehouseExpiresAt());
     }
 
-    /** 用工会点数（工会资金）升级仓库容量。 */
-    private void legacyUpgrade(Player player, Guild g) {
-        if (player == null || g == null) {
-            return;
-        }
-        var c = plugin.settings().guild;
-        if (!c.warehouseEnabled) {
-            plugin.messages().send(player, "wh-disabled");
-            return;
-        }
-        if (!canManage(g, player)) {
-            plugin.messages().send(player, "wh-no-permission");
-            return;
-        }
-        long cost = nextUpgradeCost(g);
-        if (cost < 0) {
-            plugin.messages().send(player, "wh-upgrade-max", "max", String.valueOf(c.warehouseMaxLevel));
-            return;
-        }
-        if (g.points() < cost) {
-            plugin.messages().send(player, "wh-points-low",
-                    "cost", String.valueOf(cost), "points", String.valueOf(g.points()));
-            return;
-        }
-        int expected = g.warehouseLevel();
-        plugin.async(() -> {
-            boolean ok;
-            try {
-                ok = plugin.repo().upgradeWarehouse(g.id(), cost, expected);
-            } catch (Exception e) {
-                plugin.getLogger().warning("升级工会仓库失败: " + e.getMessage());
-                ok = false;
-            }
-            final boolean success = ok;
-            Guild fresh = success ? loadFresh(g.id()) : null;
-            plugin.sync(() -> {
-                if (!success) {
-                    plugin.messages().send(player, "wh-upgrade-failed");
-                    return;
-                }
-                applyWarehouseState(g.id(), fresh);
-                plugin.broadcastGuildChange(g.id());
-                Guild shown = plugin.guilds().guild(g.id());
-                plugin.messages().send(player, "wh-upgrade-success",
-                        "level", String.valueOf(expected + 1),
-                        "cost", String.valueOf(cost),
-                        "slots", String.valueOf(slotsFor(shown == null ? g : shown)));
-                if (player.isOnline()) {
-                    openMenu(player, shown == null ? g : shown);
-                }
-            });
-        });
-    }
-
-    /** 把毫秒时长格式化成「N天N小时」之类的中文描述。 */
+        /** 把毫秒时长格式化成「N天N小时」之类的中文描述。 */
     static String formatDuration(long millis) {
         if (millis == Long.MAX_VALUE) {
             return "永久";
@@ -917,25 +833,39 @@ public final class WarehouseService implements GuildModule, Listener {
 
     /** 保存候选内容，再在主线程校验背包快照。背包变动或掉线时回滚仓库，不发货。 */
     private void commit(Player p, Open o, WarehouseContents next, ItemStack[] before, ItemStack[] after) {
-        Map<Integer, WarehouseRepository.Stored> encoded = new LinkedHashMap<>();
-        int index = 0;
-        for (var e : next.entries()) {
-            String data = ItemCodec.encode(e.sample());
-            if (data == null) { plugin.messages().send(p, "wh-storage-failed"); return; }
-            encoded.put(index++, new WarehouseRepository.Stored(data, e.amount()));
-        }
-        Map<Integer, WarehouseRepository.Stored> previous = new LinkedHashMap<>();
-        index = 0;
-        for (var e : o.contents.entries()) previous.put(index++, new WarehouseRepository.Stored(ItemCodec.encode(e.sample()), e.amount()));
-        // 先记录“从 before 到 after”的交接，再提交仓库。崩溃后按数据库版本决定是否补做背包变更。
-        final String beforeData = ItemUtil.encode(before);
-        final String afterData = ItemUtil.encode(after);
-        if (beforeData == null || afterData == null || beforeData.isBlank() || afterData.isBlank()) {
-            plugin.messages().send(p, "wh-storage-failed");
-            return;
-        }
+        // 主线程只持有快照；整仓/背包的 NBT 序列化（可能上万次 serializeAsBytes）全部放到异步，
+        // 避免一次仓库存取卡主线程。busy 期间不会再有为该会话生成新内容。
+        final WarehouseContents previousContents = o.contents;
         o.busy = true;
         plugin.async(() -> {
+            Map<Integer, WarehouseRepository.Stored> encoded = new LinkedHashMap<>();
+            int index = 0;
+            for (var e : next.entries()) {
+                String data = ItemCodec.encode(e.sample());
+                if (data == null) {
+                    plugin.sync(() -> {
+                        o.busy = false;
+                        plugin.messages().send(p, "wh-storage-failed");
+                    });
+                    return;
+                }
+                encoded.put(index++, new WarehouseRepository.Stored(data, e.amount()));
+            }
+            Map<Integer, WarehouseRepository.Stored> previous = new LinkedHashMap<>();
+            index = 0;
+            for (var e : previousContents.entries()) {
+                previous.put(index++, new WarehouseRepository.Stored(ItemCodec.encode(e.sample()), e.amount()));
+            }
+            // 先记录“从 before 到 after”的交接，再提交仓库。崩溃后按数据库版本决定是否补做背包变更。
+            final String beforeData = ItemUtil.encode(before);
+            final String afterData = ItemUtil.encode(after);
+            if (beforeData == null || afterData == null || beforeData.isBlank() || afterData.isBlank()) {
+                plugin.sync(() -> {
+                    o.busy = false;
+                    plugin.messages().send(p, "wh-storage-failed");
+                });
+                return;
+            }
             boolean saved;
             try {
                 repo.savePending(o.player, o.guildId, o.sessionToken, o.version, beforeData, afterData);
@@ -1149,26 +1079,4 @@ public final class WarehouseService implements GuildModule, Listener {
         if (p != null) p.closeInventory();
     }
 
-    /** 清空某工会仓库（解散工会）。 */
-    public void purge(String guildId) {
-        plugin.async(() -> {
-            try {
-                repo.deleteAll(guildId);
-            } catch (Exception e) {
-                plugin.getLogger().warning("清空工会仓库失败: " + e.getMessage());
             }
-        });
-    }
-
-    public boolean isOpen(UUID player) {
-        return open.containsKey(player);
-    }
-
-    /** 供 GUI 点击入口使用。 */
-    public Component busyMessage(String guildId) {
-        String who = lock.localHolderName(guildId);
-        return who == null
-                ? plugin.messages().component("wh-busy")
-                : plugin.messages().component("wh-busy-player", "player", who);
-    }
-}

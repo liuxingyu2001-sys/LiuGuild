@@ -184,7 +184,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             return;
         }
         String name = args[1];
-        String tag = args.length >= 3 ? args[2] : name;
+        // 标签可选：不传时由 GuildManager 从名称生成，避免长名称因标签超长而创建失败。
+        String tag = args.length >= 3 ? args[2] : null;
         plugin.guilds().create(player, name, tag);
     }
 
