@@ -677,6 +677,49 @@ public final class GuildRepository {
         }
     }
 
+    /** 清理工会仓库租期/等级（不删除仓库存物）。 */
+    public void resetWarehouse(String guildId) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                     + "` SET `warehouse_expires_at`=0,`warehouse_level`=0,"
+                     + "`warehouse_level_expires_at`=0,`warehouse_permanent_level`=0 WHERE `guild_id`=?")) {
+            ps.setString(1, guildId);
+            ps.executeUpdate();
+        }
+    }
+
+    /** 重置活跃度时间/当日活跃额度（不删除工会本身）。 */
+    public void resetActivity(String guildId, long now) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                     + "` SET `last_active_at`=?,`activity_day`=0,`activity_earned`=0 WHERE `guild_id`=?")) {
+            ps.setLong(1, now);
+            ps.setString(2, guildId);
+            ps.executeUpdate();
+        }
+    }
+
+    /** 重置工会胜负场。 */
+    public void resetGuildStats(String guildId) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                     + "` SET `wins`=0,`losses`=0 WHERE `guild_id`=?")) {
+            ps.setString(1, guildId);
+            ps.executeUpdate();
+        }
+    }
+
+    /** 重置工会所有成员的贡献/击杀/死亡/签到。 */
+    public void resetMemberStats(String guildId) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_members")
+                     + "` SET `contributed`=0,`kills`=0,`deaths`=0,`last_checkin`=0,`checkin_streak`=0"
+                     + " WHERE `guild_id`=?")) {
+            ps.setString(1, guildId);
+            ps.executeUpdate();
+        }
+    }
+
     public void deleteGuild(String id) throws SQLException {
         deleteGuild(id, 0);
     }

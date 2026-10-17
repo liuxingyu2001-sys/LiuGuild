@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -825,5 +826,141 @@ class GuildRepositoryTest {
         repo.saveWarOrigin(new WarOrigin("war-3", player, "zy", "world", 1, 2, 3, 0f, 0f));
         repo.deleteWarOrigin(player);
         assertNull(repo.loadWarOrigin(player));
+    }
+
+    @Test
+    void auditLogRoundTripAndPurge() throws Exception {
+        GuildAuditRepository audit = new GuildAuditRepository(db);
+        UUID actor = UUID.randomUUID();
+        audit.insert(new AuditEntry("a-1", "g-1", actor, "Tester", "bank.deposit", null, 100, "balance=100",
+                System.currentTimeMillis()));
+        audit.insert(new AuditEntry("a-2", "g-1", actor, "Tester", "shop.buy", "listing-1", 50, "item=STONE",
+                System.currentTimeMillis() + 1));
+        audit.insert(new AuditEntry("a-3", "g-2", null, null, "admin.disband", null, 0, "name=Other",
+                System.currentTimeMillis() + 2));
+
+        var recent = audit.recent("g-1", 10);
+        assertEquals(2, recent.size());
+        assertEquals("a-2", recent.get(0).id(), "按时间倒序");
+        assertEquals("shop.buy", recent.get(0).action());
+        assertEquals(50, recent.get(0).amount());
+        assertEquals(3, audit.recentAll(10).size());
+
+        assertTrue(audit.purgeBefore(System.currentTimeMillis() + 10_000L) >= 3);
+        assertTrue(audit.recentAll(10).isEmpty());
+    }
+
+    @Test
+    void warStatsRoundTripAndMvpOrdering() throws Exception {
+        WarStatsRepository stats = new WarStatsRepository(db);
+        long now = System.currentTimeMillis();
+        UUID a = UUID.randomUUID(), b = UUID.randomUUID();
+        stats.save(List.of(
+                new WarPlayerStat("war-s", a, "Alpha", "g-1", "A", 5, 1, 300, true, now),
+                new WarPlayerStat("war-s", b, "Bravo", "g-2", "B", 2, 4, 200, false, now)));
+
+        var loaded = stats.load("war-s");
+        assertEquals(2, loaded.size());
+        assertEquals("Alpha", loaded.get(0).playerName(), "MVP 排在最前");
+        assertTrue(loaded.get(0).mvp());
+        assertEquals(5, loaded.get(0).kills());
+        assertEquals(300, loaded.get(0).survivedSeconds());
+
+        // 重复结算 upsert 不产生重复行
+        stats.save(List.of(new WarPlayerStat("war-s", a, "Alpha2", "g-1", "A", 6, 1, 320, true, now)));
+        var again = stats.load("war-s");
+        assertEquals(2, again.size());
+        assertEquals("Alpha2", again.get(0).playerName());
+        assertEquals(6, again.get(0).kills());
+
+        assertTrue(stats.purgeBefore(now + 10_000L) >= 2);
+        assertTrue(stats.load("war-s").isEmpty());
+    }
+
+    @Test
+    void mailRoundTripUnreadAndPurge() throws Exception {
+        MailRepository mail = new MailRepository(db);
+        UUID player = UUID.randomUUID();
+        long now = System.currentTimeMillis();
+        mail.insertMany(List.of(
+                new MailEntry("m-1", "g-1", player, "war.result", "胜利", "比分 5:3", now, 0, now + 60_000),
+                new MailEntry("m-2", "g-1", player, "system", "公告", "欢迎", now + 1, 0, 0)));
+        assertEquals(2, mail.unreadCount(player));
+        var inbox = mail.inbox(player, 10);
+        assertEquals(2, inbox.size());
+        assertEquals("m-2", inbox.get(0).id(), "最新邮件在前");
+
+        mail.markRead(player, "m-2");
+        assertEquals(1, mail.unreadCount(player));
+        mail.markAllRead(player);
+        assertEquals(0, mail.unreadCount(player));
+
+        assertEquals(1, mail.purge(now + 120_000L), "只清理过期邮件");
+        assertEquals(1, mail.inbox(player, 10).size());
+        assertEquals(1, mail.purge(now + 8L * 24L * 3600L * 1000L), "已读超过 7 天也清理");
+        assertTrue(mail.inbox(player, 10).isEmpty());
+    }
+
+    @Test
+    void guildApplicationRoundTripAndDecision() throws Exception {
+        GuildApplicationRepository apps = new GuildApplicationRepository(db);
+        UUID p1 = UUID.randomUUID(), p2 = UUID.randomUUID();
+        long now = System.currentTimeMillis();
+        GuildApplication a1 = new GuildApplication("app-1", "g-1", p1, "Alice", "想加入", "PENDING", now, now);
+        GuildApplication a2 = new GuildApplication("app-2", "g-1", p2, "Bob", "", "PENDING", now + 1, now + 1);
+        apps.insert(a1);
+        apps.insert(a2);
+
+        assertEquals(2, apps.pendingForGuild("g-1", 10).size());
+        assertEquals(1, apps.countPending(p1));
+        assertEquals("app-2", apps.pendingForGuild("g-1", 10).get(1).id());
+        assertNotNull(apps.pendingById("app-1"));
+
+        assertTrue(apps.decide("app-1", "APPROVED"));
+        assertNull(apps.pendingById("app-1"));
+        assertEquals(0, apps.countPending(p1));
+
+        assertTrue(apps.cancel("app-2", p2));
+        assertTrue(apps.pendingForPlayer(p2).isEmpty());
+        assertFalse(apps.cancel("app-2", p2), "已处理申请不能重复取消");
+    }
+
+    @Test
+    void purgeResetsWarehouseActivityStatsAndMembers() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Purge", "PG");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 99, 7, 3);
+        repo.insertGuildWithLeader(g, leader);
+        try (var c = db.source().getConnection(); var ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                + "` SET `warehouse_expires_at`=?,`warehouse_level`=3,`warehouse_level_expires_at`=?,"
+                + "`warehouse_permanent_level`=2,`wins`=5,`losses`=4,`last_active_at`=1,"
+                + "`activity_day`=2,`activity_earned`=3 WHERE `guild_id`=?")) {
+            ps.setLong(1, System.currentTimeMillis() + 86400000L);
+            ps.setLong(2, System.currentTimeMillis() + 86400000L);
+            ps.setString(3, g.id());
+            ps.executeUpdate();
+        }
+
+        repo.resetWarehouse(g.id());
+        repo.resetActivity(g.id(), 12345L);
+        repo.resetGuildStats(g.id());
+        repo.resetMemberStats(g.id());
+
+        Guild loaded = repo.loadGuild(g.id());
+        assertEquals(0, loaded.warehouseExpiresAt());
+        assertEquals(0, loaded.warehouseLevel());
+        assertEquals(0, loaded.warehousePermanentLevel());
+        assertEquals(12345L, loaded.lastActiveAt());
+        assertEquals(0, loaded.activityDay());
+        assertEquals(0, loaded.activityEarned());
+        assertEquals(0, loaded.wins());
+        assertEquals(0, loaded.losses());
+        GuildMember m = repo.loadMembers(g.id()).stream()
+                .filter(x -> x.uuid().equals(leader.uuid())).findFirst().orElse(null);
+        assertNotNull(m);
+        assertEquals(0, m.contributed());
+        assertEquals(0, m.kills());
+        assertEquals(0, m.deaths());
+        assertEquals(0, m.checkinStreak());
     }
 }

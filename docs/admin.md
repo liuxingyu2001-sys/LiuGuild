@@ -72,7 +72,9 @@ LiuGuild 提供完整的命令行与图形化（GUI）管理能力，管理员�
 | `/guildadmin setbank <工会> <金额>` | 设置银行余额 |
 | `/guildadmin cleanup [dry\|confirm]` | 清理僵尸工会 |
 | `/guildadmin verify [fix]` | 校验（并修复）内存数据一致性：member_count、会长关系、成员索引 |
-| `/guildadmin doctor` | 部署自检：逐项检查 server-id / 数据库 / 跨服 / 经济 / 场地 / 模板 / 套装 / 世界 |
+| `/guildadmin doctor` | 部署自检：逐项检查 server-id / 数据库 / 跨服 / 经济 / 场地 / 模板 / 套装 / 世界；同时输出配置建议（税率语义、人数/队伍、单承办服、废弃键、赛后集合点等） |
+| `/guildadmin audit <工会\|all> [条数]` | 查看审计日志；工会侧用 `/guild log`（见 [audit.md](audit.md)） |
+| `/guildadmin purge <工会\|all> <points\|bank\|activity\|warehouse\|shop\|stats\|all> [confirm]` | 清理工会数据；默认 dry-run，必须加 `confirm` 才执行 |
 
 ### 装备 / 模式
 | 指令 | 说明 |
@@ -86,3 +88,22 @@ LiuGuild 提供完整的命令行与图形化（GUI）管理能力，管理员�
 | `/guildadmin mode start <模式>` | 开启赛季赛事 |
 
 > 所有子命令、工会名、在线玩家、竞技场、套装、模式、坐标点均有 Tab 补全。
+
+
+## 清理工会数据（purge）
+
+```text
+/guildadmin purge <工会|all> <points|bank|activity|warehouse|shop|stats|all> [confirm]
+```
+
+- 默认只显示预览，不修改数据；追加 `confirm` 才执行。
+- `points`：工会资金点数归零（等级不强制回退）。
+- `bank`：工会银行归零。
+- `activity`：最后活跃时间重置为当前时间，当日活跃额度归零（不会让工会立刻变成不活跃）。
+- `warehouse`：仓库租期、等级、永久等级归零；**不删除仓库存物**，会踢出正在打开仓库的成员。
+- `shop`：删除全部商店上架；**不退还物品/资金**。
+- `stats`：工会胜负、成员贡献/击杀/死亡/连续签到归零。
+- `all`：以上全部执行，不可撤销。
+- 每个动作写入审计日志（`admin.purge.*`）。
+
+> 清理会跨子服写库；执行前建议先 `/guildadmin cleanup` 试运行确认目标，并做好数据库备份。

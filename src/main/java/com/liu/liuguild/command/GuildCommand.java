@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 /** 玩家指令 {@code /guild}。 */
 public final class GuildCommand implements CommandExecutor, TabCompleter {
@@ -31,7 +32,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             "kick", "promote", "demote", "transfer", "members", "seticon", "icon", "rename", "set", "bank",
             "home", "hq", "info", "list", "top", "war", "chat", "c", "checkin", "sign", "qiandao",
             "warehouse", "wh", "cangku", "title", "titles", "chenghao",
-            "shop", "shangdian", "store");
+            "shop", "shangdian", "store", "log", "logs", "audit", "mail",
+            "apply", "apps", "applications", "recruit");
 
     private final LiuGuild plugin;
 
@@ -118,6 +120,11 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             case "title", "titles", "chenghao" -> title(player, args);
             case "shop", "shangdian", "store" -> shop(player, args);
             case "rename" -> rename(player, args);
+            case "log", "logs", "audit" -> guildLog(player, args);
+            case "mail" -> mail(player, args);
+            case "apply" -> apply(player, args);
+            case "apps", "applications" -> applications(player, args);
+            case "recruit" -> plugin.gui().openList(player, 0);
             case "war" -> war(player, args);
             default -> plugin.messages().send(player, "unknown-command");
         }
@@ -160,8 +167,15 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "信息", "/guild info", "查看工会信息");
         helpLine(player, "信息", "/guild list", "浏览全服工会");
         helpLine(player, "信息", "/guild top points", "查看排行榜（points/level/wins/losses/members）");
+        helpLine(player, "信息", "/guild log [条数]", "查看本会审计日志（官员/会长）");
+        helpLine(player, "信息", "/guild mail [read <编号>|clear]", "查看/处理工会系统邮件");
+        helpLine(player, "信息", "/guild recruit", "打开招募板（工会列表，点击申请）");
+        helpLine(player, "信息", "/guild apply <工会> [留言]", "向邀请制工会提交入会申请");
+        helpLine(player, "信息", "/guild apps [accept|deny|cancel] [编号]", "审批/取消入会申请");
         helpLine(player, "工会战", "/guild war queue", "参与匹配");
         helpLine(player, "工会战", "/guild war status", "查看当前战况");
+        helpLine(player, "工会战", "/guild war join", "进入竞技场（匹配成功后）");
+        helpLine(player, "工会战", "/guild war rejoin", "开战后掉线，在宽限内重连回战场");
         helpLine(player, "工会战", "/guild war spectate", "旁观进行中的工会战");
         helpLine(player, "工会战", "/guild war history", "查看历史战绩");
         helpLine(player, "菜单", "/guild gui", "打开工会图形菜单");
@@ -570,6 +584,179 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
      *
      * <p>不带子命令直接开 GUI；文字子命令给脚本/命令方块用。</p>
      */
+    /** /guild apply <工会> [留言]。 */
+    private void apply(Player player, String[] args) {
+        if (args.length < 2) {
+            plugin.messages().send(player, "app-usage");
+            return;
+        }
+        Guild target = plugin.guilds().guildByName(args[1]);
+        if (target == null) {
+            target = plugin.guilds().guild(args[1]);
+        }
+        if (target == null) {
+            plugin.messages().send(player, "guild-not-found", "name", args[1]);
+            return;
+        }
+        if (plugin.guilds().guildOf(player.getUniqueId()) != null) {
+            plugin.messages().send(player, "app-already-in-guild");
+            return;
+        }
+        if (target.open()) {
+            plugin.guilds().join(player, target, false);
+            return;
+        }
+        final Guild guild = target;
+        if (args.length >= 3) {
+            plugin.applications().apply(player, guild, String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)));
+        } else {
+            plugin.gui().requestText(player, "app-input", text -> {
+                if (text == null || text.equalsIgnoreCase("cancel")) {
+                    plugin.messages().send(player, "input-cancelled");
+                    return;
+                }
+                plugin.applications().apply(player, guild, text);
+            });
+        }
+    }
+
+    /** /guild apps [accept|deny|cancel] [编号]。 */
+    private void applications(Player player, String[] args) {
+        String action = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "list";
+        if ("cancel".equals(action)) {
+            plugin.applications().cancel(player);
+            return;
+        }
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        GuildMember member = g.member(player.getUniqueId());
+        if (member == null || !member.rank().atLeast(com.liu.liuguild.model.GuildRank.OFFICER)) {
+            plugin.messages().send(player, "no-permission-rank");
+            return;
+        }
+        if (("accept".equals(action) || "deny".equals(action) || "reject".equals(action))) {
+            if (args.length < 3) {
+                plugin.messages().send(player, "app-usage");
+                return;
+            }
+            plugin.applications().decide(player, g, args[2], "accept".equals(action));
+            return;
+        }
+        plugin.applications().listAsync(g.id(), list -> {
+            plugin.messages().sendRaw(player, "app-list-header", "count", String.valueOf(list.size()));
+            if (list.isEmpty()) {
+                plugin.messages().sendRaw(player, "app-list-empty");
+                return;
+            }
+            int index = 0;
+            for (com.liu.liuguild.db.GuildApplication app : list) {
+                index++;
+                plugin.messages().sendRaw(player, "app-list-line",
+                        "index", String.valueOf(index),
+                        "player", app.playerName(),
+                        "time", com.liu.liuguild.util.TimeUtil.formatDateTime(app.createdAt()),
+                        "message", app.message() == null || app.message().isBlank() ? "（无留言）" : app.message());
+            }
+            plugin.messages().sendRaw(player, "app-usage");
+        });
+    }
+
+    /** /guild mail [read <编号>|clear]：查看系统邮件。 */
+    private void mail(Player player, String[] args) {
+        String sub = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "list";
+        UUID uuid = player.getUniqueId();
+        if ("read".equals(sub)) {
+            if (args.length < 3) {
+                plugin.messages().send(player, "mail-usage");
+                return;
+            }
+            String prefix = args[2];
+            plugin.mail().inboxAsync(uuid, 50, list -> {
+                for (com.liu.liuguild.db.MailEntry entry : list) {
+                    if (!entry.id().startsWith(prefix)) {
+                        continue;
+                    }
+                    plugin.mail().markReadAsync(uuid, entry.id());
+                    plugin.messages().sendRaw(player, "mail-body-header",
+                            "title", entry.title(),
+                            "time", com.liu.liuguild.util.TimeUtil.formatDateTime(entry.createdAt()));
+                    player.sendMessage(Text.mm(entry.body()));
+                    plugin.messages().sendRaw(player, "mail-marked");
+                    return;
+                }
+                plugin.messages().send(player, "mail-not-found");
+            });
+            return;
+        }
+        if ("clear".equals(sub) || "readall".equals(sub)) {
+            plugin.mail().markAllReadAsync(uuid);
+            plugin.messages().send(player, "mail-all-read");
+            return;
+        }
+        plugin.mail().inboxAsync(uuid, 10, list -> {
+            int unread = 0;
+            for (com.liu.liuguild.db.MailEntry e : list) {
+                if (e.readAt() == 0) {
+                    unread++;
+                }
+            }
+            plugin.messages().sendRaw(player, "mail-header",
+                    "unread", String.valueOf(unread), "count", String.valueOf(list.size()));
+            if (list.isEmpty()) {
+                plugin.messages().sendRaw(player, "mail-empty");
+                return;
+            }
+            int index = 0;
+            for (com.liu.liuguild.db.MailEntry e : list) {
+                index++;
+                String state = e.readAt() == 0 ? plugin.messages().raw("mail-unread")
+                        : plugin.messages().raw("mail-read");
+                plugin.messages().sendRaw(player, "mail-line",
+                        "index", String.valueOf(index),
+                        "title", e.title(),
+                        "time", com.liu.liuguild.util.TimeUtil.formatDateTime(e.createdAt()),
+                        "state", state);
+            }
+        });
+    }
+
+    /** /guild log [条数]：官员/会长查看本会审计。 */
+    private void guildLog(Player player, String[] args) {
+        Guild g = plugin.guilds().guildOf(player.getUniqueId());
+        if (g == null) {
+            plugin.messages().send(player, "not-in-guild");
+            return;
+        }
+        GuildMember member = g.member(player.getUniqueId());
+        if (member == null || !member.rank().atLeast(com.liu.liuguild.model.GuildRank.OFFICER)) {
+            plugin.messages().send(player, "no-permission-rank");
+            return;
+        }
+        int limit = args.length > 1 ? Math.max(1, Math.min(50,
+                com.liu.liuguild.util.NumberUtil.toInt(args[1], 20))) : 20;
+        plugin.audit().recentAsync(g.id(), limit, list -> {
+            plugin.messages().sendRaw(player, "audit-header", "count", String.valueOf(list.size()));
+            if (list.isEmpty()) {
+                plugin.messages().sendRaw(player, "audit-empty");
+                return;
+            }
+            for (com.liu.liuguild.db.AuditEntry e : list) {
+                String actor = e.actorName() == null ? "系统" : e.actorName();
+                String amount = e.amount() == 0 ? "" : " &e" + e.amount();
+                String detail = e.detail() == null ? "" : " &8" + e.detail();
+                plugin.messages().sendRaw(player, "audit-line",
+                        "time", com.liu.liuguild.util.TimeUtil.formatDateTime(e.createdAt()),
+                        "actor", actor,
+                        "action", com.liu.liuguild.audit.GuildAuditService.displayAction(e.action()),
+                        "amount", amount,
+                        "detail", detail);
+            }
+        });
+    }
+
     private void shop(Player player, String[] args) {
         var shop = plugin.shop();
         if (shop == null || !plugin.settings().guild.shopEnabled) {
@@ -714,7 +901,35 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 plugin.war().leaveQueue(player, g);
             }
             case "join" -> plugin.war().join(player);
+            case "rejoin" -> plugin.war().rejoin(player);
             case "spectate" -> plugin.war().spectate(player);
+            case "stats", "statistics" -> {
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    break;
+                }
+                String warId = args.length >= 3 ? args[2] : null;
+                plugin.war().statsAsync(g.id(), warId, list -> {
+                    plugin.messages().sendRaw(player, "war-stats-header", "war", warId == null ? "最近一场" : warId);
+                    if (list.isEmpty()) {
+                        plugin.messages().sendRaw(player, "war-stats-empty");
+                        return;
+                    }
+                    int rank = 0;
+                    for (com.liu.liuguild.db.WarPlayerStat stat : list) {
+                        if (rank++ >= 10) {
+                            break;
+                        }
+                        plugin.messages().sendRaw(player, "war-stats-line",
+                                "rank", String.valueOf(rank),
+                                "player", stat.playerName() == null ? stat.player().toString() : stat.playerName(),
+                                "kills", String.valueOf(stat.kills()),
+                                "deaths", String.valueOf(stat.deaths()),
+                                "time", String.valueOf(stat.survivedSeconds()),
+                                "mvp", stat.mvp() ? plugin.messages().raw("war-stats-mvp") : "");
+                    }
+                });
+            }
             case "history" -> {
                 if (g == null) {
                     plugin.messages().send(player, "not-in-guild");
@@ -790,7 +1005,18 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 return filter(new ArrayList<>(plugin.settings().icons.icons.keySet()), args[1]);
             }
             if (sub.equals("war")) {
-                return filter(List.of("queue", "leave", "join", "spectate", "status", "history"), args[1]);
+                return filter(List.of("queue", "leave", "join", "rejoin", "spectate", "status", "stats", "history"), args[1]);
+            }
+            if (sub.equals("mail")) {
+                return filter(List.of("read", "clear"), args[1]);
+            }
+            if (sub.equals("apps") || sub.equals("applications")) {
+                return filter(List.of("accept", "deny", "cancel"), args[1]);
+            }
+            if (sub.equals("apply")) {
+                List<String> names = new ArrayList<>();
+                plugin.guilds().all().forEach(g -> names.add(g.name()));
+                return filter(names, args[1]);
             }
             if (sub.equals("set")) {
                 return filter(List.of("open", "notice", "desc"), args[1]);

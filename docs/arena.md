@@ -6,6 +6,8 @@
 arenas:
   main:
     server: ""               # 承办服 server-id；留空 = 全局 / 发起匹配的服务器
+    hosts: []                # 可选承办服池，例如 [zy, 99, fb]；非空时优先于 server
+    # koth: { x: 0.0, y: 70.0, z: 0.0, radius: 6 }   # KOTH 模式才需要
     world: ""                # 固定世界名；留空 = 主世界
     spawn-a:         { x: 0.5,  y: 70.0, z: 0.5,  yaw: 0.0,   pitch: 0.0 }
     spawn-b:         { x: 20.5, y: 70.0, z: 0.5,  yaw: 180.0, pitch: 0.0 }
@@ -17,11 +19,13 @@ arenas:
 | 字段 | 说明 |
 |---|---|
 | `server` | 承办该场工会战的服务器 `server-id`。跨服时玩家会被传送到该服。 |
+| `hosts` | 可选承办服池。非空时优先于 `server`，按 `war:host` 忙碌标记和最近使用时间选择空闲承办服；所有候选都忙时本轮不配对，工会继续排队。池内每台承办服都必须有对应世界/模板。 |
 | `world` | 固定世界名（如 `world` / `arena_world`），留空用主世界。兼容 Paper 1.21.11+ / Leaf 26.x 的 `dimensions/<命名空间>/<世界>` 新布局：填纯名、`minecraft:jjc` 或目录名都能识别；`/guildadmin arena listworlds` 可查看识别结果。 |
 | `template` | 可选，liudungeon 动态世界模板。填写且模板存在时动态创建独立竞技场世界。 |
 | `radius` | 动态开世界时的区块预热半径。 |
 | `spawn-<名>` | 任意数量的命名出生点（`spawn-a` / `spawn-b` / `spawn-c` / `spawn-d`…），坐标为 `x/y/z/yaw/pitch`。 |
 | `spawn-spectator` | 旁观出生坐标（名固定为 `spectator`）。 |
+| `koth` | KOTH 占点中心：`x/y/z/radius`（3D 距离）。只有 `objective.type: koth` 的模式需要。 |
 
 出生点按点名排序，前半组给 A 队，后半组给 B 队；队内按参赛名单稳定排序循环分配，准备冻结和复活使用同一规则。a～f 六点时，A 队使用 a/b/c，B 队使用 d/e/f。奇数点时前半组多一个。至少设置两个战斗点，旁观点不参与分配。
 

@@ -551,6 +551,17 @@ public final class CrossServerBus {
      * 批量写入待入场标记：一次 pipeline 只付 1 个 RTT。
      * 自动入场会一次转移整会成员，逐个 SETEX 会把延迟乘以人数。
      */
+    /** 写跨服旁观标记（与待入场格式相同，但接入后按旁观处理）。 */
+    public boolean setPendingSpectate(UUID uuid, String warId, String sourceServer, String world,
+                                      double x, double y, double z, float yaw, float pitch) {
+        String value = pendingWarValue(warId, sourceServer, world, x, y, z, yaw, pitch);
+        Boolean ok = bridge.withJedis(jedis -> {
+            jedis.setex(bridge.keyWarSpectate(uuid), 180, value);
+            return Boolean.TRUE;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
     public boolean setPendingWars(Map<UUID, String> pendingByPlayer) {
         if (pendingByPlayer == null || pendingByPlayer.isEmpty()) {
             return true;
@@ -580,8 +591,10 @@ public final class CrossServerBus {
             pipe.del(bridge.keyWarReturn(uuid));
             redis.clients.jedis.Response<String> arena = pipe.get(bridge.keyArenaPending(uuid));
             pipe.del(bridge.keyArenaPending(uuid));
+            redis.clients.jedis.Response<String> spectate = pipe.get(bridge.keyWarSpectate(uuid));
+            pipe.del(bridge.keyWarSpectate(uuid));
             pipe.sync();
-            return new String[]{war.get(), ret.get(), arena.get()};
+            return new String[]{war.get(), ret.get(), arena.get(), spectate.get()};
         });
     }
 

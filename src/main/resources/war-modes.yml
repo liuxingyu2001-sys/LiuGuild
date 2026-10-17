@@ -51,6 +51,12 @@ modes:
     score:
       kill: 1
       death: -1
+    # 目标模式：none / koth（单占点）。KOTH 需要在 arena.yml 配置 koth 中心。
+    objective:
+      type: none
+      points-per-second: 1
+      target: 100
+      name: "据点"
     rewards:
       # Vault 个人金币（发给每位参赛者）
       win-player-money: 500.0

@@ -48,6 +48,13 @@ public final class WarMode {
     public int scoreKill = 1;
     public int scoreDeath = -1;
 
+    // ---- 目标模式（目前支持 koth 单占点） ----
+    /** none / koth。 */
+    public String objectiveType = "none";
+    public int objectivePointsPerSecond = 1;
+    public int objectiveTarget = 100;
+    public String objectiveName = "据点";
+
     // ---- 场地 / 承办 ----
     public boolean allowSpectators = true;
     /**
@@ -234,6 +241,15 @@ public final class WarMode {
         m.settleSeconds = Math.max(1, sec.getInt("settle-seconds", m.settleSeconds));
         m.scoreKill = sec.getInt("score.kill", m.scoreKill);
         m.scoreDeath = sec.getInt("score.death", m.scoreDeath);
+        ConfigurationSection objective = sec.getConfigurationSection("objective");
+        if (objective != null) {
+            String type = objective.getString("type", m.objectiveType);
+            m.objectiveType = type == null || type.isBlank() ? "none" : type.toLowerCase(Locale.ROOT);
+            m.objectivePointsPerSecond = Math.max(0, objective.getInt("points-per-second", m.objectivePointsPerSecond));
+            m.objectiveTarget = Math.max(1, objective.getInt("target", m.objectiveTarget));
+            String name = objective.getString("name", m.objectiveName);
+            m.objectiveName = name == null || name.isBlank() ? "据点" : name;
+        }
         m.allowSpectators = sec.getBoolean("allow-spectators", m.allowSpectators);
         m.freezeOnPrepare = sec.getBoolean("freeze-on-prepare", m.freezeOnPrepare);
         m.allowJumpOnPrepare = sec.getBoolean("allow-jump-on-prepare", m.allowJumpOnPrepare);
@@ -299,6 +315,10 @@ public final class WarMode {
         c.settleSeconds = settleSeconds;
         c.scoreKill = scoreKill;
         c.scoreDeath = scoreDeath;
+        c.objectiveType = objectiveType;
+        c.objectivePointsPerSecond = objectivePointsPerSecond;
+        c.objectiveTarget = objectiveTarget;
+        c.objectiveName = objectiveName;
         c.allowSpectators = allowSpectators;
         c.freezeOnPrepare = freezeOnPrepare;
         c.allowJumpOnPrepare = allowJumpOnPrepare;

@@ -34,9 +34,11 @@
 | `/guild war queue [模式]` | 参与匹配（默认模式） |
 | `/guild war leave` | 退出匹配队列 |
 | `/guild war join` | 进入竞技场（匹配成功后） |
-| `/guild war spectate` | 旁观 |
+| `/guild war rejoin` | 开战后掉线，在 `reconnect-seconds` 宽限内重连回战场 |
+| `/guild war spectate` | 旁观（支持任意子服跨服传送到承办服，赛后自动返程） |
 | `/guild war status` | 当前战况 |
 | `/guild war history` | 历史战绩 |
+| `/guild war stats [战 id]` | 查看最近一场/指定场次的击杀、死亡、存活与 MVP |
 | `/guild warehouse` | 打开工会共享仓库（别名 `wh` / `cangku`；同一时间仅一人可开；未开通/过期时打开管理菜单） |
 | `/guild warehouse info` | 打开仓库管理菜单（购买时长 / 升级容量） |
 | `/guild warehouse rent <天数>` | 用工会资金购买仓库使用时间 |
@@ -49,12 +51,19 @@
 | `/guild shop all` | ~~浏览全服工会商店~~（已移除：商店按工会隔离） |
 | `/guild shop add <工会资金单价>` | 上架手持物品（管理） |
 | `/guild shop remove <编号前8位>` | 下架并退回剩余（管理） |
+| `/guild log [条数]` | 查看本会审计日志（官员/会长；别名 `logs` / `audit`） |
+| `/guild mail [read <编号>\|clear]` | 查看/处理工会系统邮件（见 [mail.md](mail.md)） |
+| `/guild recruit` | 打开招募板（工会列表；邀请制工会点击后提交申请） |
+| `/guild apply <工会> [留言]` | 向邀请制工会提交入会申请 |
+| `/guild apps [accept\|deny\|cancel] [编号]` | 官员审批 / 玩家取消入会申请（见 [applications.md](applications.md)） |
 
 ## 管理指令 `/guildadmin`（权限 `liuguild.admin`）
 
 | 指令 | 说明 |
 |---|---|
 | `/guildadmin reload` | 重载全部配置与模块 |
+| `/guildadmin audit <工会\|all> [条数]` | 查看审计日志（见 [audit.md](audit.md)） |
+| `/guildadmin purge <工会\|all> <points\|bank\|activity\|warehouse\|shop\|stats\|all> [confirm]` | 清理工会数据（默认 dry-run，见 [admin.md](admin.md)） |
 | `/guildadmin status` | **详细运行状态**（存储、跨服、工会、队列、场地、钩子、模块） |
 | `/guildadmin gui` | 打开管理面板 GUI |
 | `/guildadmin import <sql文件> [force]` | 导入旧版 PlayerGuild 数据（见 [import.md](import.md)） |
@@ -112,7 +121,7 @@
 | `liuguild.warehouse` | true | 打开工会共享仓库 |
 | `liuguild.shop.manage` | op | 管理工会商店（上架 / 改价 / 下架） |
 | `liuguild.admin` | op | 管理总权限 |
-| `liuguild.admin.reload` / `.status` / `.import` / `.arena` / `.kit` / `.mode` / `.war` / `.disband` / `.setlevel` / `.setpoints` / `.setbank` / `.forceend` / `.cleanup` / `.verify` / `.guilds` / `.player` / `.broadcast` / `.gui` | op | 各级管理子权限（默认由 `liuguild.admin` 控制） |
+| `liuguild.admin.reload` / `.status` / `.import` / `.arena` / `.kit` / `.mode` / `.war` / `.disband` / `.setlevel` / `.setpoints` / `.setbank` / `.forceend` / `.cleanup` / `.verify` / `.guilds` / `.player` / `.broadcast` / `.audit` / `.purge` / `.gui` | op | 各级管理子权限（默认由 `liuguild.admin` 控制） |
 
 > 指令均带 Tab 补全：子命令、工会名、在线玩家、模式、场地、套装、坐标点均可补全。
 

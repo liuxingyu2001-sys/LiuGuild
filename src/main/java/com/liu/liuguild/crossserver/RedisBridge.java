@@ -180,6 +180,11 @@ public final class RedisBridge {
         return prefix + "war:pending:" + player;
     }
 
+    /** 跨服旁观标记（warId + 出发地）。 */
+    public String keyWarSpectate(java.util.UUID player) {
+        return prefix + "war:spectate:" + player;
+    }
+
     /** 赛后跨服返程目的地的临时标记（世界 + 坐标）。 */
     public String keyWarReturn(java.util.UUID player) {
         return prefix + "war:return:" + player;

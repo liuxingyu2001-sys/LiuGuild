@@ -30,7 +30,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUBS = List.of(
             "help", "reload", "status", "import", "arena", "kit", "mode", "war",
             "disband", "setlevel", "setpoints", "setbank", "forceend", "info", "gui", "cleanup",
-            "guilds", "player", "broadcast", "rename", "verify", "doctor");
+            "guilds", "player", "broadcast", "rename", "verify", "doctor", "audit", "purge");
 
     private final LiuGuild plugin;
 
@@ -55,7 +55,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             Map.entry("player", "liuguild.admin.player"),
             Map.entry("broadcast", "liuguild.admin.broadcast"),
             Map.entry("rename", "liuguild.admin.rename"),
-            Map.entry("gui", "liuguild.admin.gui"));
+            Map.entry("gui", "liuguild.admin.gui"),
+            Map.entry("audit", "liuguild.admin.audit"),
+            Map.entry("purge", "liuguild.admin.purge"));
 
     public GuildAdminCommand(LiuGuild plugin) {
         this.plugin = plugin;
@@ -99,6 +101,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "cleanup" -> cleanup(sender, args);
             case "verify" -> verify(sender, args);
             case "doctor" -> doctor(sender);
+            case "audit" -> audit(sender, args);
+            case "purge" -> purge(sender, args);
             case "guilds" -> guilds(sender, args);
             case "player" -> player(sender, args);
             case "broadcast" -> broadcast(sender, args);
@@ -671,8 +675,10 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(sender, "guild-not-found", "name", args[1]);
             return;
         }
+        String oldName = g.name();
         plugin.guilds().disband(g, true, com.liu.liuguild.api.event.GuildDisbandEvent.Cause.ADMIN);
-        plugin.messages().send(sender, "admin-disband", "guild", g.name());
+        audit(sender, g, "admin.disband", null, 0, "name=" + oldName);
+        plugin.messages().send(sender, "admin-disband", "guild", oldName);
     }
 
     private void setLevel(CommandSender sender, String[] args) {
@@ -686,7 +692,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         Integer parsed = parseInt(sender, args[2], false);
         if (parsed == null) return;
+        int oldLevel = g.level();
         plugin.guilds().setLevel(g, parsed);
+        audit(sender, g, "admin.setlevel", null, parsed, "old=" + oldLevel);
         plugin.messages().send(sender, "admin-setlevel", "guild", g.name(), "level", g.level());
     }
 
@@ -701,7 +709,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         Integer parsed = parseInt(sender, args[2], false);
         if (parsed == null) return;
+        long oldPoints = g.points();
         plugin.guilds().setPoints(g, parsed);
+        audit(sender, g, "admin.setpoints", null, parsed, "old=" + oldPoints);
         plugin.messages().send(sender, "admin-setpoints", "guild", g.name(), "points", parsed);
     }
 
@@ -740,6 +750,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             if (error != null || !Boolean.TRUE.equals(ok)) {
                 sender.sendMessage(cn("&c设置银行余额失败（可能溢出或数据库错误）。"));
             } else {
+                audit(sender, g, "admin.setbank", null, target, null);
                 sender.sendMessage(cn("&a已将工会 &f" + g.name() + " &a的银行余额设为 &f" + target + "&a。"));
             }
         }));
@@ -841,6 +852,191 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                         .format(new java.util.Date(g.createdAt()))));
     }
 
+    /** 检测已废弃但不会导致启动失败的旧配置键。 */
+    private void deprecated(java.util.List<String> warn, String file, String path) {
+        try {
+            if (plugin.configs().file(file).contains(path)) {
+                warn.add(file + " 的 " + path + " 已不再使用，可删除以免误解");
+            }
+        } catch (Throwable ignored) {
+            // 配置文件缺失时由 ConfigManager 负责；体检不因此报错。
+        }
+    }
+
+    private static final java.util.List<String> PURGE_FIELDS =
+            java.util.List.of("points", "bank", "activity", "warehouse", "shop", "stats", "all");
+
+    /** 清理工会数据：默认 dry-run，必须追加 confirm 才执行。 */
+    private void purge(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage(cn("&c用法：&f/guildadmin purge <工会|all> <"
+                    + String.join("|", PURGE_FIELDS) + "> [confirm]"));
+            return;
+        }
+        String field = args[2].toLowerCase(Locale.ROOT);
+        if (!PURGE_FIELDS.contains(field)) {
+            sender.sendMessage(cn("&c未知清理项：&f" + args[2] + "&7，可选 " + String.join("/", PURGE_FIELDS)));
+            return;
+        }
+        java.util.List<Guild> targets = new java.util.ArrayList<>();
+        if ("all".equalsIgnoreCase(args[1])) {
+            targets.addAll(plugin.guilds().all());
+        } else {
+            Guild g = find(args[1]);
+            if (g != null) {
+                targets.add(g);
+            }
+        }
+        if (targets.isEmpty()) {
+            plugin.messages().send(sender, "guild-not-found", "name", args[1]);
+            return;
+        }
+        boolean confirm = args.length >= 4 && args[3].equalsIgnoreCase("confirm");
+        if (!confirm) {
+            sender.sendMessage(cn("&6===== 清理预览（未执行）====="));
+            sender.sendMessage(cn("&7目标：&f" + ("all".equalsIgnoreCase(args[1]) ? "全部 " + targets.size() + " 个工会" : targets.get(0).name())
+                    + " &7项目：&f" + field));
+            int shown = 0;
+            for (Guild g : targets) {
+                if (shown++ >= 10) {
+                    sender.sendMessage(cn("&8…还有 " + (targets.size() - 10) + " 个工会"));
+                    break;
+                }
+                sender.sendMessage(cn("&7- &f" + g.name() + " &8[" + g.id().substring(0, 8) + "]"
+                        + " &7资金=&f" + g.points() + " &7银行=&f" + g.bank()
+                        + " &7战绩=&f" + g.wins() + "/" + g.losses()
+                        + " &7仓库到期=&f" + (g.warehouseExpiresAt() == 0 ? "无" : g.warehouseExpiresAt())));
+            }
+            sender.sendMessage(cn("&e确认执行请追加 &fconfirm&e：&f/guildadmin purge " + args[1] + " " + field + " confirm"));
+            return;
+        }
+        int count = 0;
+        for (Guild g : targets) {
+            purgeGuild(sender, g, field);
+            count++;
+        }
+        sender.sendMessage(cn("&a已提交清理：&f" + count + " &a个工会，项目 &f" + field
+                + "&a。数据库写入异步完成。"));
+    }
+
+    private void purgeGuild(CommandSender sender, Guild g, String field) {
+        long now = System.currentTimeMillis();
+        if ("points".equals(field) || "all".equals(field)) {
+            long old = g.points();
+            plugin.guilds().setPoints(g, 0);
+            audit(sender, g, "admin.purge.points", null, old, null);
+        }
+        if ("bank".equals(field) || "all".equals(field)) {
+            long old = g.bank();
+            if (old != 0) {
+                plugin.guilds().changeBank(g.id(), -old);
+            }
+            audit(sender, g, "admin.purge.bank", null, old, null);
+        }
+        if ("activity".equals(field) || "all".equals(field)) {
+            g.lastActiveAt(now);
+            g.activityDay(0);
+            g.activityEarned(0);
+            plugin.async(() -> {
+                try {
+                    plugin.repo().resetActivity(g.id(), now);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("清理工会活跃度失败: " + e.getMessage());
+                }
+            });
+            audit(sender, g, "admin.purge.activity", null, 0, null);
+        }
+        if ("warehouse".equals(field) || "all".equals(field)) {
+            g.warehouseExpiresAt(0);
+            g.warehouseLevel(0);
+            g.warehouseLevelExpiresAt(0);
+            g.warehousePermanentLevel(0);
+            for (var m : g.memberMap().values()) {
+                if (plugin.player(m.uuid()) != null && plugin.warehouse() != null) {
+                    plugin.warehouse().kick(m.uuid());
+                }
+            }
+            plugin.async(() -> {
+                try {
+                    plugin.repo().resetWarehouse(g.id());
+                } catch (Exception e) {
+                    plugin.getLogger().warning("清理工会仓库租期失败: " + e.getMessage());
+                }
+            });
+            audit(sender, g, "admin.purge.warehouse", null, 0, null);
+        }
+        if ("shop".equals(field) || "all".equals(field)) {
+            if (plugin.shop() != null) {
+                plugin.shop().onGuildDisbanded(g.id());
+            }
+            audit(sender, g, "admin.purge.shop", null, 0, "全部下架，不退还物品");
+        }
+        if ("stats".equals(field) || "all".equals(field)) {
+            g.wins(0);
+            g.losses(0);
+            plugin.guilds().saveGuild(g);
+            for (var m : g.memberMap().values()) {
+                m.contributed(0);
+                m.kills(0);
+                m.deaths(0);
+                m.lastCheckin(0);
+                m.checkinStreak(0);
+                plugin.guilds().saveMemberAsync(m);
+            }
+            plugin.async(() -> {
+                try {
+                    plugin.repo().resetGuildStats(g.id());
+                    plugin.repo().resetMemberStats(g.id());
+                } catch (Exception e) {
+                    plugin.getLogger().warning("清理工会战绩失败: " + e.getMessage());
+                }
+            });
+            audit(sender, g, "admin.purge.stats", null, 0, null);
+        }
+    }
+
+    private void audit(CommandSender sender, Guild g, String action, String target, long amount, String detail) {
+        if (plugin.audit() != null) {
+            plugin.audit().record(g.id(), sender instanceof Player p ? p.getUniqueId() : null,
+                    sender.getName(), action, target, amount, detail);
+        }
+    }
+
+    /** 查看审计：/guildadmin audit <工会|all> [条数]。 */
+    private void audit(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage(cn("&c用法：&f/guildadmin audit <工会|all> [条数]"));
+            return;
+        }
+        int limit = args.length >= 3 ? Math.max(1, Math.min(50, NumberUtil.toInt(args[2], 20))) : 20;
+        if ("all".equalsIgnoreCase(args[1])) {
+            plugin.audit().recentAllAsync(limit, list -> showAudit(sender, "全部工会", list));
+            return;
+        }
+        Guild g = find(args[1]);
+        if (g == null) {
+            plugin.messages().send(sender, "guild-not-found", "name", args[1]);
+            return;
+        }
+        plugin.audit().recentAsync(g.id(), limit, list -> showAudit(sender, g.name(), list));
+    }
+
+    private void showAudit(CommandSender sender, String title, java.util.List<com.liu.liuguild.db.AuditEntry> list) {
+        sender.sendMessage(cn("&6===== 工会审计 · " + title + " ====="));
+        if (list.isEmpty()) {
+            sender.sendMessage(cn("&7暂无记录。"));
+            return;
+        }
+        for (com.liu.liuguild.db.AuditEntry e : list) {
+            String actor = e.actorName() == null ? "系统" : e.actorName();
+            String amount = e.amount() == 0 ? "" : " &e" + e.amount();
+            String detail = e.detail() == null ? "" : " &8" + e.detail();
+            sender.sendMessage(cn("&8" + com.liu.liuguild.util.TimeUtil.formatDateTime(e.createdAt())
+                    + " &f" + actor + " &7" + com.liu.liuguild.audit.GuildAuditService.displayAction(e.action())
+                    + amount + detail));
+        }
+    }
+
     private void doctor(CommandSender sender) {
         // 数据健康检查是阻塞 JDBC（Hikari 连接超时最长 5s）：先异步做完再回主线程输出。
         plugin.async(() -> {
@@ -859,6 +1055,76 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         var s = plugin.settings();
         java.util.List<String> ok = new java.util.ArrayList<>();
         java.util.List<String> bad = new java.util.ArrayList<>();
+        java.util.List<String> warn = new java.util.ArrayList<>();
+
+        // ---- 配置/部署体检：能提前发现“值写错了但插件仍能启动”的问题 ----
+        if (s.guild.bankDepositTaxPercent > 0 && s.guild.bankDepositTaxPercent <= 1.0) {
+            warn.add("guild.bank.deposit-tax-percent=" + s.guild.bankDepositTaxPercent
+                    + " 按百分比解释，等于 " + s.guild.bankDepositTaxPercent
+                    + "%（旧写法 0.05 曾表示 5%）；要 5% 请写 5.0");
+        }
+        if (s.guild.maxMembers > 0) {
+            for (com.liu.liuguild.config.WarMode m : s.war.modes.values()) {
+                if (m.teamSize > s.guild.maxMembers) {
+                    warn.add("guild.max-members=" + s.guild.maxMembers + " 小于模式 " + m.key
+                            + " 的 team-size=" + m.teamSize + "，该工会永远无法满编");
+                }
+            }
+        }
+        if (s.war.queueIntervalSeconds > 10) {
+            warn.add("war.queue-interval-seconds=" + s.war.queueIntervalSeconds
+                    + " 偏大：入队后虽会立即匹配，但失败重试会很慢，建议 2~5");
+        }
+        java.util.Set<String> fixedHosts = new java.util.LinkedHashSet<>();
+        java.util.Set<String> endSpawnHosts = new java.util.LinkedHashSet<>();
+        for (var a : s.arenas.arenas.values()) {
+            if (!a.hosts.isEmpty()) {
+                fixedHosts.addAll(a.hosts);
+            } else if (a.server != null && !a.server.isBlank()) {
+                fixedHosts.add(a.server);
+            }
+            if (a.afterWar.endSpawnEnabled && (a.afterWar.endSpawnServer == null
+                    || a.afterWar.endSpawnServer.isBlank())
+                    && s.main.crossServerEnabled && a.server != null && !a.server.isBlank()) {
+                endSpawnHosts.add(a.server);
+            }
+        }
+        if (s.main.crossServerEnabled && fixedHosts.size() == 1 && !s.war.modes.isEmpty()) {
+            warn.add("所有场地都固定由 " + fixedHosts.iterator().next()
+                    + " 承办，同一时间只能承办一场；高并发建议增加承办服池/第二个场地");
+        }
+        for (String host : endSpawnHosts) {
+            warn.add("arena.after-war.end-spawn.enabled=true 且未写 server：赛后跨服玩家会集中到承办服 "
+                    + host + " 的集合点，不会回原服；要回原服请关闭 end-spawn");
+        }
+        if (s.main.qqBotEnabled) {
+            if (s.main.qqBotAppId == null || s.main.qqBotAppId.isBlank()
+                    || s.main.qqBotClientSecret == null || s.main.qqBotClientSecret.isBlank()) {
+                bad.add("hooks.qqbot.enabled=true 但 app-id / client-secret 未填写");
+            }
+            String pushType = s.main.qqBotPushType == null ? "" : s.main.qqBotPushType.toLowerCase(Locale.ROOT);
+            if (!pushType.isBlank() && !java.util.Set.of("channel", "group", "c2c").contains(pushType)) {
+                bad.add("hooks.qqbot.push.type 只能是 channel/group/c2c");
+            }
+            if (!pushType.isBlank() && (s.main.qqBotPushId == null || s.main.qqBotPushId.isBlank())) {
+                bad.add("hooks.qqbot.push.type 已填写但 push.id 为空");
+            }
+        }
+        if (s.main.webhookEnabled) {
+            if (s.main.webhookUrl == null || s.main.webhookUrl.isBlank()) {
+                warn.add("hooks.webhook.enabled=true 但 url 为空，webhook 不会发送");
+            } else if (!s.main.webhookUrl.startsWith("https://")) {
+                warn.add("hooks.webhook.url 不是 https://，Discord/公网 webhook 通常要求 HTTPS");
+            }
+        }
+        deprecated(warn, "war.yml", "war.announce-server");
+        deprecated(warn, "war.yml", "war.defaults.keep-inventory");
+        deprecated(warn, "war.yml", "war.defaults.score.objective");
+        deprecated(warn, "cross-server.yml", "local-fallback");
+        if (plugin.configs().file("guild.yml").contains("guild.warehouse")
+                && plugin.configs().file("warehouse.yml").contains("levels")) {
+            warn.add("guild.yml 仍保留旧 guild.warehouse 段；当前以 warehouse.yml 为准，可清理旧段避免误改");
+        }
 
         if (plugin.serverId() == null || plugin.serverId().isBlank()) {
             bad.add("server-id 为空（server.yml）");
@@ -927,6 +1193,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 } else {
                     ok.add("模式 " + m.key + " 使用内置临时世界（无需 liudungeon）");
                 }
+                if ("koth".equalsIgnoreCase(m.objectiveType) && !a.kothSet) {
+                    bad.add("模式 " + m.key + " 使用 KOTH，但场地 " + a.id + " 未配置 koth 中心");
+                }
                 var kp = s.kit.profile(m.kit);
                 if (kp == null || (!kp.hasSnapshot() && kp.items.isEmpty() && kp.armor.isEmpty())) {
                     bad.add("模式 " + m.key + " 套装为空: " + m.kit);
@@ -943,7 +1212,17 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         for (String b : bad) {
             sender.sendMessage(cn("&c[✗] &7" + b));
         }
-        sender.sendMessage(cn(bad.isEmpty() ? "&a全部通过，可用于生产。" : "&e共 &f" + bad.size() + " &e项需处理。"));
+        for (String w : warn) {
+            sender.sendMessage(cn("&e[!] &7" + w));
+        }
+        if (!bad.isEmpty()) {
+            sender.sendMessage(cn("&e共 &f" + bad.size() + " &e项需处理"
+                    + (warn.isEmpty() ? "。" : "，另有 &f" + warn.size() + " &e条配置建议。")));
+        } else if (!warn.isEmpty()) {
+            sender.sendMessage(cn("&a基础检查通过，&e有 &f" + warn.size() + " &e条配置建议。"));
+        } else {
+            sender.sendMessage(cn("&a全部通过，可用于生产。"));
+        }
     }
 
     private void verify(CommandSender sender, String[] args) {
@@ -1031,6 +1310,12 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             return startsWith(permittedSubs(sender), args[0]);
         }
         if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("purge")) {
+                List<String> choices = new ArrayList<>();
+                choices.add("all");
+                choices.addAll(plugin.guilds().all().stream().map(Guild::name).toList());
+                return startsWith(choices, args[1]);
+            }
             return switch (args[0].toLowerCase(Locale.ROOT)) {
                 case "arena" -> startsWith(List.of("list", "info", "setspawn", "setworld", "setserver", "settemplate",
                         "create", "remove", "setradius", "settempworld", "setgamerule", "setafter", "setendspawn", "tp"), args[1]);
@@ -1054,6 +1339,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             if (sub.equals("mode")) {
                 return startsWith(new ArrayList<>(plugin.settings().war.modes.keySet()), args[2]);
             }
+            if (sub.equals("purge")) {
+                return startsWith(PURGE_FIELDS, args[2]);
+            }
             if (sub.equals("war") && args[1].equalsIgnoreCase("stop")) {
                 List<String> choices = new ArrayList<>();
                 choices.add("all");
@@ -1066,6 +1354,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("import")) {
             return startsWith(List.of("force", "--force"), args[2]);
+        }
+        if (args.length == 4 && args[0].equalsIgnoreCase("purge")) {
+            return startsWith(List.of("confirm"), args[3]);
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("arena") && args[1].equalsIgnoreCase("setspawn")) {
             return startsWith(List.of("a", "b", "spec"), args[3]);

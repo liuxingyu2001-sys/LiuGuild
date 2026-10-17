@@ -59,6 +59,12 @@ plugin.syncDelayed(r, t) // 延迟 t tick 在主线程跑
 | 赛季到点 `seasonTask` | 1s | 开赛公告 + 自动入队 | 抢锁 `season:<模式>:<分钟>` + 广播 `SEASON_OPEN` |
 | 奖励补扫 `rewardTask` | 5min | 补发崩溃遗留的玩家奖励 | outbox 行 `PENDING→PROCESSING` 原子领取 |
 | 跨服返程记录 | 入场/赛后/登录 | 写/读 `guild_war_origins` | 按玩家主键 upsert；返回成功后删除 |
+| 工会审计 | 银行/商店/仓库/管理员操作成功后 | 异步 INSERT `guild_audit_log` | 单条写入；失败只记日志，不影响业务 |
+| 工会战战绩 | 结算时 | `warIo` 批量 upsert `guild_war_player_stats` | 单场一次，重复结算覆盖 |
+| 工会邮件 | 战报/系统通知/登录 | 异步批量 INSERT `guild_mail`；登录异步查未读 | 邮件失败不影响业务 |
+| 入会申请 | 提交/审批/取消 | 异步读写 `guild_applications`，审批后回主线程加入 | 申请失败不影响其它功能 |
+| Webhook | 战报/赛季/升级等 | `HttpClient` 异步 POST，失败退避重试 | 不阻塞主线程；失败只记日志 |
+| QQ 官方机器人 | 启动/消息/推送 | WebSocket + HttpClient 独立线程；指令回主线程查询 | 断线重连、token 刷新；停止时关闭 |
 | 承办服忙碌标记 | 5s 续期 | 写 `war:host:<承办服>`（60s TTL） | 只由承办服续期；收尾/停赛删除 |
 | 仓库过期清理 | 5min | 清理过期仓库/空间归档 | 抢锁 `warehouse-purge` |
 

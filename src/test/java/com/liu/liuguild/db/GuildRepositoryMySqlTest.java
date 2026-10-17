@@ -203,4 +203,78 @@ class GuildRepositoryMySqlTest {
         repo.deleteWarOrigin(player);
         assertNull(repo.loadWarOrigin(player));
     }
+
+    @Test
+    void auditLogWorksOnMySql() throws Exception {
+        GuildAuditRepository audit = new GuildAuditRepository(db);
+        UUID actor = UUID.randomUUID();
+        audit.insert(new AuditEntry("mysql-audit-1", "g-mysql", actor, "Tester", "bank.deposit",
+                null, 100, "balance=100", System.currentTimeMillis()));
+        var list = audit.recent("g-mysql", 10);
+        assertEquals(1, list.size());
+        assertEquals("bank.deposit", list.get(0).action());
+        assertEquals(100, list.get(0).amount());
+        assertTrue(audit.purgeBefore(System.currentTimeMillis() + 10_000L) >= 1);
+    }
+
+    @Test
+    void warStatsWorkOnMySql() throws Exception {
+        WarStatsRepository stats = new WarStatsRepository(db);
+        long now = System.currentTimeMillis();
+        UUID player = UUID.randomUUID();
+        stats.save(List.of(new WarPlayerStat("mysql-war-stats", player, "Tester", "g-1", "A",
+                7, 2, 420, true, now)));
+        var loaded = stats.load("mysql-war-stats");
+        assertEquals(1, loaded.size());
+        assertEquals(7, loaded.get(0).kills());
+        assertTrue(loaded.get(0).mvp());
+
+        stats.save(List.of(new WarPlayerStat("mysql-war-stats", player, "Tester2", "g-1", "A",
+                8, 2, 430, true, now)));
+        assertEquals(8, stats.load("mysql-war-stats").get(0).kills());
+        assertTrue(stats.purgeBefore(now + 10_000L) >= 1);
+    }
+
+    @Test
+    void mailWorksOnMySql() throws Exception {
+        MailRepository mail = new MailRepository(db);
+        UUID player = UUID.randomUUID();
+        long now = System.currentTimeMillis();
+        mail.insertMany(List.of(new MailEntry("mysql-m-1", "g-1", player, "system",
+                "测试", "正文", now, 0, now + 60_000)));
+        assertEquals(1, mail.unreadCount(player));
+        assertEquals(1, mail.inbox(player, 10).size());
+        mail.markAllRead(player);
+        assertEquals(0, mail.unreadCount(player));
+        assertTrue(mail.purge(now + 120_000L) >= 1);
+    }
+
+    @Test
+    void guildApplicationWorksOnMySql() throws Exception {
+        GuildApplicationRepository apps = new GuildApplicationRepository(db);
+        UUID player = UUID.randomUUID();
+        long now = System.currentTimeMillis();
+        apps.insert(new GuildApplication("mysql-app-1", "g-app", player, "Tester", "hello",
+                "PENDING", now, now));
+        assertEquals(1, apps.countPending(player));
+        assertTrue(apps.decide("mysql-app-1", "REJECTED"));
+        assertEquals(0, apps.countPending(player));
+    }
+
+    @Test
+    void purgeResetsRunOnMySql() throws Exception {
+        long now = System.currentTimeMillis();
+        Guild g = new Guild("mysql-purge", "Purge", "PG", UUID.randomUUID(), "Leader", "", "", false,
+                now, now, 0, 1, 0, 0, 0, "test", 1, "default");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 9, 2, 1);
+        repo.insertGuildWithLeader(g, leader);
+        repo.resetWarehouse(g.id());
+        repo.resetActivity(g.id(), 777L);
+        repo.resetGuildStats(g.id());
+        repo.resetMemberStats(g.id());
+        assertEquals(777L, repo.loadGuild(g.id()).lastActiveAt());
+        assertEquals(0, repo.loadMembers(g.id()).stream()
+                .filter(x -> x.uuid().equals(leader.uuid())).findFirst().orElseThrow().kills());
+    }
 }

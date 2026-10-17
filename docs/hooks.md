@@ -119,6 +119,35 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
 - 工会战参赛玩家的击杀会取消 NotBounties 悬赏领取，防止利用受控比赛击杀刷悬赏；普通世界击杀不受影响。
 - 缺失 NotBounties 时完全不注册监听器，不影响工会战。
 
+## LuckPerms（上下文）
+
+安装 LuckPerms 后自动注册 Bukkit 上下文，供权限组/条件权限直接使用：
+
+| 上下文 | 值 |
+|---|---|
+| `liuguild:guild_id` | 工会 UUID |
+| `liuguild:guild` | 工会名称 |
+| `liuguild:guild_rank` | `member` / `officer` / `leader` |
+| `liuguild:in_war` | 工会战或赛季混战参赛中时为 `true` |
+| `liuguild:spectator` | 工会战旁观中时为 `true` |
+
+- 只在主线程读内存缓存，不产生数据库/Redis IO。
+- 入战、退场、加入/退出工会、升职/降职会主动 `signalContextUpdate`。
+- 未安装 LuckPerms 时整个钩子不加载，不影响启动。
+
+## Webhook（Discord / 通用 JSON）
+
+- 配置在 `config.yml` 的 `hooks.webhook`，默认关闭。
+- 支持工会战/赛季/升级/创建/解散/入会申请事件，异步发送、失败重试。
+- 详细字段、payload 与安全说明见 [webhook.md](webhook.md)。
+
+## QQ 官方机器人（WebSocket）
+
+- 配置在 `config.yml` 的 `hooks.qqbot`，默认关闭。
+- 支持官方 WebSocket 网关、token 自动刷新、心跳/重连、@机器人查询工会/战况/排行。
+- 战报等事件可主动推送到 channel/group/c2c，复用 webhook 事件开关。
+- 详细配置、指令与限制见 [qqbot.md](qqbot.md)。
+
 ## PlaceholderAPI
 
 - 注册标识符 `liuguild`，详见 [placeholders.md](placeholders.md)。

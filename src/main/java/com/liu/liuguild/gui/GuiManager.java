@@ -1343,10 +1343,21 @@ public final class GuiManager implements GuildModule, Listener {
                 if (clickRight) {
                     // 右键：查看工会详情
                     openInfo(player, target, true);
-                } else {
-                    // 左键：申请加入
+                } else if (target.open()) {
+                    // 左键：开放工会直接加入
                     plugin.guilds().join(player, target, false);
                     closeMenu(player);
+                } else {
+                    // 邀请制工会：左键提交申请留言，由官员审批
+                    final Guild applyGuild = target;
+                    closeMenu(player);
+                    requestText(player, "app-input", text -> {
+                        if (text == null || text.equalsIgnoreCase("cancel")) {
+                            plugin.messages().send(player, "input-cancelled");
+                            return;
+                        }
+                        plugin.applications().apply(player, applyGuild, text);
+                    });
                 }
             }
         } else if (action.startsWith("info_view:")) {

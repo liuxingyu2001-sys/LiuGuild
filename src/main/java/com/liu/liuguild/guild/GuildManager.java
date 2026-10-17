@@ -315,6 +315,9 @@ public final class GuildManager {
                     pendingTags.remove(normTag);
                     plugin.messages().send(player, "create-success", "guild", cleanName);
                     Bukkit.getPluginManager().callEvent(new GuildCreateEvent(g, player));
+                    if (plugin.webhook() != null) {
+                        plugin.webhook().guildCreate(g, player.getName());
+                    }
                 });
             } catch (Exception e) {
                 if (com.liu.liuguild.db.GuildRepository.isDuplicateKey(e)) {
@@ -501,6 +504,12 @@ public final class GuildManager {
         if (plugin.shop() != null) {
             plugin.shop().onGuildDisbanded(g.id());
         }
+        if (plugin.applications() != null) {
+            plugin.applications().clearForGuild(g.id());
+        }
+        if (plugin.webhook() != null) {
+            plugin.webhook().guildDisband(g, cause.name());
+        }
         Bukkit.getPluginManager().callEvent(new GuildDisbandEvent(g, cause));
         return true;
     }
@@ -546,6 +555,10 @@ public final class GuildManager {
                 plugin.sync(() -> {
                     plugin.messages().send(player, viaInvite ? "accept-success" : "join-success", "guild", g.name());
                     announceGuild(g.id(), plugin.messages().component(viaInvite ? "accept-notify-members" : "join-notify-members", "player", player.getName()), player.getUniqueId());
+                    refreshLuckPerms(player);
+                    if (plugin.applications() != null) {
+                        plugin.applications().clearForPlayer(player.getUniqueId());
+                    }
                     Bukkit.getPluginManager().callEvent(new GuildJoinEvent(g, player, viaInvite));
                 });
             } catch (Exception e) {
@@ -657,8 +670,15 @@ public final class GuildManager {
         return true;
     }
 
+    private void refreshLuckPerms(Player player) {
+        if (player != null && plugin.luckPerms() != null) {
+            plugin.luckPerms().refresh(player);
+        }
+    }
+
     private void removeMember(Guild g, UUID uuid) {
         mutationVersion.incrementAndGet();
+        refreshLuckPerms(plugin.player(uuid));
         g.removeMember(uuid);
         memberIndex.remove(uuid);
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
@@ -709,6 +729,7 @@ public final class GuildManager {
         }
         targetM.rank(GuildRank.OFFICER);
         saveMember(targetM);
+        refreshLuckPerms(plugin.player(targetId));
         plugin.messages().send(actor, "promote-success", "player", targetName, "rank", GuildRank.OFFICER.display());
         notifyMember(targetId, plugin.messages().component("promote-notify", "rank", GuildRank.OFFICER.display()));
         return true;
@@ -735,6 +756,7 @@ public final class GuildManager {
         }
         targetM.rank(GuildRank.MEMBER);
         saveMember(targetM);
+        refreshLuckPerms(plugin.player(targetId));
         plugin.messages().send(actor, "demote-success", "player", targetName, "rank", GuildRank.MEMBER.display());
         notifyMember(targetId, plugin.messages().component("promote-notify", "rank", GuildRank.MEMBER.display()));
         return true;
@@ -762,6 +784,8 @@ public final class GuildManager {
         saveMember(actorM);
         saveMember(targetM);
         saveGuild(g);
+        refreshLuckPerms(actor);
+        refreshLuckPerms(plugin.player(targetId));
         plugin.messages().send(actor, "transfer-success", "player", targetName);
         notifyMember(targetId, plugin.messages().component("transfer-notify", "guild", g.name()));
         return true;
@@ -845,7 +869,7 @@ public final class GuildManager {
             plugin.messages().send(actor, "rename-cooldown", "seconds", left);
             return false;
         }
-        return applyRename(actor, g, newName, newTag, c.renameAllowTag, c.renameCost, true);
+        return applyRename(actor, g, newName, newTag, c.renameAllowTag, c.renameCost, true, false);
     }
 
     /**
@@ -853,11 +877,11 @@ public final class GuildManager {
      * 供 {@code /guildadmin} 与后台 GUI 使用。
      */
     public boolean adminRename(org.bukkit.command.CommandSender actor, Guild g, String newName, String newTag) {
-        return applyRename(actor, g, newName, newTag, true, 0, false);
+        return applyRename(actor, g, newName, newTag, true, 0, false, true);
     }
 
     private boolean applyRename(org.bukkit.command.CommandSender actor, Guild g, String newName, String newTag,
-                                boolean allowTag, double cost, boolean checkEconomy) {
+                                boolean allowTag, double cost, boolean checkEconomy, boolean admin) {
         GuildSettings c = conf();
         String cleanName = Text.clean(newName);
         if (Text.hasFormatting(newName) || cleanName.length() < c.nameMin || cleanName.length() > c.nameMax) {
@@ -954,6 +978,11 @@ public final class GuildManager {
                 }
                 if (success) {
                     plugin.broadcastGuildChange(g.id());
+                    if (plugin.audit() != null) {
+                        plugin.audit().record(g.id(), actor instanceof Player p ? p.getUniqueId() : null,
+                                actorName, admin ? "admin.rename" : "guild.rename", null, 0,
+                                oldName + " -> " + cleanName);
+                    }
                     plugin.messages().send(actor, "rename-success", "old", oldName, "guild", cleanName);
                     plugin.guilds().notifyGuild(g.id(), plugin.messages().component("rename-broadcast",
                             "player", actorName, "old", oldName, "guild", cleanName), null);
@@ -1179,6 +1208,11 @@ public final class GuildManager {
                 "action", deposit ? "存入" : "取出", "amount", plugin.economy().format(amount)), player.getUniqueId());
         Bukkit.getPluginManager().callEvent(new GuildBankEvent(g, player,
                 deposit ? GuildBankEvent.Action.DEPOSIT : GuildBankEvent.Action.WITHDRAW, amount, g.bank()));
+        if (plugin.audit() != null) {
+            plugin.audit().record(g.id(), player.getUniqueId(), player.getName(),
+                    deposit ? "bank.deposit" : "bank.withdraw", null, amount,
+                    "balance=" + g.bank());
+        }
     }
 
     /**
@@ -1239,6 +1273,9 @@ public final class GuildManager {
                 int old = cached.level();
                 cached.level(newLevel);
                 Bukkit.getPluginManager().callEvent(new GuildLevelUpEvent(cached, old, newLevel));
+                if (plugin.webhook() != null) {
+                    plugin.webhook().guildLevelUp(cached, old, newLevel);
+                }
                 notifyGuild(guildId, plugin.messages().component("guild-level-up",
                         "guild", cached.name(), "level", newLevel), null);
             }

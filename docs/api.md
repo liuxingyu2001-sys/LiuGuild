@@ -57,6 +57,9 @@ if (GuildAPI.isReady()) {
 | `GuildBankEvent` | `guild`, `player`, `action`（DEPOSIT/WITHDRAW）, `amount`, `balance` |
 | `GuildCheckinEvent` | `guild`, `player`, `streak`, `reward` |
 | `GuildFundsEvent` | `guild`, `player`, `action`（DONATE）, `amount` |
+| `GuildShopBuyEvent` | `guild`, `buyer`, `listingId`, `item`（样本）, `amount`, `paid`, `net` |
+| `GuildShopListEvent` | `guild`, `seller`, `listingId`, `item`（样本）, `amount`, `price` |
+| `GuildApplicationEvent` | `guild`, `actor`, `action`（SUBMIT/APPROVE/REJECT）, `applicationId` |
 | `GuildWarMatchEvent` | `war` |
 | `GuildWarStartEvent` | `war` |
 | `GuildKillEvent` | `war`, `killer`, `victim`, `points` |

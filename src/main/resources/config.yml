@@ -37,6 +37,42 @@ hooks:
     suppress-abilities-in-war: true
     # 工会战期间静默屏蔽 mcMMO 技能经验（默认关闭）。
     suppress-xp-in-war: false
+  webhook:
+    # 启用后把战报/赛季/工会升级等推送到 Discord 或通用 JSON webhook
+    enabled: false
+    # 例：https://discord.com/api/webhooks/xxx/yyy
+    url: ""
+    # discord = {"content":"...","username":"..."}；generic = {"content":"..."}
+    format: discord
+    username: "LiuGuild"
+    timeout-seconds: 5
+    # 非 2xx 时重试次数（指数退避 1s/2s/4s）
+    retries: 2
+    events:
+      war-result: true
+      season-result: true
+      guild-level-up: true
+      guild-create: false
+      guild-disband: true
+      application: true
+
+  qqbot:
+    # QQ 官方机器人（QQ 开放平台），默认关闭
+    enabled: false
+    # 机器人 AppID / ClientSecret（只在共享配置填写，勿提交公开仓库）
+    app-id: ""
+    client-secret: ""
+    sandbox: false
+    # 默认 33554432 = 群聊@ + C2C；需要频道@消息时再加 512
+    intents: 33554432
+    # 主动推送目标：channel / group / c2c；留空只响应@消息
+    push:
+      type: ""
+      id: ""
+    # @机器人 指令前缀
+    command-prefix: "!"
+    reconnect-seconds: 5
+
   liupass:
     # 向 Liupass 上报工会玩法任务进度（需要 Liupass 1.6.3+ 的扩展任务类型）。
     # 在 Liupass 任务里直接用 type: liuguild:xxx 定义，无需再创建同 ID 的 CUSTOM 任务。

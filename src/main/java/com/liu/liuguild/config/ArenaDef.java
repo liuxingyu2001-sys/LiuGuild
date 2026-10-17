@@ -25,12 +25,20 @@ public final class ArenaDef {
     public String id = "main";
     /** 承办服代理登记名；留空 = 发起匹配的服务器。 */
     public String server = "";
+    /** 可选承办服池：非空时优先于 {@link #server}，按忙碌/最近使用选择。 */
+    public final List<String> hosts = new ArrayList<>();
     /** 固定世界名；留空 = 主世界。 */
     public String world = "";
     /** 可选：liudungeon 动态模板名（留空或不存在则使用固定世界坐标）。 */
     public String template = "";
     /** 预热半径（方块）；0 = 不预热。 */
     public int radius = 48;
+    /** KOTH 占点中心；kothSet=false 时该模式会拒绝开战或仅按时间结束。 */
+    public boolean kothSet;
+    public double kothX;
+    public double kothY;
+    public double kothZ;
+    public double kothRadius = 6;
     /** 坐标：X / Y / Z / yaw / pitch（A/B/旁观点，供旧代码使用）。 */
     public Spawn spawnA = new Spawn(0.5, 70, 0.5, 0, 0);
     public Spawn spawnB = new Spawn(20.5, 70, 0.5, 180, 0);
@@ -91,7 +99,21 @@ public final class ArenaDef {
             return a;
         }
         a.server = sec.getString("server", a.server);
+        a.hosts.clear();
+        for (String host : sec.getStringList("hosts")) {
+            if (host != null && !host.isBlank() && !a.hosts.contains(host)) {
+                a.hosts.add(host.trim());
+            }
+        }
         a.world = sec.getString("world", a.world);
+        ConfigurationSection koth = sec.getConfigurationSection("koth");
+        if (koth != null) {
+            a.kothSet = true;
+            a.kothX = koth.getDouble("x", 0);
+            a.kothY = koth.getDouble("y", 0);
+            a.kothZ = koth.getDouble("z", 0);
+            a.kothRadius = Math.max(1, koth.getDouble("radius", a.kothRadius));
+        }
         a.template = sec.getString("template", a.template);
         a.radius = Math.max(0, Math.min(4096, sec.getInt("radius", a.radius)));
         a.spawnA = readSpawn(sec.getConfigurationSection("spawn-a"), a.spawnA);

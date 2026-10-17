@@ -38,6 +38,9 @@ public final class WarSettings {
     /** 提前开战后仍允许迟到玩家入场的宽限（秒）。 */
     public int fastStartJoinGraceSeconds = 10;
 
+    /** 开战后掉线可重连回战场的宽限（秒）；0 = 关闭。 */
+    public int reconnectSeconds = 90;
+
     /** 模式公共默认值（来自 war.defaults）。 */
     public WarMode defaults = new WarMode();
     /** war.yml 中直接写出的模式覆盖（与 defaults 同级，或位于 war.modes 下）。 */
@@ -60,6 +63,8 @@ public final class WarSettings {
                 c.getInt("war.fast-start-min-prepare-seconds", s.fastStartMinPrepareSeconds)));
         s.fastStartJoinGraceSeconds = Math.max(0, Math.min(60,
                 c.getInt("war.fast-start-join-grace-seconds", s.fastStartJoinGraceSeconds)));
+        s.reconnectSeconds = Math.max(0, Math.min(600,
+                c.getInt("war.reconnect-seconds", s.reconnectSeconds)));
 
         WarMode base = new WarMode();
         // 全局开关作为未显式配置该模式的默认值；模式里写 broadcast-queue 仍可单独覆盖。

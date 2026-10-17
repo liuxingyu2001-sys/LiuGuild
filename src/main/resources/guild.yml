@@ -19,6 +19,13 @@ guild:
   invite:
     expire-seconds: 300
     cooldown-seconds: 30
+  # 入会申请：开放加入的工会仍走直接加入；邀请制工会走申请+官员审批
+  application:
+    enabled: true
+    # 同一玩家最多同时保留几条待审批申请
+    max-pending: 3
+    # 申请留言最大长度
+    message-max-length: 100
   bank:
     enabled: true
     # 存款手续费百分比：5 = 5%，0 = 不收（代码按 /100 换算）

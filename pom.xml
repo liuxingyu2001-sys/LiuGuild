@@ -6,7 +6,7 @@
 
     <groupId>com.liu</groupId>
     <artifactId>LiuGuild</artifactId>
-    <version>0.3.7</version>
+    <version>0.3.8</version>
     <packaging>jar</packaging>
 
     <name>LiuGuild</name>
@@ -118,6 +118,13 @@
             <groupId>me.clip</groupId>
             <artifactId>placeholderapi</artifactId>
             <version>${placeholderapi.version}</version>
+            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>net.luckperms</groupId>
+            <artifactId>api</artifactId>
+            <version>5.5</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>

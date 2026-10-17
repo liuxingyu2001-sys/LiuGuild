@@ -106,4 +106,19 @@ class WarMathTest {
         // 超过一个毫秒：过期
         assertTrue(WarMath.mirrorExpired(created, created + limit + 1, 15, 600, 10, WarMath.MIRROR_SAFETY_MARGIN_MILLIS));
     }
+
+    @Test
+    void mvpScoreWeighsKillsDeathsAndSurvival() {
+        assertEquals(15, WarMath.mvpScore(5, 1, 120)); // 15 - 2 + 2
+        assertEquals(-2, WarMath.mvpScore(0, 1, 0));
+        assertEquals(0, WarMath.mvpScore(-5, -5, -100), "负数输入按 0 处理");
+    }
+
+    @Test
+    void kothOwnerOnlyWhenOneTeamOnPoint() {
+        assertEquals("A", WarMath.kothOwner(2, 0));
+        assertEquals("B", WarMath.kothOwner(0, 3));
+        assertEquals("", WarMath.kothOwner(1, 1));
+        assertEquals("", WarMath.kothOwner(0, 0));
+    }
 }

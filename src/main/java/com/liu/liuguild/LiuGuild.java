@@ -57,6 +57,11 @@ public final class LiuGuild extends JavaPlugin {
     private ConfigManager configManager;
     private Database database;
     private GuildRepository repo;
+    private com.liu.liuguild.audit.GuildAuditService audit;
+    private com.liu.liuguild.mail.MailService mail;
+    private com.liu.liuguild.application.GuildApplications applications;
+    private com.liu.liuguild.hook.WebhookHook webhook;
+    private com.liu.liuguild.hook.QqBotHook qqBot;
     private CrossServerBus bus;
     private GuildManager guilds;
     private WarManager war;
@@ -88,6 +93,7 @@ public final class LiuGuild extends JavaPlugin {
     private com.liu.liuguild.hook.McMmoHook mcmmo;
     private com.liu.liuguild.hook.GuildHomeHook guildHome;
     private com.liu.liuguild.hook.SparrowUiHook sparrowUi;
+    private com.liu.liuguild.hook.LuckPermsHook luckPerms;
     private com.liu.liuguild.hook.PacketEventsHook packetEvents;
 
     private BukkitTask heartbeatTask;
@@ -129,6 +135,11 @@ public final class LiuGuild extends JavaPlugin {
             return;
         }
         repo = new GuildRepository(database);
+        audit = new com.liu.liuguild.audit.GuildAuditService(this);
+        mail = new com.liu.liuguild.mail.MailService(this);
+        applications = new com.liu.liuguild.application.GuildApplications(this);
+        webhook = new com.liu.liuguild.hook.WebhookHook(this);
+        qqBot = new com.liu.liuguild.hook.QqBotHook(this);
 
         // 软依赖钩子（缺失自动降级）。对直接引用第三方类的钩子先做插件存在性判断，
         // 避免在缺少依赖时触发类初始化失败（虽然 safe() 能兜住，但会多一轮异常且无日志）。
@@ -155,6 +166,8 @@ public final class LiuGuild extends JavaPlugin {
         kits = new KitService(this);
         kits.preload();
         war = new WarManager(this);
+        luckPerms = hasPlugin("LuckPerms") ? safe(() -> new com.liu.liuguild.hook.LuckPermsHook(this)) : null;
+        if (luckPerms != null) luckPerms.register();
         gui = new GuiManager(this);
         importer = new PlayerguildImporter(this);
 
@@ -199,6 +212,9 @@ public final class LiuGuild extends JavaPlugin {
         guilds.reloadAll();
         startTasks();
         syncDelayed(this::validateConfig, 60L);
+        if (qqBot != null) {
+            qqBot.start();
+        }
 
         getLogger().info("LiuGuild 已启用：server-id=" + serverId()
                 + "，存储=" + (database.isSqlite() ? "SQLite" : "MySQL")
@@ -211,10 +227,12 @@ public final class LiuGuild extends JavaPlugin {
         // 先置关服标志：此后 async 不再走 Bukkit 调度器（插件已禁用时会抛
         // IllegalPluginAccessException，把 cleanup 链整条打断），改为自建线程收尾。
         shuttingDown = true;
+        if (qqBot != null) qqBot.stop();
         if (pass != null) pass.close();
         if (guildChat != null) guildChat.close();
         if (packetEvents != null) packetEvents.close();
         if (sparrowUi != null) sparrowUi.clearSessions();
+        if (luckPerms != null) luckPerms.unregister();
         if (modules != null) {
             modules.disableAll();
         }
@@ -375,6 +393,26 @@ public final class LiuGuild extends JavaPlugin {
         return repo;
     }
 
+    public com.liu.liuguild.audit.GuildAuditService audit() {
+        return audit;
+    }
+
+    public com.liu.liuguild.mail.MailService mail() {
+        return mail;
+    }
+
+    public com.liu.liuguild.application.GuildApplications applications() {
+        return applications;
+    }
+
+    public com.liu.liuguild.hook.WebhookHook webhook() {
+        return webhook;
+    }
+
+    public com.liu.liuguild.hook.QqBotHook qqBot() {
+        return qqBot;
+    }
+
     public CrossServerBus bus() {
         return bus;
     }
@@ -431,6 +469,10 @@ public final class LiuGuild extends JavaPlugin {
 
     public PapiHook papi() {
         return papi;
+    }
+
+    public com.liu.liuguild.hook.LuckPermsHook luckPerms() {
+        return luckPerms;
     }
 
     public PlayerTitleHook playerTitle() {

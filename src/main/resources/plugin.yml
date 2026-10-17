@@ -85,4 +85,6 @@ permissions:
       liuguild.admin.player: true
       liuguild.admin.broadcast: true
       liuguild.admin.rename: true
+      liuguild.admin.audit: true
+      liuguild.admin.purge: true
       liuguild.admin.gui: true

@@ -9,6 +9,10 @@
 arenas:
   main:
     server: ""
+    # 可选承办服池：例如 [zy, 99, fb]；非空时优先于 server，按忙碌/最近使用选择
+    hosts: []
+    # KOTH 占点模式使用；普通模式无需填写。半径按 3D 距离计算。
+    # koth: { x: 0.0, y: 70.0, z: 0.0, radius: 6 }
     world: ""
     spawn-a: { x: 0.5, y: 70.0, z: 0.5, yaw: 0.0, pitch: 0.0 }
     spawn-b: { x: 20.5, y: 70.0, z: 0.5, yaw: 180.0, pitch: 0.0 }

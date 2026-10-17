@@ -31,6 +31,11 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [placeholders.md](placeholders.md) | PlaceholderAPI 变量 |
 | [craftengine.md](craftengine.md) | CraftEngine 物品/图标集成 |
 | [hooks.md](hooks.md) | 软依赖钩子（liudungeon / LiuChat / liupass / Sparrow Sync / LuckyPeaches / PlayerTitle / NotBounties / mcMMO） |
+| [qqbot.md](qqbot.md) | QQ 官方机器人 WebSocket、指令查询与事件推送 |
+| [webhook.md](webhook.md) | Discord / 通用 JSON webhook 推送 |
+| [audit.md](audit.md) | 工会审计日志与管理员清理动作 |
+| [mail.md](mail.md) | 离线工会邮件 |
+| [applications.md](applications.md) | 入会申请 / 招募板 |
 | [gui.md](gui.md) | GUI 菜单、Sparrow UI 界面引擎 |
 | [import.md](import.md) | 旧版 PlayerGuild 数据导入 |
 | [review-report.md](review-report.md) | 五轮深度审查报告（发现、修复、验证、遗留） |

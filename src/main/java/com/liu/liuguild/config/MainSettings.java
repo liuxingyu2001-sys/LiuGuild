@@ -43,6 +43,34 @@ public final class MainSettings {
     /** 是否继续支持旧版按任务 ID 绑定的 tasks.yml。 */
     public boolean passLegacyTaskIds = true;
 
+    // ---- Webhook（Discord/通用 JSON） ----
+    public boolean webhookEnabled = false;
+    public String webhookUrl = "";
+    /** discord / generic；generic 发送 {"content": "..."}。 */
+    public String webhookFormat = "discord";
+    public String webhookUsername = "LiuGuild";
+    public int webhookTimeoutSeconds = 5;
+    public int webhookRetries = 2;
+    public boolean webhookWarResult = true;
+    public boolean webhookSeasonResult = true;
+    public boolean webhookGuildLevel = true;
+    public boolean webhookGuildCreate = false;
+    public boolean webhookGuildDisband = true;
+    public boolean webhookApplication = true;
+
+    // ---- QQ 官方机器人（WebSocket） ----
+    public boolean qqBotEnabled = false;
+    public String qqBotAppId = "";
+    public String qqBotClientSecret = "";
+    public boolean qqBotSandbox = false;
+    /** 订阅事件：默认 33554432（群聊@/C2C）；需要频道@消息再加 512。 */
+    public int qqBotIntents = 33554432;
+    /** 主动推送目标：channel / group / c2c；留空只响应@消息。 */
+    public String qqBotPushType = "";
+    public String qqBotPushId = "";
+    public String qqBotCommandPrefix = "!";
+    public int qqBotReconnectSeconds = 5;
+
     /** LiuChat 工会频道消息格式（占位符由 LiuChat 提供）。 */
     public String guildChannelFormat = "&a[${channel_name}] &f${player}&7: ${message}";
 
@@ -66,6 +94,31 @@ public final class MainSettings {
         s.passDonate = c.getBoolean("hooks.liupass.donate", s.passDonate);
         s.passBankDeposit = c.getBoolean("hooks.liupass.bank-deposit", s.passBankDeposit);
         s.passLegacyTaskIds = c.getBoolean("hooks.liupass.legacy-task-ids", s.passLegacyTaskIds);
+        s.webhookEnabled = c.getBoolean("hooks.webhook.enabled", s.webhookEnabled);
+        s.webhookUrl = c.getString("hooks.webhook.url", s.webhookUrl == null ? "" : s.webhookUrl);
+        s.webhookFormat = c.getString("hooks.webhook.format", s.webhookFormat);
+        s.webhookUsername = c.getString("hooks.webhook.username", s.webhookUsername);
+        s.webhookTimeoutSeconds = Math.max(1, Math.min(30,
+                c.getInt("hooks.webhook.timeout-seconds", s.webhookTimeoutSeconds)));
+        s.webhookRetries = Math.max(0, Math.min(5,
+                c.getInt("hooks.webhook.retries", s.webhookRetries)));
+        s.webhookWarResult = c.getBoolean("hooks.webhook.events.war-result", s.webhookWarResult);
+        s.webhookSeasonResult = c.getBoolean("hooks.webhook.events.season-result", s.webhookSeasonResult);
+        s.webhookGuildLevel = c.getBoolean("hooks.webhook.events.guild-level-up", s.webhookGuildLevel);
+        s.webhookGuildCreate = c.getBoolean("hooks.webhook.events.guild-create", s.webhookGuildCreate);
+        s.webhookGuildDisband = c.getBoolean("hooks.webhook.events.guild-disband", s.webhookGuildDisband);
+        s.webhookApplication = c.getBoolean("hooks.webhook.events.application", s.webhookApplication);
+        s.qqBotEnabled = c.getBoolean("hooks.qqbot.enabled", s.qqBotEnabled);
+        s.qqBotAppId = c.getString("hooks.qqbot.app-id", s.qqBotAppId == null ? "" : s.qqBotAppId);
+        s.qqBotClientSecret = c.getString("hooks.qqbot.client-secret",
+                s.qqBotClientSecret == null ? "" : s.qqBotClientSecret);
+        s.qqBotSandbox = c.getBoolean("hooks.qqbot.sandbox", s.qqBotSandbox);
+        s.qqBotIntents = Math.max(1, c.getInt("hooks.qqbot.intents", s.qqBotIntents));
+        s.qqBotPushType = c.getString("hooks.qqbot.push.type", s.qqBotPushType == null ? "" : s.qqBotPushType);
+        s.qqBotPushId = c.getString("hooks.qqbot.push.id", s.qqBotPushId == null ? "" : s.qqBotPushId);
+        s.qqBotCommandPrefix = c.getString("hooks.qqbot.command-prefix", s.qqBotCommandPrefix);
+        s.qqBotReconnectSeconds = Math.max(1, Math.min(60,
+                c.getInt("hooks.qqbot.reconnect-seconds", s.qqBotReconnectSeconds)));
         s.guildChannelFormat = c.getString("channels.guild-format", s.guildChannelFormat);
         return s;
     }

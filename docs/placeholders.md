@@ -21,6 +21,7 @@
 
 | 变量 | 说明 |
 |---|---|
+| `%liuguild_guild_id%` | 工会 UUID |
 | `%liuguild_name%` | 工会名 |
 | `%liuguild_tag%` | 标签 |
 | `%liuguild_level%` / `%liuguild_points%` | 等级 / 点数 |
@@ -53,6 +54,9 @@
 | `%liuguild_war_host%` | 承办服 |
 | `%liuguild_war_mode%` / `%liuguild_war_mode_display%` | 模式 key / 显示名 |
 | `%liuguild_queued%` / `%liuguild_queued_mode%` | 是否在队列 / 队列模式 |
+| `%liuguild_war_queue_position%` | 当前匹配队列位置（1 起；不在队列为 0） |
+| `%liuguild_war_in_war%` / `%liuguild_war_fighting%` | 是否在工会战/赛季混战中（`true/false`） |
+| `%liuguild_war_spectator%` | 是否在工会战旁观（`true/false`） |
 
 ## 指定工会 `g_<字段>_<工会名>`
 

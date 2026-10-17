@@ -130,12 +130,16 @@ hooks:
 
 `hooks.liupass` 只控制任务进度；工会战通行证经验由 `war-modes.yml` 配置，完整用法见 [tasks.md](tasks.md)。
 
+- `hooks.webhook`：Discord / 通用 JSON webhook，见 [webhook.md](webhook.md)。
+- `hooks.qqbot`：QQ 官方机器人 WebSocket + 指令 + 主动推送，见 [qqbot.md](qqbot.md)。
+
 - `messages.yml`：按语言段组织（内置 `zh_CN`），占位符用 `{name}`，同时支持 MiniMessage 与 `&` legacy 颜色代码（含 `&#RRGGBB`）。占位符值默认按纯文本插入以防注入。升级后新增的消息键会自动回退到内置默认，不会显示为键名。
 
 ## 热重载
 
 - 自动：文件 mtime 变化后自动重载。
 - 手动：`/guildadmin reload`。
+- QQ 机器人连接参数（app-id/secret/intents/push）修改后建议重启服务器，`/guildadmin reload` 不会重建 WebSocket。
 
 
 ## 工会玩法（`guild.yml`）

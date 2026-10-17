@@ -384,6 +384,7 @@ public final class SeasonService implements GuildModule, Listener {
         Map<Integer,Long> prizes=rewards;
         ArenaDef.AfterWar after=arena==null?null:arena.afterWar;
         String host=current.host(); String arenaWorld=world==null?"":world.getName();
+        String modeName=mode==null?"season":mode.display;
         submit(() -> {
             try {
                 if(!cancelled && after!=null && after.endSpawnEnabled) {
@@ -412,6 +413,11 @@ public final class SeasonService implements GuildModule, Listener {
                         }
                     }
                     if(bar!=null) { bar.removeAll(); bar=null; }
+                    if(!cancelled && plugin.webhook()!=null) {
+                        java.util.List<String> lines=new java.util.ArrayList<>();
+                        for(var row:ranks) lines.add("#"+row.rank()+" "+guildName(row.guildId())+"："+row.points()+"分");
+                        plugin.webhook().seasonResult(modeName, host, lines);
+                    }
                     plugin.war().closeSeasonWorld(arena);
                     if(host != null && !host.isBlank() && plugin.war().currentWar() == null) {
                         plugin.async(() -> plugin.bus().clearHostBusy(host));

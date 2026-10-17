@@ -70,6 +70,10 @@ public final class GuildMember {
         this.contributed += amount;
     }
 
+    public void contributed(long contributed) {
+        this.contributed = Math.max(0, contributed);
+    }
+
     public int kills() {
         return kills;
     }
@@ -78,12 +82,20 @@ public final class GuildMember {
         this.kills++;
     }
 
+    public void kills(int kills) {
+        this.kills = Math.max(0, kills);
+    }
+
     public int deaths() {
         return deaths;
     }
 
     public void addDeath() {
         this.deaths++;
+    }
+
+    public void deaths(int deaths) {
+        this.deaths = Math.max(0, deaths);
     }
 
     public long lastCheckin() {

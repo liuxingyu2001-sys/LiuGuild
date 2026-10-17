@@ -34,7 +34,7 @@ class CommandSurfaceTest {
     private static final List<String> ALIASES_OR_SUBOPTIONS = List.of(
             "help", "menu", "icon", "hq", "c", "sign", "qiandao",
             "wh", "cangku", "titles", "chenghao", "wins", "losses", "level", "members",
-            "shangdian", "store");
+            "shangdian", "store", "logs", "audit", "applications");
 
     @Test
     void adminWarStartOpensEventWithoutGuildArguments() throws Exception {

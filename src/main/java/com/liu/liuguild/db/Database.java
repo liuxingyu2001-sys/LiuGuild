@@ -300,6 +300,68 @@ public final class Database {
                     + ")" + engine);
             index(st, t("guild_war_rewards") + "_status", t("guild_war_rewards"), "`status`,`created_at`");
 
+            // 工会入会申请。
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_applications") + "` ("
+                    + "`id` VARCHAR(36) NOT NULL PRIMARY KEY,"
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`player_uuid` VARCHAR(36) NOT NULL,"
+                    + "`player_name` VARCHAR(32) NULL,"
+                    + "`message` VARCHAR(255) NULL,"
+                    + "`state` VARCHAR(16) NOT NULL,"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "`updated_at` BIGINT NOT NULL DEFAULT 0"
+                    + ")" + engine);
+            index(st, t("guild_applications") + "_guild", t("guild_applications"), "`guild_id`, `state`");
+            index(st, t("guild_applications") + "_player", t("guild_applications"), "`player_uuid`, `state`");
+
+            // 工会系统邮件（离线通知/战报/申请结果）。
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_mail") + "` ("
+                    + "`id` VARCHAR(36) NOT NULL PRIMARY KEY,"
+                    + "`guild_id` VARCHAR(36) NULL,"
+                    + "`recipient_uuid` VARCHAR(36) NOT NULL,"
+                    + "`type` VARCHAR(32) NOT NULL,"
+                    + "`title` VARCHAR(128) NOT NULL,"
+                    + "`body` VARCHAR(512) NOT NULL,"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "`read_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "`expires_at` BIGINT NOT NULL DEFAULT 0"
+                    + ")" + engine);
+            index(st, t("guild_mail") + "_recipient", t("guild_mail"), "`recipient_uuid`, `created_at`");
+            index(st, t("guild_mail") + "_expires", t("guild_mail"), "`expires_at`");
+
+            // 工会战玩家战绩（击杀/死亡/存活/MVP）。
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_war_player_stats") + "` ("
+                    + "`war_id` VARCHAR(36) NOT NULL,"
+                    + "`player_uuid` VARCHAR(36) NOT NULL,"
+                    + "`player_name` VARCHAR(32) NULL,"
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`side` VARCHAR(1) NOT NULL,"
+                    + "`kills` INT NOT NULL DEFAULT 0,"
+                    + "`deaths` INT NOT NULL DEFAULT 0,"
+                    + "`survived_seconds` BIGINT NOT NULL DEFAULT 0,"
+                    + "`mvp` INT NOT NULL DEFAULT 0,"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`war_id`, `player_uuid`)"
+                    + ")" + engine);
+            index(st, t("guild_war_player_stats") + "_war", t("guild_war_player_stats"), "`war_id`");
+            index(st, t("guild_war_player_stats") + "_time", t("guild_war_player_stats"), "`created_at`");
+
+            // 工会审计日志：银行/商店/仓库/管理员操作。
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_audit_log") + "` ("
+                    + "`id` VARCHAR(36) NOT NULL PRIMARY KEY,"
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`actor_uuid` VARCHAR(36) NULL,"
+                    + "`actor_name` VARCHAR(32) NULL,"
+                    + "`action` VARCHAR(32) NOT NULL,"
+                    + "`target` VARCHAR(128) NULL,"
+                    + "`amount` BIGINT NOT NULL DEFAULT 0,"
+                    + "`detail` VARCHAR(255) NULL,"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0"
+                    + ")" + engine);
+            index(st, t("guild_audit_log") + "_guild_time", t("guild_audit_log"),
+                    "`guild_id`, `created_at`");
+            index(st, t("guild_audit_log") + "_time", t("guild_audit_log"), "`created_at`");
+
             // 跨服参赛者出发地：赛后/崩溃恢复时用于跨服返程。
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_war_origins") + "` ("
                     + "`war_id` VARCHAR(36) NOT NULL,"

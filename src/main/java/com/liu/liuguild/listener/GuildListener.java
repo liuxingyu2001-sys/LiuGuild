@@ -48,6 +48,7 @@ public final class GuildListener implements GuildModule, Listener {
         plugin.syncDelayed(() -> {
             plugin.war().onPlayerJoinServer(player);
             plugin.war().recoverPendingEscrow(player);
+            plugin.mail().notifyOnJoin(player);
             plugin.guildChat().refresh();
             // 记录工会活跃时间（节流：距上次活跃超过 1 小时才写库）
             Guild guild = plugin.guilds().guildOf(player.getUniqueId());

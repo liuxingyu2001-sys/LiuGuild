@@ -30,6 +30,8 @@ war:
   fast-start: true
   fast-start-min-prepare-seconds: 1
   fast-start-join-grace-seconds: 10
+  # 开战后掉线可重连回战场的宽限（秒）；0 = 关闭
+  reconnect-seconds: 90
 
   # ----------------------------------------------------------
   #  所有工会战模式的公共默认值；模式里未写的项继承这里。
@@ -63,6 +65,11 @@ war:
     score:
       kill: 1
       death: -1
+    objective:
+      type: none
+      points-per-second: 1
+      target: 100
+      name: "据点"
     rewards:
       win-player-money: 500.0
       lose-player-money: 100.0

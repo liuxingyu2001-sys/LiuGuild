@@ -245,6 +245,14 @@ public final class ShopService implements GuildModule, Listener {
                         cache.put(l.id(), l);
                         deletePending(opId);
                         broadcast(g.id());
+                        plugin.sync(() -> {
+                            Bukkit.getPluginManager().callEvent(new com.liu.liuguild.api.event.GuildShopListEvent(
+                                    g, player, l.id(), base.clone(), take, l.price()));
+                            if (plugin.audit() != null) {
+                                plugin.audit().record(g.id(), player.getUniqueId(), player.getName(),
+                                        "shop.list", l.id(), l.price(), "item=" + base.getType().name() + " x" + take);
+                            }
+                        });
                     } catch (Exception e) {
                         plugin.getLogger().warning("上架工会商品失败: " + e.getMessage());
                         plugin.sync(() -> {
@@ -385,6 +393,10 @@ public final class ShopService implements GuildModule, Listener {
                 if (player != null) {
                     plugin.messages().send(player, delivered == null ? "shop-removed" : "shop-remove-failed",
                             "item", itemName(l.preview()), "amount", String.valueOf(stock));
+                    if (delivered == null && plugin.audit() != null) {
+                        plugin.audit().record(g.id(), player.getUniqueId(), player.getName(),
+                                "shop.remove", l.id(), stock, "item=" + l.preview().getType().name());
+                    }
                 }
                 broadcast(l.guildId());
                 if (done != null) done.run();
@@ -506,6 +518,14 @@ public final class ShopService implements GuildModule, Listener {
                 if (deliveryClaimed) {
                     ShopRepository.Pending notDelivered = deliverNow(player, pending);
                     if (notDelivered == null) {
+                        Guild shopGuild = plugin.guilds().guild(l.guildId());
+                        Bukkit.getPluginManager().callEvent(new com.liu.liuguild.api.event.GuildShopBuyEvent(
+                                shopGuild, player, l.id(), preview.clone(), amount, paid, net));
+                        if (shopGuild != null && plugin.audit() != null) {
+                            plugin.audit().record(shopGuild.id(), player.getUniqueId(), player.getName(),
+                                    "shop.buy", l.id(), paid,
+                                    "item=" + preview.getType().name() + " x" + amount + " net=" + net);
+                        }
                         plugin.messages().send(player, "shop-bought",
                                 "item", itemName(preview), "amount", String.valueOf(amount), "cost", String.valueOf(paid));
                         if (paid > net) plugin.messages().send(player, "shop-bought-tax",

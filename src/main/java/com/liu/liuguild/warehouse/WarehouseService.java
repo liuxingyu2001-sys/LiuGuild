@@ -832,7 +832,8 @@ public final class WarehouseService implements GuildModule, Listener {
     }
 
     /** 保存候选内容，再在主线程校验背包快照。背包变动或掉线时回滚仓库，不发货。 */
-    private void commit(Player p, Open o, WarehouseContents next, ItemStack[] before, ItemStack[] after) {
+    private void commit(Player p, Open o, WarehouseContents next, ItemStack[] before, ItemStack[] after,
+                        String auditAction, int movedAmount) {
         // 主线程只持有快照；整仓/背包的 NBT 序列化（可能上万次 serializeAsBytes）全部放到异步，
         // 避免一次仓库存取卡主线程。busy 期间不会再有为该会话生成新内容。
         final WarehouseContents previousContents = o.contents;
@@ -888,6 +889,10 @@ public final class WarehouseService implements GuildModule, Listener {
                     o.busy = false;
                     deletePendingAsync(o.player, o.sessionToken);
                     render(p, o);
+                    if (auditAction != null && plugin.audit() != null) {
+                        plugin.audit().record(o.guildId, p.getUniqueId(), p.getName(), auditAction,
+                                null, movedAmount, null);
+                    }
                 } else if (success) {
                     plugin.async(() -> {
                         boolean rolledBack = false;
@@ -943,7 +948,7 @@ public final class WarehouseService implements GuildModule, Listener {
             item.setAmount(item.getAmount() - take);
             if (item.getAmount() == 0) after[i] = null;
         }
-        if (moved > 0) commit(p, o, next, before, after);
+        if (moved > 0) commit(p, o, next, before, after, "warehouse.deposit", moved);
         else plugin.messages().send(p, "wh-no-space");
     }
 
@@ -973,7 +978,7 @@ public final class WarehouseService implements GuildModule, Listener {
         WarehouseContents next = o.contents.copy();
         int index = o.contents.entries().indexOf(entry);
         next.withdraw(next.entries().get(index), moved);
-        commit(p, o, next, before, after);
+        commit(p, o, next, before, after, "warehouse.withdraw", moved);
     }
 
     @EventHandler

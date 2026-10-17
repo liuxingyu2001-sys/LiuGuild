@@ -149,4 +149,28 @@ class ArenaDefTest {
         assertEquals("NORMAL", a.tempWorld.environment);
         assertEquals(-1, a.tempWorld.time);
     }
+
+    @Test
+    void parsesHostsPool() {
+        ArenaDef a = parse("""
+                server: fallback
+                hosts: [zy, "99", zy]
+                """);
+        assertEquals(java.util.List.of("zy", "99"), a.hosts);
+        assertEquals("fallback", a.server);
+        assertTrue(parse("server: fallback").hosts.isEmpty());
+    }
+
+    @Test
+    void parsesKothPoint() {
+        ArenaDef a = parse("""
+                koth: { x: 1.5, y: 64.0, z: -2.5, radius: 5 }
+                """);
+        assertTrue(a.kothSet);
+        assertEquals(1.5, a.kothX);
+        assertEquals(64.0, a.kothY);
+        assertEquals(-2.5, a.kothZ);
+        assertEquals(5.0, a.kothRadius);
+        assertFalse(parse("world: world").kothSet);
+    }
 }

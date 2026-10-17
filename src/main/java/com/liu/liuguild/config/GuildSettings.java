@@ -13,6 +13,9 @@ public final class GuildSettings {
     public int tagMax = 5;
     public double createCost = 10000.0;
     public int maxMembers = 50;
+    public boolean applicationEnabled = true;
+    public int applicationMaxPending = 3;
+    public int applicationMessageMax = 100;
     public int maxMembersPerLevel = 5;
     public int inviteExpireSeconds = 300;
     public int inviteCooldownSeconds = 30;
@@ -159,6 +162,11 @@ public final class GuildSettings {
         s.tagMax = Math.max(s.tagMin, c.getInt("guild.tag.max-length", s.tagMax));
         s.createCost = c.getDouble("guild.create-cost", s.createCost);
         s.maxMembers = Math.max(1, c.getInt("guild.max-members", s.maxMembers));
+        s.applicationEnabled = c.getBoolean("guild.application.enabled", s.applicationEnabled);
+        s.applicationMaxPending = Math.max(1, Math.min(20,
+                c.getInt("guild.application.max-pending", s.applicationMaxPending)));
+        s.applicationMessageMax = Math.max(1, Math.min(255,
+                c.getInt("guild.application.message-max-length", s.applicationMessageMax)));
         s.maxMembersPerLevel = Math.max(0, c.getInt("guild.max-members-per-level", s.maxMembersPerLevel));
         s.inviteExpireSeconds = Math.max(10, c.getInt("guild.invite.expire-seconds", s.inviteExpireSeconds));
         s.inviteCooldownSeconds = Math.max(0, c.getInt("guild.invite.cooldown-seconds", s.inviteCooldownSeconds));

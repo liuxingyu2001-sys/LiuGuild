@@ -56,6 +56,23 @@ public final class WarMath {
         return new int[]{total, total};
     }
 
+    /** 战绩 MVP 分：击杀×3 - 死亡×2 + 存活分钟；允许负分。 */
+    public static long mvpScore(int kills, int deaths, long survivedSeconds) {
+        return Math.max(0, kills) * 3L - Math.max(0, deaths) * 2L
+                + Math.max(0, survivedSeconds) / 60L;
+    }
+
+    /** KOTH 控制方：只有一方在点内才得分，双方/无人返回空串。 */
+    public static String kothOwner(int countA, int countB) {
+        if (countA > 0 && countB == 0) {
+            return "A";
+        }
+        if (countB > 0 && countA == 0) {
+            return "B";
+        }
+        return "";
+    }
+
     /**
      * 从队列头部取出至多 {@code batch} 个元素并逐个执行（分帧处理）。
      * 单元素异常不会中断其余元素；返回实际处理数量。

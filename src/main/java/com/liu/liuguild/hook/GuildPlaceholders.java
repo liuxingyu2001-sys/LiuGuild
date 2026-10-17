@@ -104,6 +104,18 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         }
 
         // 工会战
+        if (p.equals("war_in_war") || p.equals("war_fighting")) {
+            return player == null || plugin.war() == null ? "false"
+                    : String.valueOf(plugin.war().isFighting(player.getUniqueId()));
+        }
+        if (p.equals("war_spectator")) {
+            return player == null || plugin.war() == null ? "false"
+                    : String.valueOf(plugin.war().isSpectator(player.getUniqueId()));
+        }
+        if (p.equals("war_queue_position")) {
+            return guild == null || plugin.war() == null ? "0"
+                    : String.valueOf(plugin.war().queuePosition(guild.id()));
+        }
         if (p.equals("war_lives")) {
             return player == null || plugin.war() == null ? "0"
                     : String.valueOf(plugin.war().lives(player.getUniqueId()));
@@ -120,6 +132,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             return "";
         }
         return switch (p) {
+            case "guild_id" -> guild.id();
             case "name" -> guild.name();
             case "tag" -> guild.tag();
             case "level" -> String.valueOf(guild.level());

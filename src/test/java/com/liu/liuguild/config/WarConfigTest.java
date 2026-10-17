@@ -176,4 +176,23 @@ class WarConfigTest {
         WarModeSettings m = modes("modes:\n  season:\n    season:\n      points-multiplier: 0.25\n", w);
         assertEquals(1.0, m.mode("season").seasonPointsMultiplier);
     }
+
+    @Test
+    void parsesKothObjective() throws Exception {
+        WarSettings w = war("");
+        WarModeSettings m = modes("""
+                modes:
+                  koth:
+                    objective:
+                      type: KOTH
+                      points-per-second: 2
+                      target: 50
+                      name: 中心
+                """, w);
+        WarMode mode = m.mode("koth");
+        assertEquals("koth", mode.objectiveType);
+        assertEquals(2, mode.objectivePointsPerSecond);
+        assertEquals(50, mode.objectiveTarget);
+        assertEquals("中心", mode.objectiveName);
+    }
 }
