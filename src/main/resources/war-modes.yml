@@ -1,7 +1,9 @@
 # ==========================================================
 #  LiuGuild · 工会战模式模块（war-modes.yml）
 #  每一种工会战模式在这里独立配置，互不影响。
-#  未显式填写的项会继承 war.yml 的 war.defaults。
+#  未显式填写的项会继承 war.yml 的 war.defaults；
+#  模式里写了的项优先，所以可以让一个模式用统一装备、另一个用玩家自己的装备。
+#  broadcast-queue 未写时继承 war.yml 的 war.broadcast-queue。
 #  场地通过 arena 字段引用 arena.yml 中定义的竞技场 id。
 # ==========================================================
 
@@ -33,9 +35,9 @@ modes:
     # 准备阶段：玩家传送入场后的等待时间（秒）。
     # 这段时间内参赛者会被「锁定」（禁止移动/转视角/跳跃/交互），
     # 保证开战瞬间双方都站在出生点上。想让匹配后尽快开打就调小它。
-    prepare-seconds: 15
-    duration-seconds: 600
-    settle-seconds: 10
+    prepare-seconds: 10
+    duration-seconds: 300
+    settle-seconds: 5
     allow-spectators: true
     # 准备阶段锁定参赛者（冻结移动/视角/跳跃/交互），倒计时结束才放开，保证开战瞬间站位固定
     freeze-on-prepare: true
@@ -143,13 +145,23 @@ modes:
       points-multiplier: 1.0
 
   # ----------------------------------------------------------
-  #  示例：自定义模式（复制上段即可新增）
+  #  示例：另一个自定义模式（复制上段即可新增）
+  #  这里的值只影响本模式，不会改动 match / season。
   # ----------------------------------------------------------
-  # nightly:
+  # owngear:
   #   enabled: false
-  #   display: " nightly 工会战"
+  #   display: "自带装备工会战"
+  #   description: "使用玩家自己的装备，不屏蔽蟠桃血量。"
   #   arena: pvp
+  #   # 关键差异：不使用统一套装，也不屏蔽额外血量加成
   #   fair-equipment: false
+  #   fair-health: false
   #   kit: default
+  #   team-size: 10
+  #   min-members: 1
+  #   min-level: 1
+  #   prepare-seconds: 10
+  #   duration-seconds: 600
+  #   broadcast-queue: true
   #   schedule:
   #     - "* 21:30"

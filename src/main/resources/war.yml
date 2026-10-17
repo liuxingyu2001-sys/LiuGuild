@@ -1,7 +1,7 @@
 # ==========================================================
 #  LiuGuild · 工会战全局模块（war.yml）
 #  仅全局开关与「所有模式的默认值」。
-#  具体模式（匹配 / 赛季 / 自定义）见 war-modes.yml；
+#  具体模式（匹配 / 赛季 / 自定义）见 war-modes.yml，也可在下方与 defaults 同级直接写模式规则；
 #  场地见 arena.yml；统一装备见 kit.yml。
 # ==========================================================
 
@@ -15,7 +15,7 @@ war:
   match-timeout-seconds: 180
   # 默认模式（未指定时使用）
   default-mode: match
-  # 有玩家点击参与匹配时是否全服广播（模式可单独覆盖）
+  # 有玩家点击参与匹配时是否全服广播（含跨服广播；模式可单独覆盖）
   broadcast-queue: true
   # 比赛期间显示比分 BossBar（比分 + 剩余时间）。
   bossbar: true
@@ -28,7 +28,10 @@ war:
   auto-enter: true
 
   # ----------------------------------------------------------
-  #  所有工会战模式的公共默认值；模式里未写的项继承这里
+  #  所有工会战模式的公共默认值；模式里未写的项继承这里。
+  #  模式里显式写出的项优先，因此可以给不同模式配置不同规则：
+  #  例如 match 用 fair-equipment: true，另建一个模式写 false 即可使用玩家自己的装备。
+  #  broadcast-queue 未在 defaults 里配置时，模式继承上方的 war.broadcast-queue。
   # ----------------------------------------------------------
   defaults:
     enabled: true
@@ -74,3 +77,20 @@ war:
       # 自定义额外奖励（名称 + 指令，scope 可设 both/win/lose）
       # 占位符：{player} {uuid} {guild} {guild_id} {mode} {score} {enemy_score}
       extra: []
+
+  # ----------------------------------------------------------
+  #  可选：直接在 war.yml 里写模式专属规则（与 defaults 同级）。
+  #  未写的项继承 defaults；同名模式仍以 war-modes.yml 为准。
+  #  不能使用 defaults / modes / score / lives / rewards 这些保留名。
+  # ----------------------------------------------------------
+  # match:
+  #   fair-equipment: true
+  #   fair-health: true
+  # owngear:
+  #   enabled: true
+  #   display: "自带装备工会战"
+  #   arena: pvp
+  #   fair-equipment: false
+  #   fair-health: false
+  #   prepare-seconds: 10
+  #   duration-seconds: 600

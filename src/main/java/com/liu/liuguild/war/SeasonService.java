@@ -62,6 +62,8 @@ public final class SeasonService implements GuildModule, Listener {
         ArenaDef def=plugin.settings().arenas.arenas.get(requested.arena.toLowerCase(Locale.ROOT));
         if(def==null) { reply.accept("§c模式的竞技场不存在。"); return false; }
         String host=def.server==null || def.server.isBlank()?plugin.serverId():def.server;
+        if(host.equals(plugin.serverId()) && requested.fairHealth && (plugin.luckyPeaches()==null || !plugin.luckyPeaches().available()))
+            plugin.getLogger().warning("赛季模式 "+requested.key+" 开启了 fair-health，但未检测到 LuckyPeaches 的屏蔽接口，无法保证公平血量。");
         long now=System.currentTimeMillis();
         SeasonRepository.Event event=new SeasonRepository.Event(UUID.randomUUID().toString(),requested.key,host,"REGISTERING",now+15000,now);
         submit(() -> {
@@ -254,6 +256,7 @@ public final class SeasonService implements GuildModule, Listener {
                         return;
                     }
                     snapshots.put(entry.player(),snap); participants.put(entry.player(),entry);
+                    applyFairHealth(player);
                     if(!teleportSpawn(player,entry.guild(),all)) { restore(player,entry,false); return; }
                     try { plugin.kits().apply(player,mode); }
                     catch(Exception error) { plugin.getLogger().warning("赛季套装发放失败: "+error.getMessage()); restore(player,entry,false); return; }
@@ -346,10 +349,22 @@ public final class SeasonService implements GuildModule, Listener {
         return plugin.sparrow()==null || plugin.sparrow().playerReady(player);
     }
 
+    /** 赛季公平血量：按模式开关屏蔽 LuckyPeaches 蟠桃加成，必须在发放套装前执行。 */
+    private void applyFairHealth(Player player) {
+        if(mode==null || !mode.fairHealth || plugin.luckyPeaches()==null || !plugin.luckyPeaches().available()) return;
+        plugin.luckyPeaches().enter(player,plugin.luckyPeaches().supportsSuppress());
+    }
+    private void clearFairHealth(Player player,UUID id) {
+        if(plugin.luckyPeaches()==null || !plugin.luckyPeaches().available()) return;
+        if(player!=null && player.isOnline()) plugin.luckyPeaches().exit(player);
+        else plugin.luckyPeaches().clear(id);
+    }
     private void restore(Player p,SeasonRepository.Entry entry,boolean quitting) {
         if(!quitting && !playerReady(entry.player())) return;
         KitService.Snapshot snap=snapshots.remove(entry.player());
         participants.remove(entry.player()); waiting.remove(entry.player());
+        // 先恢复蟠桃血量属性，再按快照还原血量，避免快照血量被压制后的上限截断。
+        clearFairHealth(p,entry.player());
         if(snap==null) return;
         restoring.add(entry.player());
         plugin.kits().restore(p,snap,true);
@@ -426,6 +441,7 @@ public final class SeasonService implements GuildModule, Listener {
             if(battle!=identity || finishing || !victim.isOnline() || !participants.containsKey(uuid) || victim.isDead()) return;
             if(!battle.respawn(uuid)) return;
             waiting.remove(uuid);
+            applyFairHealth(victim);
             plugin.kits().apply(victim,mode); victim.setGameMode(GameMode.ADVENTURE); victim.setInvulnerable(false);
             teleportSpawn(victim,participants.get(uuid).guild(),new ArrayList<>(participants.values()));
         },Math.max(1,mode.respawnDelaySeconds)*20L);
@@ -443,7 +459,9 @@ public final class SeasonService implements GuildModule, Listener {
         plugin.syncDelayed(() -> {
             if(battle!=identity || battle==null || finishing || !participants.containsKey(uuid)) return;
             if(battle.respawn(uuid)) {
-                waiting.remove(uuid); plugin.kits().apply(player,mode); player.setGameMode(GameMode.ADVENTURE); player.setInvulnerable(false);
+                waiting.remove(uuid);
+                applyFairHealth(player);
+                plugin.kits().apply(player,mode); player.setGameMode(GameMode.ADVENTURE); player.setInvulnerable(false);
                 teleportSpawn(player,participants.get(uuid).guild(),new ArrayList<>(participants.values()));
             } else { player.setGameMode(GameMode.SPECTATOR); player.setInvulnerable(true); }
         }, Math.max(1,mode.respawnDelaySeconds)*20L);

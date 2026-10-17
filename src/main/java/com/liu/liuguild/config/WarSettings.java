@@ -35,6 +35,8 @@ public final class WarSettings {
 
     /** 模式公共默认值（来自 war.defaults 或 war 根节点）。 */
     public WarMode defaults = new WarMode();
+    /** war.yml 中直接写出的模式覆盖（与 defaults 同级，或位于 war.modes 下）。 */
+    public Map<String, WarMode> inlineModes = new LinkedHashMap<>();
     /** 全部模式（由 ConfigManager 从 war-modes.yml 注入）。 */
     public Map<String, WarMode> modes = new LinkedHashMap<>();
 
@@ -51,13 +53,63 @@ public final class WarSettings {
         s.autoEnter = c.getBoolean("war.auto-enter", s.autoEnter);
 
         WarMode base = new WarMode();
+        // 全局开关作为未显式配置该模式的默认值；模式里写 broadcast-queue 仍可单独覆盖。
+        base.broadcastQueue = s.broadcastQueue;
         ConfigurationSection defaults = c.getConfigurationSection("war.defaults");
         if (defaults != null) {
             base = WarMode.parse("default", defaults, base);
         }
         applyLegacyRoot(c, base);
         s.defaults = base;
+        s.inlineModes = parseInlineModes(c, base);
         return s;
+    }
+
+    /**
+     * 解析 war.yml 里与 {@code defaults} 同级的自定义模式，以及 {@code war.modes} 下的模式。
+     * <p>同名模式以 {@code war-modes.yml} 为准；这里只作为模板/覆盖层，未写的项继续继承 defaults。</p>
+     */
+    private static Map<String, WarMode> parseInlineModes(FileConfiguration c, WarMode base) {
+        Map<String, WarMode> out = new LinkedHashMap<>();
+        ConfigurationSection root = c.getConfigurationSection("war");
+        if (root != null) for (String key : root.getKeys(false)) {
+            String lower = key.toLowerCase(Locale.ROOT);
+            if (INLINE_RESERVED.contains(lower)) {
+                continue;
+            }
+            ConfigurationSection sec = root.getConfigurationSection(key);
+            if (sec == null || !looksLikeMode(sec)) {
+                continue; // 全局标量或未知全局段，不当作模式
+            }
+            out.put(lower, WarMode.parse(lower, sec, base));
+        }
+        ConfigurationSection explicit = c.getConfigurationSection("war.modes");
+        if (explicit != null) {
+            for (String key : explicit.getKeys(false)) {
+                String lower = key.toLowerCase(Locale.ROOT);
+                WarMode start = out.getOrDefault(lower, base);
+                out.put(lower, WarMode.parse(lower, explicit.getConfigurationSection(key), start));
+            }
+        }
+        return out;
+    }
+
+    /** war 下已被全局配置占用的段名，不能当作模式名。 */
+    private static final java.util.Set<String> INLINE_RESERVED = java.util.Set.of(
+            "defaults", "modes", "score", "lives", "rewards");
+
+    /** 判断一个段是否像模式配置，避免把将来的全局段误认成模式。 */
+    private static boolean looksLikeMode(ConfigurationSection sec) {
+        for (String key : java.util.List.of("enabled", "display", "description", "arena", "kit", "fair-equipment",
+                "fair-health", "keep-inventory", "team-size", "min-members", "min-level",
+                "prepare-seconds", "duration-seconds", "settle-seconds", "allow-spectators",
+                "freeze-on-prepare", "prepare-platform", "broadcast-queue", "schedule", "season",
+                "lives", "score", "rewards")) {
+            if (sec.contains(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 兼容旧版扁平 war.* 配置。 */
@@ -90,6 +142,9 @@ public final class WarSettings {
     public WarMode mode(String key) {
         if (key != null && modes.containsKey(key.toLowerCase(Locale.ROOT))) {
             return modes.get(key.toLowerCase(Locale.ROOT));
+        }
+        if (key != null && inlineModes.containsKey(key.toLowerCase(Locale.ROOT))) {
+            return inlineModes.get(key.toLowerCase(Locale.ROOT));
         }
         WarMode m = defaults.copy();
         m.key = key == null ? defaultMode : key;

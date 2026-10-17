@@ -563,6 +563,15 @@ public final class WarManager implements GuildModule {
             plugin.guilds().broadcastAll(plugin.messages().component("war-queue-broadcast",
                     "player", player.getName(), "guild", guild.name(), "mode", mode.display)
                     .append(queueJoinButton(mode)));
+            // 本服已即时广播；其它子服通过 Redis 收到同一条提示，避免只在本服可见。
+            if (plugin.bus() != null && plugin.bus().isReady()) {
+                String playerName = player.getName();
+                String guildName = guild.name();
+                String modeKey = mode.key;
+                plugin.async(() -> plugin.bus().publish("WAR_QUEUE_ANNOUNCE", CrossServerBus.map(
+                        "server", plugin.serverId(), "player", playerName,
+                        "guild", guildName, "mode", modeKey)));
+            }
         }
     }
 
@@ -977,6 +986,22 @@ public final class WarManager implements GuildModule {
     public void onCrossServer(String type, Map<String, String> data) {
         if ("WAR_STOP_ALL".equals(type)) {
             plugin.sync(this::stopAllLocal);
+            return;
+        }
+        if ("WAR_QUEUE_ANNOUNCE".equals(type)) {
+            // 发起服已本地广播，其它子服补发，保证全服玩家都能看到并点击参与。
+            if (plugin.serverId().equals(data.get("server"))) {
+                return;
+            }
+            WarMode mode = plugin.settings().mode(data.get("mode"));
+            if (mode == null || !plugin.settings().warModes.modes.containsKey(mode.key) || !mode.broadcastQueue) {
+                return;
+            }
+            Component text = plugin.messages().component("war-queue-broadcast",
+                    "player", data.getOrDefault("player", "?"),
+                    "guild", data.getOrDefault("guild", "?"),
+                    "mode", mode.display).append(queueJoinButton(mode));
+            plugin.sync(() -> plugin.guilds().broadcastAll(text));
             return;
         }
         switch (type) {

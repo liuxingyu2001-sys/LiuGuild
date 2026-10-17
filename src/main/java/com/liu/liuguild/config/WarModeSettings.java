@@ -30,8 +30,14 @@ public final class WarModeSettings {
         if (sec != null) {
             for (String key : sec.getKeys(false)) {
                 String k = key.toLowerCase(Locale.ROOT);
-                s.modes.put(k, WarMode.parse(k, sec.getConfigurationSection(key), base));
+                // 逐层覆盖：defaults → war.yml 同级模式/ war.modes → war-modes.yml。
+                WarMode start = war.inlineModes.getOrDefault(k, base);
+                s.modes.put(k, WarMode.parse(k, sec.getConfigurationSection(key), start));
             }
+        }
+        // war.yml 里写过、但 war-modes.yml 没写的模式也要生效。
+        for (Map.Entry<String, WarMode> entry : war.inlineModes.entrySet()) {
+            s.modes.putIfAbsent(entry.getKey(), entry.getValue().copy());
         }
         // 内置模式兜底
         s.modes.computeIfAbsent("match", k -> {

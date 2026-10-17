@@ -8,7 +8,7 @@
 
 显式指定的世界不存在、模板不可用时取消比赛；不再回退普通世界。已取消比赛的异步场地创建结果不会重新启动比赛。
 
-跨服返程和数据托管仍有待完善：当前没有完整的出发服坐标往返记录；代理 Connect 消息不代表玩家已抵达；数据库恢复记录与 Minecraft 玩家存档并非原子提交。上线前仍需验证断线、切服失败、承办服重启、SparrowSync 加载时序及临时世界清理，不能将单元测试通过视为这些流程已验证。
+匹配工会战的返程仍以承办服本地记录为主，玩家跨服参赛后不保证回到原服原坐标；赛季混战已把出发服和坐标写入数据库并在结算后返程。两种模式的玩家存档与插件托管仍不是同一个原子事务。上线前仍需验证断线、切服失败、承办服重启、SparrowSync 加载时序及临时世界清理，不能将单元测试通过视为这些流程已验证。
 
 ## 管理员开启赛事
 
@@ -92,6 +92,40 @@ modes:
       win-title-id: 0
 ```
 
+## 不同模式使用不同规则
+
+`war.defaults` 只补全模式里**没有写**的项，模式里写出的项优先。模式规则可以写在 `war-modes.yml`，也可以直接写在 `war.yml` 里与 `defaults` 同级（更直观）：
+
+```yaml
+# war.yml
+war:
+  defaults:
+    fair-equipment: true
+    fair-health: true
+    team-size: 10
+  match:
+    fair-equipment: true   # 统一套装
+    fair-health: true      # 屏蔽蟠桃血量
+  owngear:
+    enabled: true
+    display: "自带装备工会战"
+    arena: pvp
+    fair-equipment: false  # 使用玩家自己的装备
+    fair-health: false     # 保留原生血量（含蟠桃加成）
+    prepare-seconds: 10
+    duration-seconds: 600
+```
+
+与 `defaults` 同级写模式时，不能用 `defaults`、`modes`、`score`、`lives`、`rewards` 这些保留名，也不能与 `enabled`、`broadcast-queue` 等全局标量重名；建议模式名用 `owngear`、`nightly` 这类不会冲突的词。也可以把它们放进 `war.modes:` 下，效果相同。
+
+优先级从低到高：
+
+1. `war.defaults`
+2. `war.yml` 中与 `defaults` 同级的模式，或 `war.modes.<key>`
+3. `war-modes.yml` 的 `modes.<key>`（同名模式以此为准）
+
+`owngear` 中未写的 `team-size`、`min-level`、`rewards` 等仍继承 `war.defaults`；`match` 不受影响。模式 key 可自定义，启用后会出现在 `/guild war queue <模式>` 与工会战菜单中。
+
 ## 生命与复活
 
 - `lives.per-player` 是每名参赛者初始生命数，包含开战时的当前生命。
@@ -106,6 +140,7 @@ modes:
 ## 匹配与赛季
 
 - 玩家从 `/guild gui` → 工会战选择启用的模式，或使用 `/guild war queue <mode>`。
+- 模式开启 `broadcast-queue` 时，玩家入队会向**所有子服**广播（Redis 跨服消息），其他服玩家可直接点击提示加入；未启用跨服时只在当前服广播。
 - 配对按模式分组，不会让不同模式的工会互相阻塞。
 - `schedule` 支持 `"20:00"`、`"sat 20:00"`、`"mon-fri 20:00"`、`"sat,sun 21:30"`。
 - `season.window-minutes` 控制赛季报名窗口，`season.auto-enqueue` 控制是否自动入队。
@@ -152,7 +187,8 @@ modes:
   - `prepare-seconds` 默认已调至 **15**（原 30），想更快可直接调小或设 `freeze-on-prepare: false`。
 - 非承办服玩家仍可手动使用 `/guild war join` 传送到承办服（例如中途加入）。
 - 场地字段及管理命令见 [arena.md](arena.md)。
-- `fair-equipment` 统一装备；`fair-health` 屏蔽 LuckyPeaches 蟠桃血量。
+- `fair-equipment` 决定是否发放统一装备；关闭时保留玩家自带装备（仍会采集/恢复快照用于返程兜底）。
+- `fair-health` 决定是否屏蔽 LuckyPeaches 蟠桃血量加成，匹配战与赛季混战都遵循该模式的开关。
 - NotBounties 可用时，工会战参赛者的击杀不会领取悬赏，避免以比赛击杀刷取悬赏。
 
 ## 跨服生命周期、镜像与崩溃恢复

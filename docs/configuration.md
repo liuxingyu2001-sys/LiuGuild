@@ -89,11 +89,11 @@ local-fallback: true     # Redis 不可用时降级为单服
 
 ## war.yml
 
-仅全局开关与 `war.defaults`（所有模式的公共默认值）。详见 [war.md](war.md)。
+全局开关与 `war.defaults`（所有模式的公共默认值）。也可以在这里与 `defaults` 同级直接写模式规则（或放进 `war.modes:`），未写的项继承 `defaults`；同名模式以 `war-modes.yml` 为准。详见 [war.md](war.md)。
 
 ## war-modes.yml
 
-每个模式的完整独立配置，未写的项继承 `war.defaults`。详见 [war.md](war.md)。
+各模式的独立配置，未写的项继承 `war.defaults` 以及 `war.yml` 中的同名模式覆盖。详见 [war.md](war.md)。
 
 ## arena.yml
 
