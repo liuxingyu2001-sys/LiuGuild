@@ -69,8 +69,10 @@ public final class WarMode {
      * <p>仅在有 PacketEvents 时无需开启；开启可兼顾未安装 PacketEvents 的服务器。</p>
      */
     public boolean preparePlatform = true;
-    /** 引用 arena.yml 中的竞技场 id。 */
+    /** 引用 arena.yml 中的竞技场 id（单场地兼容写法）。 */
     public String arena = "main";
+    /** 可选竞技场池；非空时优先于 arena，单承办服可同时开多场。 */
+    public List<String> arenaPool = new ArrayList<>();
 
     // ---- 奖励：个人金币、工会资金、通行证经验、胜方称号 ----
     public double winPlayerMoney = 500.0;
@@ -255,6 +257,12 @@ public final class WarMode {
         m.allowJumpOnPrepare = sec.getBoolean("allow-jump-on-prepare", m.allowJumpOnPrepare);
         m.preparePlatform = sec.getBoolean("prepare-platform", m.preparePlatform);
         m.arena = sec.getString("arena", m.arena);
+        m.arenaPool.clear();
+        for (String raw : sec.getStringList("arenas")) {
+            if (raw != null && !raw.isBlank() && !m.arenaPool.contains(raw.strip())) {
+                m.arenaPool.add(raw.strip());
+            }
+        }
         m.winPlayerMoney = Math.max(0, sec.getDouble("rewards.win-player-money", m.winPlayerMoney));
         m.losePlayerMoney = Math.max(0, sec.getDouble("rewards.lose-player-money", m.losePlayerMoney));
         m.winGuildFunds = Math.max(0, sec.getLong("rewards.win-guild-funds", m.winGuildFunds));
@@ -324,6 +332,7 @@ public final class WarMode {
         c.allowJumpOnPrepare = allowJumpOnPrepare;
         c.preparePlatform = preparePlatform;
         c.arena = arena;
+        c.arenaPool = new ArrayList<>(arenaPool);
         c.winPlayerMoney = winPlayerMoney;
         c.losePlayerMoney = losePlayerMoney;
         c.winGuildFunds = winGuildFunds;

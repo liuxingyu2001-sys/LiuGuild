@@ -141,6 +141,13 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
 - 支持工会战/赛季/升级/创建/解散/入会申请事件，异步发送、失败重试。
 - 详细字段、payload 与安全说明见 [webhook.md](webhook.md)。
 
+## CustomNameplates（工会战头顶铭牌）
+
+- 安装后 LiuGuild 注册 `%liuguild_war_guild%` 占位符。
+- 工会战期间在参赛者头顶显示 `[工会名]`，A/B 方使用不同颜色。
+- 非工会战返回空字符串，不常驻显示。
+- 配置与 CustomNameplates 的 `nameplate.yml` 示例见 [nameplates.md](nameplates.md)。
+
 ## QQ 官方机器人（WebSocket）
 
 - 配置在每服 `server.yml` 的 `qqbot`，默认关闭；不随共享配置同步。

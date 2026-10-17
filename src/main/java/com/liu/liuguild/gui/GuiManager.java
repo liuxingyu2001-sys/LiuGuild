@@ -313,7 +313,7 @@ public final class GuiManager implements GuildModule, Listener {
         ph.put("score", war == null ? "0" : String.valueOf(home ? war.scoreA() : war.scoreB()));
         ph.put("enemy_score", war == null ? "0" : String.valueOf(home ? war.scoreB() : war.scoreA()));
         ph.put("lives", String.valueOf(plugin.war() == null ? 0 : plugin.war().lives(player.getUniqueId())));
-        ph.put("arena", plugin.war() == null ? "-" : plugin.war().currentArena().id);
+        ph.put("arena", plugin.war() == null ? "-" : plugin.war().arenaOf(war).id);
         ph.put("host", war == null ? "-" : war.hostServer());
         ph.put("history_count", String.valueOf(g.wins() + g.losses()));
         Holder holder = new Holder("war", g.id(), 0);

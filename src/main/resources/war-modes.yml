@@ -17,8 +17,10 @@ modes:
     enabled: true
     display: "匹配工会战"
     description: "随时匹配，人满即战。"
-    # 引用 arena.yml 中的竞技场
+    # 引用 arena.yml 中的竞技场；单场地写法
     arena: main
+    # 单承办服并发多场：启用后按顺序占用空闲 arena；每个 arena 必须是独立世界/独立区域
+    # arenas: [main, arena2, arena3]
     # 是否发放完全相同的公平装备
     fair-equipment: true
     # 是否屏蔽 LuckyPeaches 蟠桃血量加成，保证公平血量
@@ -36,9 +38,9 @@ modes:
     # 准备阶段：玩家传送入场后的等待时间（秒）。
     # 这段时间内参赛者会被「锁定」（禁止移动/转视角/跳跃/交互），
     # 保证开战瞬间双方都站在出生点上。想让匹配后尽快开打就调小它。
-    prepare-seconds: 10
+    prepare-seconds: 3
     duration-seconds: 300
-    settle-seconds: 5
+    settle-seconds: 3
     allow-spectators: true
     # 准备阶段锁定参赛者（冻结移动/视角/跳跃/交互），倒计时结束才放开，保证开战瞬间站位固定
     freeze-on-prepare: true

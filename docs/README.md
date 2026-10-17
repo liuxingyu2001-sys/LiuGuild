@@ -31,6 +31,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [placeholders.md](placeholders.md) | PlaceholderAPI 变量 |
 | [craftengine.md](craftengine.md) | CraftEngine 物品/图标集成 |
 | [hooks.md](hooks.md) | 软依赖钩子（liudungeon / LiuChat / liupass / Sparrow Sync / LuckyPeaches / PlayerTitle / NotBounties / mcMMO） |
+| [nameplates.md](nameplates.md) | CustomNameplates 工会战头顶铭牌 |
 | [qqbot.md](qqbot.md) | QQ 官方机器人 WebSocket、指令查询与事件推送 |
 | [webhook.md](webhook.md) | Discord / 通用 JSON webhook 推送 |
 | [audit.md](audit.md) | 工会审计日志与管理员清理动作 |

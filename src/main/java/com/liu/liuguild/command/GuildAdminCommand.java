@@ -1089,9 +1089,41 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 endSpawnHosts.add(a.server);
             }
         }
-        if (s.main.crossServerEnabled && fixedHosts.size() == 1 && !s.war.modes.isEmpty()) {
+        boolean anyArenaPool = s.war.modes.values().stream().anyMatch(m -> m.arenaPool.size() > 1);
+        if (s.main.crossServerEnabled && fixedHosts.size() == 1 && !s.war.modes.isEmpty() && !anyArenaPool) {
             warn.add("所有场地都固定由 " + fixedHosts.iterator().next()
-                    + " 承办，同一时间只能承办一场；高并发建议增加承办服池/第二个场地");
+                    + " 承办，且未配置 arenas 场地池，同一时间只能承办一场；单服多场请配置多个独立 arena");
+        }
+        for (var m : s.war.modes.values()) {
+            java.util.Set<String> worlds = new java.util.HashSet<>();
+            for (String arenaId : m.arenaPool) {
+                var a = s.arenas.arena(arenaId);
+                if (a == null) {
+                    bad.add("模式 " + m.key + " 的 arenas 引用了不存在的场地：" + arenaId);
+                    continue;
+                }
+                worlds.add(a.world == null ? "" : a.world);
+            }
+            if (m.arenaPool.size() > 1) {
+                java.util.Map<String, String> seenSpawns = new java.util.HashMap<>();
+                for (String arenaId : m.arenaPool) {
+                    var a = s.arenas.arena(arenaId);
+                    if (a == null) {
+                        continue;
+                    }
+                    String key = (a.world == null ? "" : a.world) + "|"
+                            + a.spawnA.x() + "," + a.spawnA.y() + "," + a.spawnA.z();
+                    String previous = seenSpawns.putIfAbsent(key, arenaId);
+                    if (previous != null) {
+                        bad.add("模式 " + m.key + " 的 arena " + previous + " 与 " + arenaId
+                                + " 使用同一世界/同一 A 点，不能作为并发场地");
+                    }
+                }
+                if (worlds.size() <= 1) {
+                    warn.add("模式 " + m.key + " 配置了多个 arena 但都在同一世界；"
+                            + "请确认它们互不重叠，否则并发比赛会串场");
+                }
+            }
         }
         for (String host : endSpawnHosts) {
             warn.add("arena.after-war.end-spawn.enabled=true 且未写 server：赛后跨服玩家会集中到承办服 "

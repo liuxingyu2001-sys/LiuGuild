@@ -41,6 +41,11 @@ public final class WarSettings {
     /** 开战后掉线可重连回战场的宽限（秒）；0 = 关闭。 */
     public int reconnectSeconds = 90;
 
+    // ---- 工会战铭牌（CustomNameplates 占位符） ----
+    public boolean nameplateEnabled = true;
+    public String nameplateFormatA = "&8[&c{guild}&8] ";
+    public String nameplateFormatB = "&8[&9{guild}&8] ";
+
     /** 模式公共默认值（来自 war.defaults）。 */
     public WarMode defaults = new WarMode();
     /** war.yml 中直接写出的模式覆盖（与 defaults 同级，或位于 war.modes 下）。 */
@@ -65,6 +70,9 @@ public final class WarSettings {
                 c.getInt("war.fast-start-join-grace-seconds", s.fastStartJoinGraceSeconds)));
         s.reconnectSeconds = Math.max(0, Math.min(600,
                 c.getInt("war.reconnect-seconds", s.reconnectSeconds)));
+        s.nameplateEnabled = c.getBoolean("war.nameplate.enabled", s.nameplateEnabled);
+        s.nameplateFormatA = c.getString("war.nameplate.format-a", s.nameplateFormatA);
+        s.nameplateFormatB = c.getString("war.nameplate.format-b", s.nameplateFormatB);
 
         WarMode base = new WarMode();
         // 全局开关作为未显式配置该模式的默认值；模式里写 broadcast-queue 仍可单独覆盖。

@@ -964,8 +964,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                     boolean home = w.guildA().equals(g.id());
                     plugin.messages().sendRaw(player, "war-score", "guild_a", w.nameA(), "guild_b", w.nameB(),
                             "score_a", w.scoreA(), "score_b", w.scoreB());
-                    if (w.state() == com.liu.liuguild.model.WarState.ACTIVE && plugin.war().phaseSecondsLeft() >= 0) {
-                        player.sendMessage(Text.mm("<gray>剩余 " + plugin.war().phaseSecondsLeft() + " 秒"));
+                    if (w.state() == com.liu.liuguild.model.WarState.ACTIVE) {
+                        player.sendMessage(Text.mm("<gray>剩余 " + plugin.war().secondsLeft(w) + " 秒"));
                     }
                 }
             }

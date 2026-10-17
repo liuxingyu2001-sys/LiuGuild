@@ -195,4 +195,31 @@ class WarConfigTest {
         assertEquals(50, mode.objectiveTarget);
         assertEquals("中心", mode.objectiveName);
     }
+
+    @Test
+    void parsesArenaPool() throws Exception {
+        WarSettings w = war("");
+        WarModeSettings m = modes("""
+                modes:
+                  match:
+                    arena: main
+                    arenas: [main, arena2, arena2]
+                """, w);
+        assertEquals(java.util.List.of("main", "arena2"), m.mode("match").arenaPool);
+        assertTrue(modes("modes:\n  match: {}\n", w).mode("match").arenaPool.isEmpty());
+    }
+
+    @Test
+    void parsesNameplateSettings() throws Exception {
+        WarSettings w = war("""
+                war:
+                  nameplate:
+                    enabled: false
+                    format-a: "A:{guild}:{player}"
+                    format-b: "B:{guild}"
+                """);
+        assertFalse(w.nameplateEnabled);
+        assertEquals("A:{guild}:{player}", w.nameplateFormatA);
+        assertEquals("B:{guild}", w.nameplateFormatB);
+    }
 }

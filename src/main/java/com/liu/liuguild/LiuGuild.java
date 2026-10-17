@@ -62,6 +62,7 @@ public final class LiuGuild extends JavaPlugin {
     private com.liu.liuguild.application.GuildApplications applications;
     private com.liu.liuguild.hook.WebhookHook webhook;
     private com.liu.liuguild.hook.QqBotHook qqBot;
+    private com.liu.liuguild.hook.CustomNameplatesHook customNameplates;
     private CrossServerBus bus;
     private GuildManager guilds;
     private WarManager war;
@@ -140,6 +141,7 @@ public final class LiuGuild extends JavaPlugin {
         applications = new com.liu.liuguild.application.GuildApplications(this);
         webhook = new com.liu.liuguild.hook.WebhookHook(this);
         qqBot = new com.liu.liuguild.hook.QqBotHook(this);
+        customNameplates = new com.liu.liuguild.hook.CustomNameplatesHook(this);
 
         // 软依赖钩子（缺失自动降级）。对直接引用第三方类的钩子先做插件存在性判断，
         // 避免在缺少依赖时触发类初始化失败（虽然 safe() 能兜住，但会多一轮异常且无日志）。
@@ -215,6 +217,9 @@ public final class LiuGuild extends JavaPlugin {
         if (qqBot != null) {
             qqBot.start();
         }
+        if (customNameplates != null) {
+            customNameplates.start();
+        }
 
         getLogger().info("LiuGuild 已启用：server-id=" + serverId()
                 + "，存储=" + (database.isSqlite() ? "SQLite" : "MySQL")
@@ -228,6 +233,7 @@ public final class LiuGuild extends JavaPlugin {
         // IllegalPluginAccessException，把 cleanup 链整条打断），改为自建线程收尾。
         shuttingDown = true;
         if (qqBot != null) qqBot.stop();
+        if (customNameplates != null) customNameplates.stop();
         if (pass != null) pass.close();
         if (guildChat != null) guildChat.close();
         if (packetEvents != null) packetEvents.close();
@@ -787,8 +793,13 @@ public final class LiuGuild extends JavaPlugin {
         // 工会战
         out.add("&7工会战: &f" + (s.war.enabled ? "启用" : "关闭")
                 + " &7赛事: &f" + s.war.modes.keySet());
+        String hostedIds = war.localWars().isEmpty() ? "无"
+                : war.localWars().stream()
+                .map(w -> w.id() + "@" + war.arenaOf(w).id)
+                .collect(java.util.stream.Collectors.joining(","));
         out.add("&7匹配队列: &f" + war.queueSize() + " &7进行中: &f" + war.liveWars().size()
-                + " &7本服承办: &f" + (war.currentWar() == null ? "无" : war.currentWar().id())
+                + " &7本服承办: &f" + hostedIds
+                + " &7并发上限: &f" + war.localArenaCapacity()
                 + " &7待发放奖励: &f" + war.pendingSettlements());
         // 预加载
         out.add("&7预加载: &f套装 " + (kits == null ? 0 : kits.preloadedKits()) + " 套 &7场地 " + s.arenas.arenas.size()

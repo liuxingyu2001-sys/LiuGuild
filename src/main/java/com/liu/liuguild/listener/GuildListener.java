@@ -102,8 +102,8 @@ public final class GuildListener implements GuildModule, Listener {
         if (ga == null || gb == null || ga.id().equals(gb.id())) {
             return false;
         }
-        GuildWar war = plugin.war().currentWar();
-        if (war == null || war.state() != WarState.ACTIVE) {
+        GuildWar war = plugin.war().warOf(ga.id());
+        if (war == null || war.state() != WarState.ACTIVE || !war.involves(gb.id())) {
             return false;
         }
         boolean sameWar = (war.guildA().equals(ga.id()) && war.guildB().equals(gb.id()))
