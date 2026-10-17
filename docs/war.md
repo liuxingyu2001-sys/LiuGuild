@@ -143,6 +143,9 @@ war:
 
 - 玩家从 `/guild gui` → 工会战选择启用的模式，或使用 `/guild war queue <mode>`。
 - 模式开启 `broadcast-queue` 时，玩家入队会向**所有子服**广播（Redis 跨服消息），其他服玩家可直接点击提示加入；未启用跨服时只在当前服广播。
+- `auto-enter: true` 时，匹配成功、开战、倒计时、比分、击杀和结算等**两个工会之间**的消息只发给本场参赛者与承办服旁观者，不跨服、不发给未参赛的工会成员。
+- `auto-enter: false` 时，匹配成功提示仍会作为工会内部入场邀请发给双方在线成员，但不发给全服。
+- 只有“入队邀请”和赛季开放报名属于公开招募信息，才按 `broadcast-queue` / 赛季开放逻辑广播。
 - 配对按模式分组，不会让不同模式的工会互相阻塞。
 - `schedule` 支持 `"20:00"`、`"sat 20:00"`、`"mon-fri 20:00"`、`"sat,sun 21:30"`。
 - 判定为混战的模式（`season.melee: true`）使用 `season.registration-seconds` 汇总名单，并自动登记符合条件的工会，不使用 `window-minutes` / `auto-enqueue`。

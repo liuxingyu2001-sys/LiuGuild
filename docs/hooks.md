@@ -21,17 +21,14 @@
 - 模板不存在或未安装时回退到 `world` + 坐标的固定场地。
 - 结束后自动销毁动态世界。
 
-## LiuChat（公告与工会频道）
+## LiuChat（工会频道）
 
 - `/guild chat` 切换工会频道，再执行返回原频道；`/guild chat <消息>` 单次发送。
 - 每个工会注册独立 MEMBERS 频道，接收/发送权限由成员身份自动同步；退会与踢人即时取消订阅。
 - 禁言、冷却、重复、过滤均由 LiuChat 原生审核。
 - 更新后的 LiuChat `ChannelDeliveredEvent` 才可触发跨服转发，通过 LiuGuild Redis 总线发送成品组件，远端 `deliverChannelRemote` 再检查订阅、权限与忽略列表；旧版仅本服频道。
 - 所有子服需要同时更新 LiuChat 与 LiuGuild。
-
-- `broadcastAnnouncement(Player carrier, BaseComponent...)`：工会战公告借其跨服链路广播。
-- `deliverPrivate(...)`：私聊投递。
-- 仅在主线程调用；未安装时回退到 Bukkit 广播。
+- 工会战战斗消息只发给本场参赛者与承办服旁观者，不再借 LiuChat 做全服/跨服公告。
 
 ## mcMMO（技能静默屏蔽）
 

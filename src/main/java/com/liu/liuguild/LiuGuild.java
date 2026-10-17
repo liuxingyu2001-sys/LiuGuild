@@ -15,7 +15,6 @@ import com.liu.liuguild.db.GuildRepository;
 import com.liu.liuguild.guild.GuildManager;
 import com.liu.liuguild.gui.GuiManager;
 import com.liu.liuguild.hook.GuildChatHook;
-import com.liu.liuguild.hook.ChatHook;
 import com.liu.liuguild.hook.CraftEngineHook;
 import com.liu.liuguild.hook.DungeonHook;
 import com.liu.liuguild.hook.EconomyHook;
@@ -72,7 +71,6 @@ public final class LiuGuild extends JavaPlugin {
     private GuildChatHook guildChat;
     /** 启动配置检查的告警（供状态命令展示）。 */
     private final java.util.List<String> configWarnings = new java.util.ArrayList<>();
-    private ChatHook chat;
     private PassHook pass;
     private CraftEngineHook craftEngine;
     private DungeonHook dungeon;
@@ -128,7 +126,6 @@ public final class LiuGuild extends JavaPlugin {
 
         // 软依赖钩子（缺失自动降级）
         economy = safe(EconomyHook::new);
-        chat = safe(ChatHook::new);
         pass = safe(() -> new PassHook(this));
         craftEngine = safe(CraftEngineHook::new);
         dungeon = safe(() -> new DungeonHook(this));
@@ -395,10 +392,6 @@ public final class LiuGuild extends JavaPlugin {
         return guildChat;
     }
 
-    public ChatHook chat() {
-        return chat;
-    }
-
     public PassHook pass() {
         return pass;
     }
@@ -625,7 +618,7 @@ public final class LiuGuild extends JavaPlugin {
                 + " &7模板=&f" + (a.hasTemplate() ? a.template : "固定坐标")));
         // 钩子
         out.add("&7钩子: " + hook("liudungeon", dungeon != null && dungeon.available())
-                + hook("LiuChat", chat != null && chat.available())
+                + hook("LiuChat", guildChat != null && guildChat.available())
                 + hook("liupass", pass != null && pass.available())
                 + hook("CraftEngine", craftEngine != null && craftEngine.available())
                 + hook("SparrowSync", sparrow != null && sparrow.available())

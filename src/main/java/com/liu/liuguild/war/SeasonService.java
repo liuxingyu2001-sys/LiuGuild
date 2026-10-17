@@ -181,11 +181,15 @@ public final class SeasonService implements GuildModule, Listener {
             if("REGISTERING".equals(event.state()) && System.currentTimeMillis()>=event.until()) {
                 Set<String> guilds=new HashSet<>();
                 entries.forEach(e -> guilds.add(e.guild()));
-                if(guilds.size()<2) { finish(true); return; }
+                if(guilds.size()<2) {
+                    announceRegistered(entries,"§e[工会赛季] 报名工会不足 2 个，赛事取消。");
+                    finish(true);
+                    return;
+                }
                 prepareUntil=System.currentTimeMillis()+Math.max(1,mode.prepareSeconds)*1000L;
                 current=new SeasonRepository.Event(event.id(),event.mode(),event.host(),"PREPARING",prepareUntil,System.currentTimeMillis());
                 submit(() -> { try { repo.state(event.id(),"PREPARING",prepareUntil); } catch(Exception e) { failure(e); } });
-                Bukkit.broadcastMessage("§6[工会赛季] §e"+guilds.size()+" 个工会进入混战准备阶段。");
+                announceRegistered(entries,"§6[工会赛季] §e"+guilds.size()+" 个工会进入混战准备阶段。");
             }
             if("PREPARING".equals(current.state()) && !starting) {
                 for(var entry:entries) {
@@ -305,7 +309,7 @@ public final class SeasonService implements GuildModule, Listener {
         submit(() -> { try { repo.state(id,"RUNNING",until); } catch(Exception e) { failure(e); } });
         bar=plugin.settings().war.bossBarEnabled?Bukkit.createBossBar("工会赛季混战",BarColor.YELLOW,BarStyle.SOLID):null;
         if(bar!=null) participants.keySet().forEach(uuid -> { Player p=Bukkit.getPlayer(uuid); if(p!=null) bar.addPlayer(p); });
-        Bukkit.broadcastMessage("§6[工会赛季] §c混战开始！击杀得分，同分按死亡次数排名。");
+        announceParticipants("§6[工会赛季] §c混战开始！击杀得分，同分按死亡次数排名。");
     }
     private void updateBoard() {
         if(bar==null) return;
@@ -313,6 +317,30 @@ public final class SeasonService implements GuildModule, Listener {
         battle.standings().stream().limit(5).forEach(row -> title.append(" #").append(row.rank()).append(' ').append(guildName(row.guildId())).append(':').append(row.points()));
         bar.setTitle(title.toString());
     }
+    /** 赛季战况/结算只发给本场参赛者，不再向承办服全体玩家广播。 */
+    private void announceParticipants(String message) {
+        for (UUID id : new ArrayList<>(participants.keySet())) {
+            Player player = Bukkit.getPlayer(id);
+            if (player != null && player.isOnline()) {
+                player.sendMessage(message);
+            }
+        }
+    }
+
+    /** 准备阶段名单已汇总但尚未全部完成入场，直接发给本服已在线报名者。 */
+    private void announceRegistered(List<SeasonRepository.Entry> entries, String message) {
+        Set<UUID> sent = new HashSet<>();
+        for (SeasonRepository.Entry entry : entries) {
+            if (!sent.add(entry.player())) {
+                continue;
+            }
+            Player player = Bukkit.getPlayer(entry.player());
+            if (player != null && player.isOnline()) {
+                player.sendMessage(message);
+            }
+        }
+    }
+
     private void finish(boolean cancelled) {
         if(current==null || finishing) return;
         finishing=true;
@@ -335,11 +363,11 @@ public final class SeasonService implements GuildModule, Listener {
                 plugin.sync(() -> {
                     if(current==null || !current.id().equals(id)) return;
                     if(!cancelled) for(var row:ranks) {
-                        Bukkit.broadcastMessage("§6[赛季结算] #"+row.rank()+" "+guildName(row.guildId())+"："+row.points()+"分，死亡"+row.deaths()+"次，公共资金奖励"+prizes.getOrDefault(row.rank(),0L));
+                        announceParticipants("§6[赛季结算] #"+row.rank()+" "+guildName(row.guildId())+"："+row.points()+"分，死亡"+row.deaths()+"次，公共资金奖励"+prizes.getOrDefault(row.rank(),0L));
                         plugin.guilds().reloadGuild(row.guildId());
                         plugin.broadcastGuildChange(row.guildId());
                     }
-                    else Bukkit.broadcastMessage("§e[工会赛季] 赛事取消（人数不足、场地不可用或管理员停止），不发放排名奖励。");
+                    else announceParticipants("§e[工会赛季] 赛事取消（人数不足、场地不可用或管理员停止），不发放排名奖励。");
                     for(var entry:new ArrayList<>(participants.values())) {
                         Player p=Bukkit.getPlayer(entry.player());
                         if(p!=null && p.isDead()) {

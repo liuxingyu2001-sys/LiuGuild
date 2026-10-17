@@ -1386,19 +1386,20 @@ public final class WarManager implements GuildModule {
         lastBroadcastSecond = -1;
         Bukkit.getPluginManager().callEvent(new GuildWarMatchEvent(war));
         boolean auto = plugin.settings().war.autoEnter;
-        String key = auto ? "war-match-found-auto" : "war-match-found";
-        Component msgA = plugin.messages().component(key, "enemy", war.nameB(), "seconds", mode.prepareSeconds);
-        Component msgB = plugin.messages().component(key, "enemy", war.nameA(), "seconds", mode.prepareSeconds);
         if (!auto) {
-            msgA = msgA.append(arenaJoinButton());
-            msgB = msgB.append(arenaJoinButton());
+            // 手动入场模式需要让本会成员知道并点击进入；这是工会内部邀请，不发全服。
+            Component msgA = plugin.messages().component("war-match-found", "enemy", war.nameB(),
+                    "seconds", mode.prepareSeconds).append(arenaJoinButton());
+            Component msgB = plugin.messages().component("war-match-found", "enemy", war.nameA(),
+                    "seconds", mode.prepareSeconds).append(arenaJoinButton());
+            plugin.guilds().announceGuild(war.guildA(), msgA, null);
+            plugin.guilds().announceGuild(war.guildB(), msgB, null);
         }
-        plugin.guilds().announceGuild(war.guildA(), msgA, null);
-        plugin.guilds().announceGuild(war.guildB(), msgB, null);
         plugin.getLogger().info("工会战 " + war.id() + " [" + mode.display + "] 进入准备阶段: "
                 + war.nameA() + " vs " + war.nameB() + "，竞技场=" + arenaName());
         if (auto) {
             // 本服在线成员直接传送参战；其余服收到 WAR_AUTOJOIN 后把本服成员转移过来。
+            // 匹配成功提示只发给实际参战者（见 autoEnterGuild），不再向整个工会跨服播报。
             autoEnterLocal(war);
             String wid = war.id();
             String host = war.hostServer();
@@ -1440,15 +1441,26 @@ public final class WarManager implements GuildModule {
                 if (roster.size() >= mode.teamSize) {
                     continue; // 名额已满，不强制观战
                 }
+                plugin.messages().send(p, "war-match-found-auto",
+                        "enemy", enemyName(war, p), "seconds", mode.prepareSeconds);
                 joinLocal(p, war);
             } else {
+                plugin.messages().send(p, "war-match-found-auto",
+                        "enemy", enemyName(war, p), "seconds", mode.prepareSeconds);
                 transferToWar(p, war);
             }
         }
     }
 
+    /** 参赛者视角的对手名，用于只发给实际参战者的匹配提示。 */
+    private String enemyName(GuildWar war, Player player) {
+        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+        return guild != null && guild.id().equals(war.guildA()) ? war.nameB() : war.nameA();
+    }
+
     private void transferToWar(Player player, GuildWar war) {
         if (!plugin.bus().isReady() || !plugin.bus().transfer().available()) {
+            plugin.messages().send(player, "war-transfer-failed");
             return;
         }
         final UUID uuid = player.getUniqueId();
@@ -1459,8 +1471,8 @@ public final class WarManager implements GuildModule {
         plugin.async(() -> {
             plugin.bus().setPendingWar(uuid, warId);
             plugin.sync(() -> {
-                if (player.isOnline()) {
-                    plugin.bus().transfer().connect(player, host);
+                if (player.isOnline() && !plugin.bus().transfer().connect(player, host)) {
+                    plugin.messages().send(player, "war-transfer-failed");
                 }
             });
         });
@@ -3011,14 +3023,18 @@ public final class WarManager implements GuildModule {
     }
 
     private void broadcastWar(GuildWar war, net.kyori.adventure.text.Component text) {
-        // 避免重复：优先走全服（含跨服）公告，它已覆盖参赛者；失败/关闭时只投递工会成员。
-        Player carrier = Bukkit.getOnlinePlayers().stream().findFirst().orElse(null);
-        if (conf().announceServer && plugin.chat() != null && plugin.chat().available() && carrier != null
-                && plugin.chat().broadcast(carrier, text)) {
-            return;
+        // 两个工会之间的战况只发给本场实际参与者和承办服旁观者；
+        // 不跨服、不发给未参赛的工会成员，避免无关玩家收到刷屏消息。
+        Set<UUID> audience = new java.util.LinkedHashSet<>();
+        audience.addAll(war.rosterA());
+        audience.addAll(war.rosterB());
+        audience.addAll(spectators);
+        for (UUID uuid : audience) {
+            Player player = plugin.player(uuid);
+            if (player != null && player.isOnline()) {
+                player.sendMessage(text);
+            }
         }
-        plugin.guilds().announceGuild(war.guildA(), text, null);
-        plugin.guilds().announceGuild(war.guildB(), text, null);
     }
 
     private void showWarBar(UUID uuid) {

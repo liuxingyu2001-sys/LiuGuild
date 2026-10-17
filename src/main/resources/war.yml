@@ -21,9 +21,6 @@ war:
   bossbar: true
   # 结算阶段每 tick 分帧发放奖励的人数（大名单时避免一次性阻塞主线程）。
   settle-batch-per-tick: 8
-  # 匹配工会战事件是否通过 LiuChat 全服（含跨服）公告；
-  # 未安装 LiuChat 或公告失败时只通知参赛工会，避免刷屏与重复消息。
-  announce-server: true
   # 匹配成功后是否自动把双方在线成员强制传送进竞技场并参战（无需手动 /guild war join）。
   # 关闭后才会在「匹配成功」消息里附带 [点击进入竞技场] 按钮。
   auto-enter: true
