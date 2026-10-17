@@ -109,6 +109,21 @@ gui:
         material: BEACON
         name: "<aqua>工会增益"
         lore: ["<gray>公共资金购买全体成员限时祝福", "<gray>查看效果、费用与剩余时间", "", "<yellow>点击打开"]
+      mail:
+        slot: 45
+        material: PAPER
+        name: "<white>工会邮件"
+        lore: ["<gray>查看工会战结果与入会申请结果", "<gray>登录时也会提示未读", "", "<yellow>点击查看"]
+      log:
+        slot: 46
+        material: BOOK
+        name: "<white>工会日志"
+        lore: ["<gray>银行 / 商店 / 仓库 / 申请等操作记录", "<gray>仅会长和官员可见", "", "<yellow>点击查看"]
+      apps:
+        slot: 47
+        material: WRITABLE_BOOK
+        name: "<white>入会申请"
+        lore: ["<gray>查看待审批申请", "<gray>左键批准 / 右键拒绝", "<gray>仅会长和官员可见", "", "<yellow>点击查看"]
       close:
         slot: 49
         material: BARRIER
@@ -229,6 +244,11 @@ gui:
         material: PAPER
         name: "<green>待处理邀请 <gray>({invite_count})"
         lore: ["<gray>查看并接受 / 拒绝工会邀请", "", "<yellow>点击查看"]
+      mail:
+        slot: 20
+        material: PAPER
+        name: "<white>工会邮件"
+        lore: ["<gray>查看工会战结果与入会申请结果", "", "<yellow>点击查看"]
       close:
         slot: 22
         material: BARRIER
@@ -315,7 +335,7 @@ gui:
   # ---------------- 工会战菜单 ----------------
   war:
     title: "<white>工会战 <dark_gray>· {guild}"
-    rows: 5
+    rows: 6
     # 每种工会战模式一个条目（动态生成，点击参与匹配）
     entry:
       slot: -1
@@ -331,28 +351,38 @@ gui:
         - ""
         - "<yellow>点击参与该模式匹配"
     buttons:
+      rejoin:
+        slot: 45
+        material: ENDER_PEARL
+        name: "<green>重连战场"
+        lore: ["<gray>开战后掉线，在重连宽限内回到战场"]
+      stats:
+        slot: 46
+        material: WRITTEN_BOOK
+        name: "<white>本场战绩"
+        lore: ["<gray>查看最近一场的击杀 / 死亡 / 存活 / MVP"]
       status:
-        slot: 36
+        slot: 47
         material: COMPASS
         name: "<white>当前战况"
         lore: ["<gray>状态：<white>{state}", "<gray>对手：<white>{enemy}", "<gray>比分：<white>{score} : {enemy_score}", "<gray>我的剩余生命：<white>{lives}", "<gray>场地：<white>{arena}", "<gray>承办服：<white>{host}", "", "<yellow>点击刷新"]
       spectate:
-        slot: 38
+        slot: 48
         material: ENDER_EYE
         name: "<white>旁观比赛"
         lore: ["<gray>传送到本服进行中的工会战", "<gray>以旁观者身份观看"]
       leave_queue:
-        slot: 40
+        slot: 49
         material: BARRIER
         name: "<red>退出匹配"
         lore: ["<gray>当前正在匹配中"]
       history:
-        slot: 42
+        slot: 50
         material: PAPER
         name: "<white>历史战绩"
         lore: ["<gray>累计 {history_count} 场"]
       back:
-        slot: 44
+        slot: 51
         material: ARROW
         name: "<white>返回"
 

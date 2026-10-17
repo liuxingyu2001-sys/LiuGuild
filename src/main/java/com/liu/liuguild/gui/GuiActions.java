@@ -97,8 +97,13 @@ final class GuiActions {
             case "back" -> "back:main";
             case "history" -> "war_history";
             case "leave_queue" -> "war_leave";
+            case "rejoin" -> "war_rejoin";
+            case "stats" -> "war_stats";
             case "status" -> "war_status";
             case "spectate" -> "war_spectate";
+            case "mail" -> "mail:open";
+            case "log" -> "log:open";
+            case "apps" -> "apps:open";
             case "admin_status" -> "admin:status";
             case "admin_modes" -> "admin:modes";
             case "admin_arena" -> "admin:arenas";

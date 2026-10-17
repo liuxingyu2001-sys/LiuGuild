@@ -147,6 +147,18 @@ public final class GuiManager implements GuildModule, Listener {
             if (!buttonVisible(e.getKey())) {
                 continue;
             }
+            if (("apps".equals(e.getKey()) || "log".equals(e.getKey())) && !canManage(g, player)) {
+                continue;
+            }
+            if ("apps".equals(e.getKey()) && !plugin.settings().guild.applicationEnabled) {
+                continue;
+            }
+            if ("mail".equals(e.getKey()) && plugin.mail() == null) {
+                continue;
+            }
+            if ("log".equals(e.getKey()) && plugin.audit() == null) {
+                continue;
+            }
             ButtonDef b = e.getValue();
             ItemStack item = "info".equals(e.getKey())
                     ? GuiUtil.guildIcon(plugin, player, g, b.fallback())
@@ -243,6 +255,9 @@ public final class GuiManager implements GuildModule, Listener {
         Inventory inv = create(holder, def, ph, player);
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
             if (!buttonVisible(e.getKey())) {
+                continue;
+            }
+            if ("mail".equals(e.getKey()) && plugin.mail() == null) {
                 continue;
             }
             ButtonDef b = e.getValue();
@@ -792,6 +807,210 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     // =====================================================================
+    // 邮件 / 入会申请 / 审计 / 工会战战绩
+    // =====================================================================
+
+    /** 系统邮件：只读个人收件箱；点击条目标记已读并显示正文。 */
+    public void openMail(Player player, int page) {
+        if (plugin.mail() == null) {
+            plugin.messages().send(player, "mail-usage");
+            return;
+        }
+        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+        plugin.mail().inboxAsync(player.getUniqueId(), 50, list -> {
+            int perPage = 45;
+            int maxPage = Math.max(0, (list.size() - 1) / perPage);
+            int current = Math.max(0, Math.min(page, maxPage));
+            Map<String, String> ph = new LinkedHashMap<>();
+            ph.put("guild", guild == null ? "个人" : guild.name());
+            Holder holder = new Holder("mail", guild == null ? "" : guild.id(), current);
+            Inventory inv = simpleInventory(player, holder, 6,
+                    "<gold>工会邮件 <dark_gray>· {guild}", ph);
+            int from = current * perPage;
+            int index = 0;
+            for (int i = from; i < list.size() && index < perPage; i++, index++) {
+                com.liu.liuguild.db.MailEntry entry = list.get(i);
+                boolean unread = entry.readAt() == 0;
+                List<String> lore = new ArrayList<>();
+                lore.add("<gray>类型：<white>" + entry.type());
+                lore.add("<gray>时间：<white>" + com.liu.liuguild.util.TimeUtil.formatDateTime(entry.createdAt()));
+                lore.add("<gray>状态：<white>" + (unread ? "未读" : "已读"));
+                if (entry.expiresAt() > 0) {
+                    lore.add("<gray>过期：<white>" + com.liu.liuguild.util.TimeUtil.formatDateTime(entry.expiresAt()));
+                }
+                lore.add("");
+                lore.add("<yellow>左键查看正文");
+                inv.setItem(index, GuiUtil.build(player, unread ? "PAPER" : "MAP",
+                        unread ? "PAPER" : "MAP", "<white>" + entry.title(), lore, Map.of(), null));
+                holder.actions.put(index, "mail_read:" + entry.id());
+            }
+            if (list.isEmpty()) {
+                inv.setItem(22, GuiUtil.build(player, "PAPER", "PAPER", "<gray>没有邮件",
+                        List.of("<gray>工会战结果、入会申请结果会出现在这里"), Map.of(), null));
+            }
+            put(inv, holder, 49, player, "ARROW", "<white>返回", List.of(), "back:main");
+            if (current > 0) {
+                put(inv, holder, 45, player, "ARROW", "<white>上一页", List.of(),
+                        "page_mail:" + (current - 1));
+            }
+            if (current < maxPage) {
+                put(inv, holder, 53, player, "ARROW", "<white>下一页", List.of(),
+                        "page_mail:" + (current + 1));
+            }
+            put(inv, holder, 48, player, "WRITABLE_BOOK", "<white>全部标记已读",
+                    List.of("<gray>清除未读状态"), "mail_clear");
+            show(player, holder, inv);
+        });
+    }
+
+    /** 入会申请：官员在 GUI 内批准/拒绝，不再需要记编号。 */
+    public void openApplications(Player player, Guild guild, int page) {
+        if (guild == null || plugin.applications() == null || !plugin.settings().guild.applicationEnabled) {
+            plugin.messages().send(player, "app-disabled");
+            return;
+        }
+        if (!canManage(guild, player)) {
+            plugin.messages().send(player, "no-permission-rank");
+            return;
+        }
+        plugin.applications().listAsync(guild.id(), list -> {
+            int perPage = 45;
+            int maxPage = Math.max(0, (list.size() - 1) / perPage);
+            int current = Math.max(0, Math.min(page, maxPage));
+            Map<String, String> ph = new LinkedHashMap<>();
+            ph.put("guild", guild.name());
+            Holder holder = new Holder("applications", guild.id(), current);
+            Inventory inv = simpleInventory(player, holder, 6,
+                    "<gold>入会申请 <dark_gray>· {guild}", ph);
+            int from = current * perPage;
+            int index = 0;
+            for (int i = from; i < list.size() && index < perPage; i++, index++) {
+                com.liu.liuguild.db.GuildApplication app = list.get(i);
+                List<String> lore = new ArrayList<>();
+                lore.add("<gray>时间：<white>" + com.liu.liuguild.util.TimeUtil.formatDateTime(app.createdAt()));
+                lore.add("<gray>留言：<white>" + (app.message() == null || app.message().isBlank()
+                        ? "（无）" : app.message()));
+                lore.add("");
+                lore.add("<green>左键批准");
+                lore.add("<red>右键拒绝");
+                inv.setItem(index, GuiUtil.build(player, "PLAYER_HEAD", "PLAYER_HEAD",
+                        "<white>" + app.playerName(), lore, Map.of(), app.player()));
+                holder.actions.put(index, "app_decide:" + app.id());
+            }
+            if (list.isEmpty()) {
+                inv.setItem(22, GuiUtil.build(player, "PAPER", "PAPER", "<gray>没有待处理申请",
+                        List.of("<gray>新的入会申请会出现在这里"), Map.of(), null));
+            }
+            put(inv, holder, 49, player, "ARROW", "<white>返回", List.of(), "back:main");
+            if (current > 0) {
+                put(inv, holder, 45, player, "ARROW", "<white>上一页", List.of(),
+                        "page_applications:" + (current - 1));
+            }
+            if (current < maxPage) {
+                put(inv, holder, 53, player, "ARROW", "<white>下一页", List.of(),
+                        "page_applications:" + (current + 1));
+            }
+            show(player, holder, inv);
+        });
+    }
+
+    /** 工会审计日志（官员/会长）；只读。 */
+    public void openAudit(Player player, Guild guild, int page) {
+        if (guild == null || plugin.audit() == null || !canManage(guild, player)) {
+            plugin.messages().send(player, "no-permission-rank");
+            return;
+        }
+        plugin.audit().recentAsync(guild.id(), 100, list -> {
+            int perPage = 45;
+            int maxPage = Math.max(0, (list.size() - 1) / perPage);
+            int current = Math.max(0, Math.min(page, maxPage));
+            Map<String, String> ph = new LinkedHashMap<>();
+            ph.put("guild", guild.name());
+            Holder holder = new Holder("audit", guild.id(), current);
+            Inventory inv = simpleInventory(player, holder, 6,
+                    "<gold>工会日志 <dark_gray>· {guild}", ph);
+            int from = current * perPage;
+            int index = 0;
+            for (int i = from; i < list.size() && index < perPage; i++, index++) {
+                com.liu.liuguild.db.AuditEntry entry = list.get(i);
+                String actor = entry.actorName() == null ? "系统" : entry.actorName();
+                List<String> lore = new ArrayList<>();
+                lore.add("<gray>操作者：<white>" + actor);
+                lore.add("<gray>时间：<white>" + com.liu.liuguild.util.TimeUtil.formatDateTime(entry.createdAt()));
+                if (entry.target() != null && !entry.target().isBlank()) {
+                    lore.add("<gray>对象：<white>" + entry.target());
+                }
+                if (entry.amount() != 0) {
+                    lore.add("<gray>数量：<white>" + entry.amount());
+                }
+                if (entry.detail() != null && !entry.detail().isBlank()) {
+                    lore.add("<gray>详情：<white>" + entry.detail());
+                }
+                inv.setItem(index, GuiUtil.build(player, "PAPER", "PAPER",
+                        "<white>" + com.liu.liuguild.audit.GuildAuditService.displayAction(entry.action()),
+                        lore, Map.of(), null));
+            }
+            if (list.isEmpty()) {
+                inv.setItem(22, GuiUtil.build(player, "PAPER", "PAPER", "<gray>暂无日志",
+                        List.of("<gray>银行、商店、仓库等操作会记录在这里"), Map.of(), null));
+            }
+            put(inv, holder, 49, player, "ARROW", "<white>返回", List.of(), "back:main");
+            if (current > 0) {
+                put(inv, holder, 45, player, "ARROW", "<white>上一页", List.of(),
+                        "page_audit:" + (current - 1));
+            }
+            if (current < maxPage) {
+                put(inv, holder, 53, player, "ARROW", "<white>下一页", List.of(),
+                        "page_audit:" + (current + 1));
+            }
+            show(player, holder, inv);
+        });
+    }
+
+    /** 工会战个人战绩：最近一场，或指定 warId。 */
+    public void openWarStats(Player player, Guild guild) {
+        if (guild == null || plugin.war() == null) {
+            return;
+        }
+        plugin.war().statsAsync(guild.id(), null, list -> {
+            Map<String, String> ph = new LinkedHashMap<>();
+            ph.put("guild", guild.name());
+            Holder holder = new Holder("war_stats", guild.id(), 0);
+            Inventory inv = simpleInventory(player, holder, 6,
+                    "<gold>工会战战绩 <dark_gray>· {guild}", ph);
+            int index = 0;
+            for (var stat : list) {
+                if (index >= 45) {
+                    break;
+                }
+                List<String> lore = new ArrayList<>();
+                lore.add("<gray>击杀：<white>" + stat.kills() + " <gray>死亡：<white>" + stat.deaths());
+                lore.add("<gray>存活：<white>" + stat.survivedSeconds() + " 秒");
+                lore.add("<gray>MVP：<white>" + (stat.mvp() ? "是" : "否"));
+                inv.setItem(index, GuiUtil.build(player, stat.mvp() ? "GOLDEN_HELMET" : "PLAYER_HEAD",
+                        stat.mvp() ? "GOLDEN_HELMET" : "PLAYER_HEAD",
+                        "<white>" + (stat.playerName() == null ? stat.player().toString() : stat.playerName()),
+                        lore, Map.of(), null));
+                index++;
+            }
+            if (list.isEmpty()) {
+                inv.setItem(22, GuiUtil.build(player, "PAPER", "PAPER", "<gray>暂无战绩",
+                        List.of("<gray>完成一场工会战后可查看"), Map.of(), null));
+            }
+            put(inv, holder, 49, player, "ARROW", "<white>返回", List.of(), "war_back");
+            show(player, holder, inv);
+        });
+    }
+
+    private boolean canManage(Guild guild, Player player) {
+        if (guild == null || player == null) {
+            return false;
+        }
+        GuildMember member = guild.member(player.getUniqueId());
+        return member != null && member.rank().atLeast(GuildRank.OFFICER);
+    }
+
+    // =====================================================================
     // 工会商店
     // =====================================================================
 
@@ -1240,9 +1459,28 @@ public final class GuiManager implements GuildModule, Listener {
                 // 重开菜单，让上面的比分/状态 lore 拿到最新值
                 openWar(player, require(g, player));
             }
+            case "war_rejoin" -> {
+                closeMenu(player);
+                plugin.war().rejoin(player);
+            }
+            case "war_stats" -> openWarStats(player, require(g, player));
+            case "war_back" -> {
+                if (g != null) openWar(player, g); else openMain(player);
+            }
             case "war_spectate" -> {
                 closeMenu(player);
                 plugin.war().spectate(player);
+            }
+            case "mail:open" -> openMail(player, 0);
+            case "apps:open" -> openApplications(player, require(g, player), 0);
+            case "log:open" -> openAudit(player, require(g, player), 0);
+            case "mail_clear" -> {
+                plugin.mail().markAllReadAsync(player.getUniqueId());
+                plugin.messages().send(player, "mail-all-read");
+                openMail(player, holder == null ? 0 : holder.page);
+            }
+            case "back:war" -> {
+                if (g != null) openWar(player, g);
             }
             case "set:icon" -> openIcons(player, require(g, player), 0);
             case "guild:disband" -> {
@@ -1479,6 +1717,37 @@ public final class GuiManager implements GuildModule, Listener {
                 plugin.war().queue(player, g, action.substring("war_queue:".length()));
                 openWar(player, g);
             }
+        } else if (action.startsWith("mail_read:")) {
+            String id = action.substring("mail_read:".length());
+            plugin.mail().inboxAsync(player.getUniqueId(), 50, list -> {
+                for (var entry : list) {
+                    if (!entry.id().equals(id)) continue;
+                    plugin.mail().markReadAsync(player.getUniqueId(), entry.id());
+                    plugin.messages().sendRaw(player, "mail-body-header",
+                            "title", entry.title(),
+                            "time", com.liu.liuguild.util.TimeUtil.formatDateTime(entry.createdAt()));
+                    player.sendMessage(Text.mm(entry.body()));
+                    plugin.messages().sendRaw(player, "mail-marked");
+                    openMail(player, holder == null ? 0 : holder.page);
+                    return;
+                }
+                plugin.messages().send(player, "mail-not-found");
+            });
+        } else if (action.startsWith("app_decide:")) {
+            String id = action.substring("app_decide:".length());
+            if (g != null) {
+                plugin.applications().decide(player, g, id, !clickRight);
+                plugin.syncDelayed(() -> {
+                    if (player.isOnline()) openApplications(player, g, holder == null ? 0 : holder.page);
+                }, 5L);
+            }
+        } else if (action.startsWith("page_mail:")) {
+            openMail(player, Integer.parseInt(action.substring("page_mail:".length())));
+        } else if (action.startsWith("page_applications:")) {
+            if (g != null) openApplications(player, g,
+                    Integer.parseInt(action.substring("page_applications:".length())));
+        } else if (action.startsWith("page_audit:")) {
+            if (g != null) openAudit(player, g, Integer.parseInt(action.substring("page_audit:".length())));
         } else if (action.startsWith("page_shop:")) {
             if (g != null) openShopPage(player, g, plugin.shop().listingsOf(g.id()),
                     Integer.parseInt(action.substring("page_shop:".length())));

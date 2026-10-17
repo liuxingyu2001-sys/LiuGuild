@@ -6,7 +6,7 @@
 
     <groupId>com.liu</groupId>
     <artifactId>LiuGuild</artifactId>
-    <version>0.4.6</version>
+    <version>0.4.7</version>
     <packaging>jar</packaging>
 
     <name>LiuGuild</name>
@@ -89,7 +89,7 @@
             <artifactId>liudungeon</artifactId>
             <version>1.9.3</version>
             <scope>system</scope>
-            <systemPath>${project.basedir}/../liudungeon/target/liudungeon-1.9.3.jar</systemPath>
+            <systemPath>${project.basedir}/libs/liudungeon-1.9.3.jar</systemPath>
             <optional>true</optional>
         </dependency>
 

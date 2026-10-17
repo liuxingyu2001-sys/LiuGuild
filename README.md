@@ -78,5 +78,9 @@ mvn clean package -Dlicense.enabled=false
 # 产物：target/Liu-LiuGuild-<version>.jar
 ```
 
+- JDK 21 + Maven。
+- `libs/liudungeon-1.9.3.jar` 已随仓库提供，不再依赖同级 `../liudungeon/target` 目录。
+- GitHub Actions：`.github/workflows/build.yml`，push/PR 自动编译、跑测试并上传插件 jar。
+
 - Java 21 · Paper API 1.21.1 · `folia-supported: false`
 - 第三方库由 `plugin.yml` 的 `libraries` 下载，不打进 jar。
