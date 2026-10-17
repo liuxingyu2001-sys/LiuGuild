@@ -1224,6 +1224,26 @@ public final class GuildRepository {
         }
     }
 
+    /**
+     * 跨服结算闸门：DB 里的状态可能仍是 MATCHED/PREPARING（状态推进只通过 Redis 广播，
+     * 不保证每个子服都落库），不能只按 ACTIVE 抢占。这里接受所有未结束状态。
+     */
+    public boolean claimSettlement(GuildWar w) throws SQLException {
+        String sql = "UPDATE `" + db.t("guild_wars") + "` SET `state`='SETTLING',`score_a`=?,`score_b`=?,"
+                + "`winner`=?,`started_at`=?,`ended_at`=? WHERE `war_id`=?"
+                + " AND `state` IN ('MATCHED','PREPARING','ACTIVE')";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, w.scoreA());
+            ps.setInt(2, w.scoreB());
+            ps.setString(3, w.winner());
+            ps.setLong(4, w.startedAt());
+            ps.setLong(5, w.endedAt());
+            ps.setString(6, w.id());
+            return ps.executeUpdate() > 0;
+        }
+    }
+
     public void updateWar(GuildWar w) throws SQLException {
         String sql = "UPDATE `" + db.t("guild_wars") + "` SET `state`=?,`score_a`=?,`score_b`=?,`winner`=?,"
                 + "`host_server`=?,`arena_world`=?,`mode`=?,`started_at`=?,`ended_at`=? WHERE `war_id`=?";

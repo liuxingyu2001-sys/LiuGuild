@@ -3,6 +3,8 @@ package com.liu.liuguild.db;
 import com.liu.liuguild.model.Guild;
 import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.model.GuildRank;
+import com.liu.liuguild.model.GuildWar;
+import com.liu.liuguild.model.WarState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -962,5 +964,25 @@ class GuildRepositoryTest {
         assertEquals(0, m.kills());
         assertEquals(0, m.deaths());
         assertEquals(0, m.checkinStreak());
+    }
+
+    @Test
+    void settlementClaimsMatchedRowOnceEvenIfStateStayedStale() throws Exception {
+        GuildWar w = new GuildWar(UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(), UUID.randomUUID().toString());
+        w.state(WarState.MATCHED);
+        w.hostServer("zy");
+        w.mode("match");
+        repo.insertWar(w);
+
+        // 运行中的状态推进只广播到 Redis，DB 里可能仍停留在 MATCHED。
+        w.state(WarState.ACTIVE);
+        w.scoreA(3);
+        w.scoreB(1);
+        w.winner(w.guildA());
+        w.endedAt(System.currentTimeMillis());
+        assertTrue(repo.claimSettlement(w));
+        assertEquals(WarState.SETTLING, repo.loadWar(w.id()).state());
+        assertFalse(repo.claimSettlement(w), "第二台子服或重复结算不能再次领取");
     }
 }

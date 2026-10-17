@@ -2844,7 +2844,7 @@ public final class WarManager implements GuildModule {
                 java.util.List<com.liu.liuguild.db.GuildRepository.WarReward> ready = java.util.List.of();
                 try {
                     // transition 的 WHERE state='ACTIVE' 是跨服幂等闸门：抢到的那台才发奖励。
-                    claimed = plugin.repo().transition(war, WarState.ACTIVE, WarState.SETTLING);
+                    claimed = plugin.repo().claimSettlement(war);
                 } catch (Exception e) {
                     plugin.getLogger().warning("结算工会战状态写库失败: " + e.getMessage());
                     claimed = false;
