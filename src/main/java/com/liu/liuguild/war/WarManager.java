@@ -1823,9 +1823,11 @@ public final class WarManager implements GuildModule {
         boolean auto = plugin.settings().war.autoEnter;
         if (!auto) {
             // 手动入场模式需要让本会成员知道并点击进入；这是工会内部邀请，不发全服。
-            Component msgA = plugin.messages().component("war-match-found", "enemy", war.nameB(),
+            // fast-start 下不承诺固定秒数：人员到齐会提前开战。
+            String foundKey = conf().fastStart ? "war-match-found-fast" : "war-match-found";
+            Component msgA = plugin.messages().component(foundKey, "enemy", war.nameB(),
                     "seconds", mode.prepareSeconds).append(arenaJoinButton());
-            Component msgB = plugin.messages().component("war-match-found", "enemy", war.nameA(),
+            Component msgB = plugin.messages().component(foundKey, "enemy", war.nameA(),
                     "seconds", mode.prepareSeconds).append(arenaJoinButton());
             plugin.guilds().announceGuild(war.guildA(), msgA, null);
             plugin.guilds().announceGuild(war.guildB(), msgB, null);
@@ -1874,15 +1876,16 @@ public final class WarManager implements GuildModule {
             if (roster.contains(p.getUniqueId()) || spectators.contains(p.getUniqueId())) {
                 continue;
             }
+            String foundKey = conf().fastStart ? "war-match-found-auto-fast" : "war-match-found-auto";
             if (host) {
                 if (roster.size() >= mode.teamSize) {
                     continue; // 名额已满，不强制观战
                 }
-                plugin.messages().send(p, "war-match-found-auto",
+                plugin.messages().send(p, foundKey,
                         "enemy", enemyName(war, p), "seconds", mode.prepareSeconds);
                 joinLocal(p, war);
             } else {
-                plugin.messages().send(p, "war-match-found-auto",
+                plugin.messages().send(p, foundKey,
                         "enemy", enemyName(war, p), "seconds", mode.prepareSeconds);
                 remote.add(p);
             }
@@ -2315,7 +2318,11 @@ public final class WarManager implements GuildModule {
         if (warBar != null) {
             int duration = Math.max(1, modeOf(war).durationSeconds);
             float progress = war.state() == WarState.ACTIVE ? (float) remain / (duration * 1000f) : 0f;
-            warBar.name(scoreLine(war).append(Component.text("  " + sec + "s")));
+            // fast-start 的准备时间取决于人员到齐，显示倒计时会与“1 秒后就开”矛盾。
+            String clock = war.state() == WarState.PREPARING && conf().fastStart
+                    ? "  等待双方到齐"
+                    : "  " + sec + "s";
+            warBar.name(scoreLine(war).append(Component.text(clock)));
             warBar.progress(Math.max(0f, Math.min(1f, progress)));
         }
         switch (war.state()) {
@@ -2325,7 +2332,9 @@ public final class WarManager implements GuildModule {
                     beginActive(war);
                     return;
                 }
-                if (sec != lastBroadcastSecond && (sec <= 10 || sec % 30 == 0)) {
+                // fast-start 下开战时间取决于“人员到齐”，不能再播固定倒计时，
+                // 否则会出现消息说 10 秒、实际 1 秒就开打的情况。
+                if (!conf().fastStart && sec != lastBroadcastSecond && (sec <= 10 || sec % 30 == 0)) {
                     lastBroadcastSecond = sec;
                     broadcastWar(war, plugin.messages().component("war-countdown", "seconds", sec));
                 }
