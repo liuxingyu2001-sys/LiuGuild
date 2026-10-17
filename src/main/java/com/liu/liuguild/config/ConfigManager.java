@@ -21,6 +21,19 @@ import java.util.Map;
  */
 public final class ConfigManager {
 
+    /** 这些配置损坏时不能静默重建，否则可能重置数据库/跨服/仓库等关键状态。 */
+    private static final java.util.Set<String> CRITICAL_CONFIGS = java.util.Set.of(
+            "config.yml", "server.yml", "cross-server.yml", "warehouse.yml", "buffs.yml");
+
+    private static String redact(String path, Object value) {
+        String p = path == null ? "" : path.toLowerCase(java.util.Locale.ROOT);
+        if (p.contains("password") || p.contains("passwd") || p.contains("secret") || p.contains("token")
+                || p.contains("credential") || p.contains("api-key") || p.contains("apikey")) {
+            return "***";
+        }
+        return String.valueOf(value);
+    }
+
     /** 模块文件清单。 */
     public static final String[] MODULES = {
             "config.yml", "database.yml", "cross-server.yml", "guild.yml", "warehouse.yml", "buffs.yml", "war.yml",
@@ -325,7 +338,7 @@ public final class ConfigManager {
                     continue;
                 }
                 cfg.set(path, mod.get(path));
-                applied.add(path + "=" + mod.get(path));
+                applied.add(path + "=" + redact(path, mod.get(path)));
             }
             if (!applied.isEmpty()) {
                 plugin.getLogger().info("server.yml 每服覆盖 " + module + ": " + String.join(", ", applied));
@@ -384,7 +397,7 @@ public final class ConfigManager {
         try {
             cfg.load(f);
         } catch (Exception e) {
-            if ("warehouse.yml".equals(name) || "buffs.yml".equals(name)) {
+            if (CRITICAL_CONFIGS.contains(name)) {
                 throw new IllegalArgumentException(name + " 解析失败，保留原文件和现有运行配置", e);
             }
             parsed = false;

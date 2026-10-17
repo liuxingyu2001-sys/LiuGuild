@@ -10,6 +10,8 @@ import java.util.Map;
 public final class WarehouseRepository {
     public record Stored(String itemData, long amount) { }
     public record Snapshot(long version, Map<Integer, Stored> items) { }
+    /** 仓库内容与玩家背包之间的崩溃恢复记录。 */
+    public record Pending(String guildId, String sessionToken, long expectedVersion, String beforeItems, String afterItems) { }
     private final Database db;
     public WarehouseRepository(Database db) { this.db = db; }
 
@@ -252,5 +254,46 @@ public final class WarehouseRepository {
     public void deleteAll(String guildId) throws SQLException {
         Snapshot snapshot = loadSnapshot(guildId);
         if (!save(guildId, snapshot.version(), Map.of())) throw new SQLException("Warehouse changed during purge");
+    }
+
+    /** 在写仓库前落一条交接记录；崩溃后据此继续/丢弃玩家背包变更。 */
+    public void savePending(java.util.UUID player, String guildId, String token, long expectedVersion,
+                            String beforeItems, String afterItems) throws SQLException {
+        String sql = db.isSqlite()
+                ? "INSERT INTO `" + db.t("guild_warehouse_pending") + "` (`player_uuid`,`guild_id`,`session_token`,`expected_version`,`before_items`,`after_items`,`created_at`) VALUES (?,?,?,?,?,?,?) "
+                        + "ON CONFLICT(`player_uuid`) DO UPDATE SET `guild_id`=excluded.`guild_id`,`session_token`=excluded.`session_token`,`expected_version`=excluded.`expected_version`,`before_items`=excluded.`before_items`,`after_items`=excluded.`after_items`,`created_at`=excluded.`created_at`"
+                : "INSERT INTO `" + db.t("guild_warehouse_pending") + "` (`player_uuid`,`guild_id`,`session_token`,`expected_version`,`before_items`,`after_items`,`created_at`) VALUES (?,?,?,?,?,?,?) "
+                        + "ON DUPLICATE KEY UPDATE `guild_id`=VALUES(`guild_id`),`session_token`=VALUES(`session_token`),`expected_version`=VALUES(`expected_version`),`before_items`=VALUES(`before_items`),`after_items`=VALUES(`after_items`),`created_at`=VALUES(`created_at`)";
+        try (Connection c = db.source().getConnection(); var ps = c.prepareStatement(sql)) {
+            ps.setString(1, player.toString());
+            ps.setString(2, guildId);
+            ps.setString(3, token);
+            ps.setLong(4, expectedVersion);
+            ps.setString(5, beforeItems);
+            ps.setString(6, afterItems);
+            ps.setLong(7, System.currentTimeMillis());
+            ps.executeUpdate();
+        }
+    }
+
+    public Pending loadPending(java.util.UUID player) throws SQLException {
+        String sql = "SELECT `guild_id`,`session_token`,`expected_version`,`before_items`,`after_items` FROM `"
+                + db.t("guild_warehouse_pending") + "` WHERE `player_uuid`=?";
+        try (Connection c = db.source().getConnection(); var ps = c.prepareStatement(sql)) {
+            ps.setString(1, player.toString());
+            try (var rs = ps.executeQuery()) {
+                return rs.next() ? new Pending(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getString(4), rs.getString(5)) : null;
+            }
+        }
+    }
+
+    public void deletePending(java.util.UUID player, String token) throws SQLException {
+        String sql = "DELETE FROM `" + db.t("guild_warehouse_pending") + "` WHERE `player_uuid`=?"
+                + (token == null ? "" : " AND `session_token`=?");
+        try (Connection c = db.source().getConnection(); var ps = c.prepareStatement(sql)) {
+            ps.setString(1, player.toString());
+            if (token != null) ps.setString(2, token);
+            ps.executeUpdate();
+        }
     }
 }

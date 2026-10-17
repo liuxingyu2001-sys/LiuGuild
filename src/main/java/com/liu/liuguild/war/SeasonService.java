@@ -253,8 +253,19 @@ public final class SeasonService implements GuildModule, Listener {
         plugin.gui().closeMenu(player);
         if(plugin.buffs()!=null) plugin.buffs().suspend(player);
         KitService.Snapshot snap=plugin.kits().snapshot(player);
+        if (snap == null || snap.location() == null) {
+            capturedOnce.remove(entry.player()); capturing.remove(entry.player());
+            player.sendMessage("§c赛季托管快照不可用，已取消入场。");
+            return;
+        }
         String data=plugin.kits().encodeSnapshotItems(snap);
         Location loc=snap.location();
+        if(data==null || data.isBlank() || loc==null || loc.getWorld()==null) {
+            capturedOnce.remove(entry.player()); capturing.remove(entry.player());
+            player.sendMessage("§c赛季托管快照编码失败，已取消入场（请联系管理员检查背包/物品组件）。");
+            plugin.getLogger().warning("赛季托管快照编码失败，拒绝入场: "+entry.player());
+            return;
+        }
         var escrow=new KitService.PersistedEscrow(entry.player(),plugin.serverId(),entry.event(),null,data,loc.getWorld().getName(),loc.getX(),loc.getY(),loc.getZ(),loc.getYaw(),loc.getPitch(),snap.gameMode().name(),snap.health(),snap.food(),snap.level(),snap.exp(),System.currentTimeMillis());
         String eventId=current.id();
         submit(() -> {
@@ -277,7 +288,10 @@ public final class SeasonService implements GuildModule, Listener {
                     player.setInvulnerable(true);
                     submit(() -> { try { repo.entryState(entry.event(),entry.player(),"ADMITTED"); } catch(Exception e) { failure(e); } });
                 });
-            } catch(Exception e) { failure(e); plugin.sync(() -> capturing.remove(entry.player())); }
+            } catch(Exception e) {
+                failure(e);
+                plugin.sync(() -> { capturing.remove(entry.player()); capturedOnce.remove(entry.player()); });
+            }
         });
     }
     private boolean teleportSpawn(Player p,String guild,List<SeasonRepository.Entry> entries) {
@@ -370,9 +384,12 @@ public final class SeasonService implements GuildModule, Listener {
                     else announceParticipants("§e[工会赛季] 赛事取消（人数不足、场地不可用或管理员停止），不发放排名奖励。");
                     for(var entry:new ArrayList<>(participants.values())) {
                         Player p=Bukkit.getPlayer(entry.player());
-                        if(p!=null && p.isDead()) {
-                            participants.remove(entry.player()); snapshots.remove(entry.player());
-                        } else if(p!=null) restore(p,entry,false);
+                        if(p!=null && !p.isDead()) {
+                            restore(p,entry,false);
+                        } else {
+                            // 离线/死亡玩家不能留在 participants，否则 restricted 会阻塞返程与 escrow 恢复。
+                            participants.remove(entry.player()); snapshots.remove(entry.player()); waiting.remove(entry.player());
+                        }
                     }
                     if(bar!=null) { bar.removeAll(); bar=null; }
                     plugin.war().closeSeasonWorld(arena);
@@ -404,16 +421,21 @@ public final class SeasonService implements GuildModule, Listener {
         clearFairHealth(p,entry.player());
         if(snap==null) return;
         restoring.add(entry.player());
-        plugin.kits().restore(p,snap,true);
-        p.setInvulnerable(false);
-        if(bar!=null) bar.removePlayer(p);
-        submit(() -> {
-            try {
-                plugin.repo().deleteWarEscrow(entry.player());
-                repo.entryState(entry.event(),entry.player(),"LEFT");
-                if(running) plugin.sync(() -> { restoring.remove(entry.player()); });
-            } catch(Exception e) { failure(e); plugin.sync(() -> restoring.remove(entry.player())); }
-        });
+        try {
+            plugin.kits().restore(p,snap,true);
+            p.setInvulnerable(false);
+            if(bar!=null) bar.removePlayer(p);
+            submit(() -> {
+                try {
+                    plugin.repo().deleteWarEscrow(entry.player());
+                    repo.entryState(entry.event(),entry.player(),"LEFT");
+                    if(running) plugin.sync(() -> { restoring.remove(entry.player()); });
+                } catch(Exception e) { failure(e); plugin.sync(() -> restoring.remove(entry.player())); }
+            });
+        } catch (Throwable t) {
+            failure(new Exception("赛季恢复失败: " + entry.player(), t));
+            restoring.remove(entry.player());
+        }
     }
     private void returnPlayer(SeasonRepository.Entry entry) {
         Player p=Bukkit.getPlayer(entry.player());

@@ -65,6 +65,10 @@ public final class WarehouseLock {
             this.token = token;
             this.acquiredAt = System.currentTimeMillis();
         }
+
+        public String token() {
+            return token;
+        }
     }
 
     /**
@@ -102,6 +106,13 @@ public final class WarehouseLock {
      * 释放工会仓库锁（只释放自己持有的那把）。
      */
     public void release(String guildId, UUID player) {
+        release(guildId, player, null);
+    }
+
+    /**
+     * 释放仓库锁。token 非空时必须与当前会话 token 一致，避免旧异步任务释放玩家刚重新打开的会话。
+     */
+    public void release(String guildId, UUID player, String token) {
         if (guildId == null) {
             return;
         }
@@ -111,6 +122,9 @@ public final class WarehouseLock {
         }
         if (player != null && !session.player.equals(player)) {
             return; // 不是持有者，忽略
+        }
+        if (token != null && !token.equals(session.token)) {
+            return; // 旧会话，不能释放新会话
         }
         sessions.remove(guildId, session);
         if (crossServer()) {

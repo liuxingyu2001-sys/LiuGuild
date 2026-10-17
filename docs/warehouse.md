@@ -126,6 +126,14 @@ liuguild_warehouse (
 --   warehouse_expires_at  BIGINT  使用到期时间（epoch 毫秒，0 = 未开通）
 ```
 
+## 崩溃恢复
+
+每次存取先把「仓库版本 + 变更前/后背包快照」写入 `liuguild_warehouse_pending`，再提交仓库内容：
+
+- 数据库已提交、背包未更新时，玩家下次上线按快照补齐背包；
+- 数据库未提交时丢弃交接记录，背包保持原样；
+- 锁释放带会话 token，旧异步任务不会释放玩家刚重新打开的会话。
+
 ## 并发安全
 
 - **扣费与续期**：`UPDATE guilds SET points=points-cost, warehouse_expires_at=(CASE WHEN warehouse_expires_at>now THEN warehouse_expires_at ELSE now END)+duration WHERE guild_id=? AND points>=cost`，一条语句内完成，多台子服同时续费不会丢时长或重复扣费。

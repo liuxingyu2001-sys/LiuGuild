@@ -115,18 +115,20 @@ public final class CrossServerBus {
 
     public void publish(String type, Map<String, String> data) {
         if (isReady()) {
-            bridge.broadcast(type, encode(data));
-        } else {
-            dispatch(type, data);
+            if (bridge.broadcast(type, encode(data)) > 0) return;
+            plugin.getLogger().warning("跨服广播失败，降级为本服分发: " + type);
         }
+        dispatch(type, data);
     }
 
     public void publishTo(String server, String type, Map<String, String> data) {
         if (isReady()) {
-            bridge.publish(server, type, encode(data));
-        } else {
-            dispatch(type, data);
+            if (bridge.publish(server, type, encode(data))) return;
+            plugin.getLogger().warning("跨服定向发送失败，目标=" + server + " 类型=" + type);
+            if (server != null && server.equals(conf.serverId)) dispatch(type, data);
+            return;
         }
+        dispatch(type, data);
     }
 
     /**

@@ -51,7 +51,11 @@ public final class GuildSyncModule implements GuildModule {
                 if (guildId != null && !guildId.isBlank()) {
                     plugin.guilds().reloadGuild(guildId);
                 } else {
-                    plugin.guilds().reloadAll();
+                    String uuid = data.get("uuid");
+                    if (uuid != null) {
+                        try { plugin.guilds().reloadMember(UUID.fromString(uuid)); }
+                        catch (IllegalArgumentException ignored) { }
+                    }
                 }
             }
             case "GUILD_ANNOUNCE" -> {

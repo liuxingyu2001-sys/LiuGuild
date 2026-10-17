@@ -99,7 +99,7 @@ public final class GuildChatHook implements Listener {
                 if (guild == null || !id(guild).equals(channel)) return;
                 String json = net.kyori.adventure.text.serializer.gson.GsonComponentSerializer.gson()
                         .serialize((net.kyori.adventure.text.Component) getRendered.invoke(event));
-                plugin.bus().publish("GUILD_CHAT", com.liu.liuguild.crossserver.CrossServerBus.map(
+                plugin.publishAsync("GUILD_CHAT", com.liu.liuguild.crossserver.CrossServerBus.map(
                         "server", plugin.serverId(), "guild", guild.id(), "uuid", player.getUniqueId().toString(),
                         "name", player.getName(), "json", json));
             } catch (ReflectiveOperationException e) { throw new org.bukkit.event.EventException(e); }

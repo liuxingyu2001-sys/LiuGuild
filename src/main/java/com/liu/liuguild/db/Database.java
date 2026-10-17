@@ -246,10 +246,52 @@ public final class Database {
                     + ")" + engine);
             index(st, t("guild_shop") + "_guild", t("guild_shop"), "`guild_id`");
 
+            // 仓库/商店跨“数据库提交”和“玩家背包变更”的持久化交接记录。
+            // 崩溃恢复时据此判断数据库版本是否已提交，再决定补发或丢弃。
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_warehouse_pending") + "` ("
+                    + "`player_uuid` VARCHAR(36) NOT NULL,"
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`session_token` VARCHAR(96) NOT NULL,"
+                    + "`expected_version` BIGINT NOT NULL,"
+                    + "`before_items` " + (cfg.isSqlite() ? "TEXT," : "MEDIUMTEXT,")
+                    + "`after_items` " + (cfg.isSqlite() ? "TEXT," : "MEDIUMTEXT,")
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`player_uuid`)"
+                    + ")" + engine);
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_shop_pending") + "` ("
+                    + "`op_id` VARCHAR(36) NOT NULL,"
+                    + "`player_uuid` VARCHAR(36) NOT NULL,"
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`action` VARCHAR(16) NOT NULL,"
+                    + "`listing_id` VARCHAR(36),"
+                    + "`item_data` " + (cfg.isSqlite() ? "TEXT," : "MEDIUMTEXT,")
+                    + "`amount` INT NOT NULL DEFAULT 0,"
+                    + "`state` VARCHAR(16) NOT NULL,"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`op_id`)"
+                    + ")" + engine);
+            index(st, t("guild_shop_pending") + "_player", t("guild_shop_pending"), "`player_uuid`");
+
+            // 工会战玩家奖励 outbox：崩溃/重启后继续发放未完成的玩家奖励。
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_war_rewards") + "` ("
+                    + "`war_id` VARCHAR(36) NOT NULL,"
+                    + "`player_uuid` VARCHAR(36) NOT NULL,"
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`win` INT NOT NULL DEFAULT 0,"
+                    + "`mode` VARCHAR(32) NOT NULL,"
+                    + "`money` DOUBLE NOT NULL DEFAULT 0,"
+                    + "`pass_xp` INT NOT NULL DEFAULT 0,"
+                    + "`title_id` INT NOT NULL DEFAULT 0,"
+                    + "`status` VARCHAR(16) NOT NULL DEFAULT 'PENDING',"
+                    + "`created_at` BIGINT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`war_id`,`player_uuid`)"
+                    + ")" + engine);
+            index(st, t("guild_war_rewards") + "_status", t("guild_war_rewards"), "`status`");
+
             // 工会头衔定义
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_buffs") + "` ("
                     + "guild_id VARCHAR(64) NOT NULL, buff_id VARCHAR(32) NOT NULL, expires_at BIGINT NOT NULL,"
-                    + "PRIMARY KEY (guild_id,buff_id))");
+                    + "PRIMARY KEY (guild_id,buff_id))" + engine);
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_titles") + "` ("
                     + "`guild_id` VARCHAR(36) NOT NULL,"
                     + "`title_id` VARCHAR(32) NOT NULL,"
@@ -358,6 +400,11 @@ public final class Database {
     }
 
     /** MySQL「索引已存在」错误码 1061 / SQLite 同类提示。 */
+    private static boolean isColumnAlreadyExists(SQLException e) {
+        String m = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
+        return e.getErrorCode() == 1060 || m.contains("duplicate column") || m.contains("already exists");
+    }
+
     private static boolean isIndexAlreadyExists(SQLException e) {
         return e.getErrorCode() == 1061
                 || (e.getMessage() != null && e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("already exist"));
@@ -407,7 +454,9 @@ public final class Database {
                     st.executeUpdate(ddl);
                     log.info("数据库升级：已添加 " + t(col[0]) + "." + col[1]);
                 } catch (SQLException e) {
-                    // 列已存在 / 表结构差异：忽略
+                    if (!isColumnAlreadyExists(e)) {
+                        log.log(Level.WARNING, "数据库升级添加列失败 " + t(col[0]) + "." + col[1] + ": " + e.getMessage());
+                    }
                 }
             }
         } catch (SQLException e) {

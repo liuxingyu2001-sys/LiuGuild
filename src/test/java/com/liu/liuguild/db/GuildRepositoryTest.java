@@ -651,4 +651,57 @@ class GuildRepositoryTest {
         assertEquals(9, d[2]);
         assertEquals(100, d[3]);
     }
+    @Test
+    void memberWritesAreGuildScopedAndRespectDatabaseLimit() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Scoped", "SCP");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+
+        assertFalse(repo.insertMemberAndIncrement(new GuildMember(UUID.randomUUID(), "Extra", g.id(),
+                GuildRank.MEMBER, System.currentTimeMillis(), 0, 0, 0), 1), "数据库层必须拒绝超员");
+
+        UUID member = UUID.randomUUID();
+        GuildMember m = new GuildMember(member, "Member", g.id(), GuildRank.MEMBER,
+                System.currentTimeMillis(), 0, 0, 0);
+        assertTrue(repo.insertMemberAndIncrement(m, 2));
+        assertEquals(g.id(), repo.guildIdOf(member));
+
+        // 旧退会任务带着旧 guild_id 不能误删玩家后来加入的新成员关系
+        repo.deleteMember(member, "other-guild");
+        assertEquals(g.id(), repo.guildIdOf(member));
+        repo.deleteMember(member, g.id());
+        assertNull(repo.guildIdOf(member));
+    }
+
+    @Test
+    void staleGuildSnapshotCannotOverwriteNewerUpdatedAt() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Optimistic", "OPT");
+        repo.insertGuild(g);
+        long expected = g.updatedAt();
+
+        Guild older = repo.loadGuild(g.id());
+        older.name("First");
+        repo.updateGuild(older, expected);
+
+        Guild stale = guild(g.id(), "Stale", "STL");
+        stale.updatedAt(expected);
+        repo.updateGuild(stale, expected);
+
+        assertEquals("First", repo.loadGuild(g.id()).name(), "旧快照不能覆盖新名称");
+    }
+
+    @Test
+    void warRewardOutboxIsIdempotentAndMarkedDone() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Reward", "RWD");
+        repo.insertGuild(g);
+        UUID player = UUID.randomUUID();
+        var row = new GuildRepository.WarReward("war-1", player, g.id(), true, "match", 100, 5, 0);
+        repo.saveWarRewards(java.util.List.of(row));
+        repo.saveWarRewards(java.util.List.of(row));
+        assertEquals(1, repo.loadPendingWarRewards(10).size(), "重复写入不能生成重复奖励");
+        repo.markWarRewardDone("war-1", player);
+        assertTrue(repo.loadPendingWarRewards(10).isEmpty());
+    }
+
 }

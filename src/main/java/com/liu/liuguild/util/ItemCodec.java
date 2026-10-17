@@ -22,7 +22,7 @@ import java.util.logging.Logger;
 public final class ItemCodec {
 
     /** 单件物品编码后的最大长度；超过视为异常数据直接拒绝，防止恶意超大 NBT 撑爆数据库。 */
-    public static final int MAX_ENCODED_LENGTH = 64 * 1024;
+    public static final int MAX_ENCODED_LENGTH = 60_000;
 
     private static final Logger LOG = Logger.getLogger("LiuGuild");
 
@@ -49,7 +49,7 @@ public final class ItemCodec {
             if (bytes == null || bytes.length == 0) {
                 return null;
             }
-            return Base64.getEncoder().encodeToString(bytes);
+            return bounded(Base64.getEncoder().encodeToString(bytes));
         } catch (Throwable first) {
             // 回退：极少数情况下 serializeAsBytes 会因自定义物品异常
             try {
@@ -57,12 +57,21 @@ public final class ItemCodec {
                 try (BukkitObjectOutputStream oos = new BukkitObjectOutputStream(out)) {
                     oos.writeObject(copy);
                 }
-                return Base64.getEncoder().encodeToString(out.toByteArray());
+                return bounded(Base64.getEncoder().encodeToString(out.toByteArray()));
             } catch (Throwable second) {
                 LOG.log(Level.WARNING, "物品序列化失败，已跳过该物品: " + copy.getType(), second);
                 return null;
             }
         }
+    }
+
+    private static String bounded(String encoded) {
+        if (encoded == null) return null;
+        if (encoded.length() > MAX_ENCODED_LENGTH) {
+            LOG.warning("物品编码过大（" + encoded.length() + " 字符），已拒绝写入。");
+            return null;
+        }
+        return encoded;
     }
 
     /**

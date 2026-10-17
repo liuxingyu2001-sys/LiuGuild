@@ -49,6 +49,8 @@ public final class GuildManager {
     private final Set<String> pendingTags = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Invite> invites = new ConcurrentHashMap<>();
     private final Map<UUID, Long> inviteCooldown = new ConcurrentHashMap<>();
+    /** 本地写版本；异步全量重载发现版本变化时丢弃旧快照重试，避免覆盖刚发生的变更。 */
+    private final java.util.concurrent.atomic.AtomicLong mutationVersion = new java.util.concurrent.atomic.AtomicLong();
 
     public GuildManager(LiuGuild plugin) {
         this.plugin = plugin;
@@ -74,6 +76,11 @@ public final class GuildManager {
 
     /** 异步全量重载（启动与周期刷新）。 */
     public void reloadAll() {
+        reloadAll(0);
+    }
+
+    private void reloadAll(int attempt) {
+        long startVersion = mutationVersion.get();
         plugin.async(() -> {
             try {
                 List<Guild> loaded = plugin.repo().loadGuilds();
@@ -90,6 +97,10 @@ public final class GuildManager {
                     }
                     g.putMember(m);
                     idx.put(m.uuid(), m.guildId());
+                }
+                if (mutationVersion.get() != startVersion && attempt < 3) {
+                    plugin.sync(() -> reloadAll(attempt + 1));
+                    return;
                 }
                 guilds = fresh;
                 memberIndex = idx;
@@ -186,6 +197,23 @@ public final class GuildManager {
             }
         }
         reloadGuild(guildId);
+    }
+
+    /** 只刷新某成员关联的工会，避免 MEMBER_CHANGED 空 guild 时全量 reloadAll。 */
+    public void reloadMember(UUID uuid) {
+        if (uuid == null) return;
+        plugin.async(() -> {
+            try {
+                String guildId = plugin.repo().guildIdOf(uuid);
+                if (guildId == null) {
+                    Guild old = guildOf(uuid);
+                    if (old != null) guildId = old.id();
+                }
+                if (guildId != null) reloadGuild(guildId);
+            } catch (Exception e) {
+                plugin.getLogger().warning("刷新成员所属工会失败(" + uuid + "): " + e.getMessage());
+            }
+        });
     }
 
     public void reloadGuild(String guildId) {
@@ -291,6 +319,7 @@ public final class GuildManager {
             return false;
         }
 
+        mutationVersion.incrementAndGet();
         guilds.put(id, g);
         memberIndex.put(player.getUniqueId(), id);
         rebuildIndexes();
@@ -355,6 +384,14 @@ public final class GuildManager {
             }
         }
         return out;
+    }
+
+    /** 异步扫描不活跃工会；完成回调在主线程。 */
+    public void findInactiveGuildsAsync(java.util.function.Consumer<List<Guild>> callback) {
+        plugin.async(() -> {
+            List<Guild> targets = findInactiveGuilds();
+            plugin.sync(() -> callback.accept(targets));
+        });
     }
 
     /** 关服前同步刷写全部内存数据（主线程调用，尽力而为）。 */
@@ -496,6 +533,7 @@ public final class GuildManager {
             return false;
         }
         if (broadcast) announceGuild(g.id(), plugin.messages().component("disband-broadcast", "guild", g.name()), null);
+        mutationVersion.incrementAndGet();
         guilds.remove(g.id());
         for (UUID u : g.memberMap().keySet()) {
             memberIndex.remove(u);
@@ -555,6 +593,7 @@ public final class GuildManager {
         }
 
         long now = System.currentTimeMillis();
+        mutationVersion.incrementAndGet();
         GuildMember m = new GuildMember(player.getUniqueId(), player.getName(), g.id(), GuildRank.MEMBER, now, 0, 0, 0);
         g.putMember(m);
         memberIndex.put(player.getUniqueId(), g.id());
@@ -562,7 +601,7 @@ public final class GuildManager {
 
         plugin.async(() -> {
             try {
-                if (!plugin.repo().insertMemberAndIncrement(m)) {
+                if (!plugin.repo().insertMemberAndIncrement(m, conf().memberLimit(g.level()))) {
                     rollbackJoin(player, g, "already-in-guild");
                     return;
                 }
@@ -631,8 +670,9 @@ public final class GuildManager {
                 }
                 finishInvite(actor, g, null, targetId, targetName, System.currentTimeMillis());
                 if (server != null && !server.equals(plugin.serverId())) {
-                    plugin.bus().publishTo(server, "GUILD_INVITE", CrossServerBus.map(
-                            "target", targetId.toString(), "guild", g.id(), "name", g.name(), "server", plugin.serverId()));
+                    java.util.Map<String, String> payload = CrossServerBus.map(
+                            "target", targetId.toString(), "guild", g.id(), "name", g.name(), "server", plugin.serverId());
+                    plugin.async(() -> plugin.bus().publishTo(server, "GUILD_INVITE", payload));
                 }
             });
         });
@@ -774,6 +814,7 @@ public final class GuildManager {
     }
 
     private void removeMember(Guild g, UUID uuid) {
+        mutationVersion.incrementAndGet();
         g.removeMember(uuid);
         memberIndex.remove(uuid);
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
@@ -791,9 +832,11 @@ public final class GuildManager {
         }
         plugin.async(() -> {
             try {
-                plugin.repo().deleteMember(uuid);
-                plugin.repo().updateGuild(g);
-                plugin.broadcastMemberChange(uuid, "");
+                if (!plugin.repo().removeMember(uuid, g.id())) {
+                    plugin.getLogger().info("成员关系已变更，跳过旧退会写入: " + uuid);
+                    return;
+                }
+                plugin.broadcastMemberChange(uuid, g.id());
                 plugin.broadcastGuildChange(g.id());
             } catch (Exception e) {
                 plugin.getLogger().warning("移除成员写库失败: " + e.getMessage());
@@ -872,7 +915,6 @@ public final class GuildManager {
         targetM.rank(GuildRank.LEADER);
         g.leaderUuid(targetId);
         g.leaderName(targetName);
-        g.touch();
         saveMember(actorM);
         saveMember(targetM);
         saveGuild(g);
@@ -897,14 +939,21 @@ public final class GuildManager {
     }
 
     public void saveGuild(Guild g) {
-        g.touch();
+        mutationVersion.incrementAndGet();
         g.touchActive();
         plugin.async(() -> {
-            try {
-                plugin.repo().updateGuild(g);
-                plugin.broadcastGuildChange(g.id());
-            } catch (Exception e) {
-                plugin.getLogger().warning("保存工会失败: " + e.getMessage());
+            // 同一实例的保存串行化：后一次必须基于前一次成功后的 updated_at。
+            synchronized (g) {
+                try {
+                    if (!plugin.repo().saveGuild(g, g.updatedAt())) {
+                        plugin.getLogger().warning("工会保存被更新版本拒绝，回读最新数据: " + g.id());
+                        reloadGuild(g.id());
+                    } else {
+                        plugin.broadcastGuildChange(g.id());
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("保存工会失败: " + e.getMessage());
+                }
             }
         });
     }
@@ -1036,7 +1085,6 @@ public final class GuildManager {
         if (cleanTag != null) {
             g.tag(cleanTag);
         }
-        g.touch();
         rebuildIndexes();
         lastRename.put(g.id(), System.currentTimeMillis());
         final String appliedTag = cleanTag;
@@ -1048,7 +1096,7 @@ public final class GuildManager {
             try {
                 ok = !plugin.repo().nameOrTagTaken(cleanName, tagForCheck, g.id());
                 if (ok) {
-                    plugin.repo().updateGuild(g);
+                    synchronized (g) { ok = plugin.repo().saveGuild(g, g.updatedAt()); }
                 }
             } catch (Exception e) {
                 ok = false;
@@ -1483,31 +1531,45 @@ public final class GuildManager {
                     "cost", plugin.economy().format(c.checkinCost));
             return;
         }
-        if (c.checkinGuildCost > 0) {
-            addPoints(g, -c.checkinGuildCost);
-        }
-
         int streak = GuildSettings.nextStreak(today, m.lastCheckin(), m.checkinStreak());
         long reward = GuildSettings.checkinReward(c.checkinPoints, c.checkinStreakBonus,
                 c.checkinMaxStreakBonus, streak);
         plugin.async(() -> {
+            boolean guildDebited = false;
             try {
-                boolean granted = new com.liu.liuguild.db.PersonalFundsRepository(plugin.db())
-                        .grantCheckin(player.getUniqueId(), today, reward);
-                plugin.sync(() -> {
-                    if (!granted) {
-                        if (c.checkinCost > 0) plugin.economy().deposit(player, c.checkinCost);
-                        if (c.checkinGuildCost > 0) addPoints(g, c.checkinGuildCost);
-                        plugin.messages().send(player, "checkin-already");
+                // 工会点数扣费必须在同一异步路径内确认真实结果，失败时不能再“退款”出免费点数。
+                if (c.checkinGuildCost > 0) {
+                    guildDebited = plugin.repo().addPoints(g.id(), -c.checkinGuildCost);
+                    if (!guildDebited) {
+                        plugin.sync(() -> {
+                            if (c.checkinCost > 0) plugin.economy().deposit(player, c.checkinCost);
+                            plugin.messages().send(player, "checkin-guild-cost-missing",
+                                    "cost", String.valueOf(c.checkinGuildCost), "guild", g.name());
+                        });
                         return;
                     }
-                    completeCheckin(player, g, m, c, today, streak, reward);
-                });
+                    pullPoints(g.id(), false);
+                }
+                boolean granted = new com.liu.liuguild.db.PersonalFundsRepository(plugin.db())
+                        .grantCheckin(player.getUniqueId(), today, reward);
+                if (!granted) {
+                    if (guildDebited) plugin.repo().addPoints(g.id(), c.checkinGuildCost);
+                    if (guildDebited) pullPoints(g.id(), false);
+                    plugin.sync(() -> {
+                        if (c.checkinCost > 0) plugin.economy().deposit(player, c.checkinCost);
+                        plugin.messages().send(player, "checkin-already");
+                    });
+                    return;
+                }
+                plugin.sync(() -> completeCheckin(player, g, m, c, today, streak, reward));
             } catch (java.sql.SQLException e) {
                 plugin.getLogger().severe("个人签到资金入账失败: " + e.getMessage());
+                if (guildDebited) {
+                    try { plugin.repo().addPoints(g.id(), c.checkinGuildCost); pullPoints(g.id(), false); }
+                    catch (Exception ignored) { }
+                }
                 plugin.sync(() -> {
                     if (c.checkinCost > 0) plugin.economy().deposit(player, c.checkinCost);
-                    if (c.checkinGuildCost > 0) addPoints(g, c.checkinGuildCost);
                     plugin.messages().send(player, "funds-failed");
                 });
             }

@@ -107,11 +107,18 @@ public final class SeasonRepository {
     public record ArenaDestination(double x,double y,double z,float yaw,float pitch) {}
 
     public void entryState(String id, UUID player, String state) throws SQLException {
-        try(var c=db.source().getConnection(); var p=c.prepareStatement("UPDATE " + t("entries") + " SET state=? WHERE event_id=? AND player=?")) {
-            p.setString(1,state); p.setString(2,id); p.setString(3,player.toString()); p.executeUpdate();
-            if("RETURNED".equals(state)) try(var release=c.prepareStatement("DELETE FROM " + t("players") + " WHERE player=? AND event_id=?")) {
-                release.setString(1,player.toString()); release.setString(2,id); release.executeUpdate();
-            }
+        try(var c=db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                try(var p=c.prepareStatement("UPDATE " + t("entries") + " SET state=? WHERE event_id=? AND player=?")) {
+                    p.setString(1,state); p.setString(2,id); p.setString(3,player.toString()); p.executeUpdate();
+                }
+                if("RETURNED".equals(state)) try(var release=c.prepareStatement("DELETE FROM " + t("players") + " WHERE player=? AND event_id=?")) {
+                    release.setString(1,player.toString()); release.setString(2,id); release.executeUpdate();
+                }
+                c.commit();
+            } catch (SQLException e) { c.rollback(); throw e; }
+            finally { c.setAutoCommit(true); }
         }
     }
     /** 排名、公共资金奖励、终态同事务提交，重试不会重复奖励。 */

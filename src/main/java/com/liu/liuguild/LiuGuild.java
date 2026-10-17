@@ -498,21 +498,34 @@ public final class LiuGuild extends JavaPlugin {
 
     // ---- 跨服工会数据同步 ----
 
-    /** 广播某工会数据已变更，令其它子服重载。 */
-    public void broadcastGuildChange(String guildId) {
-        if (bus == null || !bus.isReady() || guildId == null) {
+    /**
+     * 跨服通知统一入口：主线程只入队，Redis IO 永远在异步线程执行。
+     * 单服模式保持本地即时分发。
+     */
+    public void publishAsync(String type, java.util.Map<String, String> data) {
+        if (bus == null || type == null || data == null) return;
+        if (!bus.isReady()) {
+            bus.publish(type, data);
             return;
         }
-        bus.publish("GUILD_CHANGED", com.liu.liuguild.crossserver.CrossServerBus.map(
+        async(() -> bus.publish(type, data));
+    }
+
+    /** 广播某工会数据已变更，令其它子服重载。 */
+    public void broadcastGuildChange(String guildId) {
+        if (bus == null || guildId == null) {
+            return;
+        }
+        publishAsync("GUILD_CHANGED", com.liu.liuguild.crossserver.CrossServerBus.map(
                 "guild", guildId, "server", serverId()));
     }
 
     /** 广播某成员数据已变更。 */
     public void broadcastMemberChange(UUID uuid, String guildId) {
-        if (bus == null || !bus.isReady() || uuid == null) {
+        if (bus == null || uuid == null) {
             return;
         }
-        bus.publish("MEMBER_CHANGED", com.liu.liuguild.crossserver.CrossServerBus.map(
+        publishAsync("MEMBER_CHANGED", com.liu.liuguild.crossserver.CrossServerBus.map(
                 "uuid", uuid.toString(), "guild", guildId == null ? "" : guildId, "server", serverId()));
     }
 

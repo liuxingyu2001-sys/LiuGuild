@@ -6,6 +6,7 @@ import com.liu.liuguild.model.Guild;
 import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.module.GuildModule;
 import com.liu.liuguild.util.ItemCodec;
+import com.liu.liuguild.util.ItemUtil;
 import com.liu.liuguild.util.Text;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
@@ -17,6 +18,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -62,6 +64,7 @@ public final class WarehouseService implements GuildModule, Listener {
         final UUID player;
         final Inventory inv;
         final WarehouseHolder holder;
+        final String sessionToken;
         WarehouseContents contents;
         long version;
         boolean busy;
@@ -75,13 +78,14 @@ public final class WarehouseService implements GuildModule, Listener {
         List<WarehouseContents.Entry> visible = List.of();
 
         Open(String guildId, UUID player, Inventory inv, WarehouseHolder holder,
-             WarehouseContents contents, long version) {
+             WarehouseContents contents, long version, String sessionToken) {
             this.guildId = guildId;
             this.player = player;
             this.inv = inv;
             this.holder = holder;
             this.contents = contents;
             this.version = version;
+            this.sessionToken = sessionToken;
         }
     }
 
@@ -281,6 +285,88 @@ public final class WarehouseService implements GuildModule, Listener {
         UUID uuid = player.getUniqueId();
         if (!loading.add(uuid)) return false;
         player.closeInventory();
+        // 先处理上次崩溃遗留的背包/仓库交接，再允许重新打开。
+        recoverPending(player, () -> openNow(player, g, openedLifecycle, uuid));
+        return true;
+    }
+
+
+    /**
+     * 恢复上次崩溃遗留的仓库/背包交接。数据库版本已从 expected 前进一格才应用 after，
+     * 否则说明事务未提交（或已回滚），只清理日志。
+     */
+    private void recoverPending(Player player, Runnable after) {
+        if (player == null || !player.isOnline() || open.containsKey(player.getUniqueId())) {
+            if (after != null) plugin.sync(after);
+            return;
+        }
+        UUID uuid = player.getUniqueId();
+        plugin.async(() -> {
+            WarehouseRepository.Pending pending;
+            long version;
+            try {
+                pending = repo.loadPending(uuid);
+                if (pending == null) {
+                    if (after != null) plugin.sync(after);
+                    return;
+                }
+                version = repo.loadSnapshot(pending.guildId()).version();
+            } catch (Exception e) {
+                plugin.getLogger().warning("读取仓库交接记录失败: " + e.getMessage());
+                return;
+            }
+            plugin.sync(() -> applyPending(player, pending, version, after));
+        });
+    }
+
+    private void applyPending(Player player, WarehouseRepository.Pending pending, long version, Runnable after) {
+        if (!player.isOnline()) return;
+        UUID uuid = player.getUniqueId();
+        try {
+            ItemStack[] current = cloneItems(player.getInventory().getStorageContents());
+            ItemStack[] before = ItemUtil.decode(pending.beforeItems());
+            ItemStack[] afterItems = ItemUtil.decode(pending.afterItems());
+            if (version == pending.expectedVersion() + 1) {
+                if (inventoryMatches(current, afterItems)) {
+                    // 上次已经改过背包，只是没来得及删交接记录。
+                } else if (inventoryMatches(current, before)) {
+                    player.getInventory().setStorageContents(cloneItems(afterItems));
+                } else {
+                    plugin.getLogger().severe("仓库交接恢复失败：玩家 " + player.getName()
+                            + " 背包已变化，保留记录待人工处理。pending=" + pending.sessionToken());
+                    return;
+                }
+            }
+            // version != expected + 1：数据库未提交或已回滚，丢弃交接记录。
+            final String token = pending.sessionToken();
+            plugin.async(() -> {
+                try { repo.deletePending(uuid, token); }
+                catch (Exception e) { plugin.getLogger().warning("清理仓库交接记录失败: " + e.getMessage()); }
+                if (after != null) plugin.sync(after);
+            });
+        } catch (Exception e) {
+            plugin.getLogger().warning("恢复仓库交接失败: " + e.getMessage());
+        }
+    }
+
+    private static boolean inventoryMatches(ItemStack[] current, ItemStack[] expected) {
+        if (expected.length == 0) {
+            for (ItemStack item : current) {
+                if (item != null && !item.getType().isAir()) return false;
+            }
+            return true;
+        }
+        if (current.length != expected.length) return false;
+        return java.util.Arrays.equals(current, expected);
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        // 背包恢复必须等玩家数据加载完成后再做。
+        plugin.syncDelayed(() -> recoverPending(event.getPlayer(), null), 1L);
+    }
+
+    private void openNow(Player player, Guild g, long openedLifecycle, UUID uuid) {
         plugin.async(() -> {
             if (!running || lifecycle != openedLifecycle) {
                 loading.remove(uuid);
@@ -297,7 +383,7 @@ public final class WarehouseService implements GuildModule, Listener {
                 loaded = repo.loadSnapshot(g.id());
             } catch (Exception e) {
                 loading.remove(uuid);
-                lock.release(g.id(), uuid);
+                lock.release(g.id(), uuid, session.token());
                 plugin.getLogger().warning("读取工会仓库失败，已拒绝打开: " + e.getMessage());
                 plugin.sync(() -> plugin.messages().send(player, "wh-storage-failed"));
                 return;
@@ -310,7 +396,7 @@ public final class WarehouseService implements GuildModule, Listener {
                 if (fresh == null || !running || lifecycle != openedLifecycle || !player.isOnline()
                         || !player.hasPermission("liuguild.warehouse") || current == null || !current.id().equals(g.id())
                         || !canAccess(current) || !lock.isHeldLocallyBy(g.id(), uuid)) {
-                    plugin.async(() -> lock.release(g.id(), uuid));
+                    plugin.async(() -> lock.release(g.id(), uuid, session.token()));
                     return;
                 }
                 WarehouseContents contents = new WarehouseContents();
@@ -326,14 +412,14 @@ public final class WarehouseService implements GuildModule, Listener {
                 } catch (Exception e) {
                     plugin.getLogger().warning("仓库解码失败，保留原数据并拒绝打开: " + e.getMessage());
                     plugin.messages().send(player, "wh-storage-failed");
-                    plugin.async(() -> lock.release(g.id(), uuid));
+                    plugin.async(() -> lock.release(g.id(), uuid, session.token()));
                     return;
                 }
                 WarehouseHolder holder = new WarehouseHolder(g.id());
                 Inventory inv = Bukkit.createInventory(holder, 54,
                         Text.mm(plugin.messages().raw("wh-title").replace("{guild}", g.name())));
                 holder.inv = inv;
-                Open o = new Open(g.id(), uuid, inv, holder, contents, loaded.version());
+                Open o = new Open(g.id(), uuid, inv, holder, contents, loaded.version(), session.token());
                 open.put(uuid, o);
                 render(player, o);
                 // 真实仓库库存需要玩家自由存取物品，必须关闭 Sparrow 菜单会话后再打开。
@@ -341,7 +427,6 @@ public final class WarehouseService implements GuildModule, Listener {
                 player.openInventory(inv);
             });
         });
-        return true;
     }
 
     // =====================================================================
@@ -842,11 +927,23 @@ public final class WarehouseService implements GuildModule, Listener {
         Map<Integer, WarehouseRepository.Stored> previous = new LinkedHashMap<>();
         index = 0;
         for (var e : o.contents.entries()) previous.put(index++, new WarehouseRepository.Stored(ItemCodec.encode(e.sample()), e.amount()));
+        // 先记录“从 before 到 after”的交接，再提交仓库。崩溃后按数据库版本决定是否补做背包变更。
+        final String beforeData = ItemUtil.encode(before);
+        final String afterData = ItemUtil.encode(after);
+        if (beforeData == null || afterData == null || beforeData.isBlank() || afterData.isBlank()) {
+            plugin.messages().send(p, "wh-storage-failed");
+            return;
+        }
         o.busy = true;
         plugin.async(() -> {
             boolean saved;
-            try { saved = repo.save(o.guildId, o.version, encoded); }
-            catch (Exception e) { saved = false; plugin.getLogger().warning("仓库存取提交失败: " + e.getMessage()); }
+            try {
+                repo.savePending(o.player, o.guildId, o.sessionToken, o.version, beforeData, afterData);
+                saved = repo.save(o.guildId, o.version, encoded);
+            } catch (Exception e) {
+                saved = false;
+                plugin.getLogger().warning("仓库存取提交失败: " + e.getMessage());
+            }
             final boolean success = saved;
             plugin.sync(() -> {
                 Guild memberGuild = plugin.guilds().guildOf(p.getUniqueId());
@@ -859,21 +956,34 @@ public final class WarehouseService implements GuildModule, Listener {
                     o.contents = next;
                     o.version++;
                     o.busy = false;
+                    deletePendingAsync(o.player, o.sessionToken);
                     render(p, o);
                 } else if (success) {
                     plugin.async(() -> {
+                        boolean rolledBack = false;
                         try {
-                            if (!repo.save(o.guildId, o.version + 1, previous))
+                            rolledBack = repo.save(o.guildId, o.version + 1, previous);
+                            if (!rolledBack)
                                 plugin.getLogger().severe("仓库回滚版本冲突，需人工核查: " + o.guildId);
                         } catch (Exception e) { plugin.getLogger().severe("仓库回滚失败，需人工核查: " + o.guildId + " " + e); }
+                        // 回滚成功时数据库已前进两格；保留交接记录会在恢复时被安全丢弃。
+                        if (rolledBack) deletePendingAsync(o.player, o.sessionToken);
                         plugin.sync(() -> { o.busy = false; kick(o.player); });
                     });
                 } else {
+                    deletePendingAsync(o.player, o.sessionToken);
                     o.busy = false;
                     plugin.messages().send(p, "wh-storage-failed");
                     kick(o.player);
                 }
             });
+        });
+    }
+
+    private void deletePendingAsync(UUID player, String token) {
+        plugin.async(() -> {
+            try { repo.deletePending(player, token); }
+            catch (Exception e) { plugin.getLogger().warning("清理仓库交接记录失败: " + e.getMessage()); }
         });
     }
 
@@ -1012,7 +1122,7 @@ public final class WarehouseService implements GuildModule, Listener {
         o.closed = true;
         if (o.busy) return;
         open.remove(o.player, o);
-        plugin.async(() -> lock.release(o.guildId, o.player));
+        plugin.async(() -> lock.release(o.guildId, o.player, o.sessionToken));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

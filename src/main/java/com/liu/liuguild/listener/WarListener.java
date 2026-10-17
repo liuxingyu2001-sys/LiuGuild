@@ -188,14 +188,13 @@ public final class WarListener implements GuildModule, Listener {
             return;
         }
         org.bukkit.event.player.PlayerTeleportEvent.TeleportCause cause = event.getCause();
-        // 战斗期间允许在同一个竞技场世界内使用末影珍珠/紫颂果/未知内部位移
+        // 战斗期间允许在同一个竞技场世界内使用末影珍珠/紫颂果；UNKNOWN 不再放行，避免第三方插件绕过。
         org.bukkit.Location from = event.getFrom();
         org.bukkit.Location to = event.getTo();
         boolean sameWorld = to != null && from.getWorld() != null && from.getWorld().equals(to.getWorld());
         if (sameWorld && !plugin.war().isFrozen(uuid)
                 && (cause == org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.ENDER_PEARL
-                || cause == org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.CHORUS_FRUIT
-                || cause == org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.UNKNOWN)) {
+                || cause == org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.CHORUS_FRUIT)) {
             return;
         }
         event.setCancelled(true);

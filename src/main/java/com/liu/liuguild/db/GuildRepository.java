@@ -218,10 +218,25 @@ public final class GuildRepository {
     }
 
     public void updateGuild(Guild g) throws SQLException {
+        updateGuild(g, g.updatedAt());
+    }
+
+    public void updateGuild(Guild g, long expectedUpdatedAt) throws SQLException {
+        saveGuild(g, expectedUpdatedAt);
+    }
+
+    /** 乐观锁保存：返回 false 表示数据库已有更新的版本，本次未写入。 */
+    public boolean saveGuild(Guild g, long expectedUpdatedAt) throws SQLException {
+        // 同一毫秒内连续保存时也推进时间戳，保证旧快照的 expected 严格落后。
+        long now = Math.max(System.currentTimeMillis(), expectedUpdatedAt + 1);
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(guildUpdateSql())) {
-            bindGuildUpdate(ps, g);
-            ps.executeUpdate();
+            bindGuildUpdate(ps, g, now, expectedUpdatedAt);
+            if (ps.executeUpdate() > 0) {
+                g.updatedAt(now);
+                return true;
+            }
+            return false;
         }
     }
 
@@ -229,10 +244,10 @@ public final class GuildRepository {
         return "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
                 + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,"
                 + "`level`=?,`wins`=?,`losses`=?,"
-                + "`home_server`=?,`member_count`=?,`last_active_at`=?,`member_pvp`=? WHERE `guild_id`=?";
+                + "`home_server`=?,`member_count`=?,`last_active_at`=?,`member_pvp`=? WHERE `guild_id`=? AND `updated_at`<=?";
     }
 
-    private void bindGuildUpdate(PreparedStatement ps, Guild g) throws SQLException {
+    private void bindGuildUpdate(PreparedStatement ps, Guild g, long newUpdatedAt, long expectedUpdatedAt) throws SQLException {
         ps.setString(1, g.name());
         ps.setString(2, g.tag());
         ps.setString(3, g.leaderUuid() == null ? null : g.leaderUuid().toString());
@@ -242,7 +257,7 @@ public final class GuildRepository {
         ps.setString(7, g.icon());
         ps.setString(8, g.iconData());
         ps.setInt(9, g.open() ? 1 : 0);
-        ps.setLong(10, g.updatedAt());
+        ps.setLong(10, newUpdatedAt);
         ps.setInt(11, g.level());
         ps.setInt(12, g.wins());
         ps.setInt(13, g.losses());
@@ -255,6 +270,7 @@ public final class GuildRepository {
             ps.setInt(17, g.memberPvp() ? 1 : 0);
         }
         ps.setString(18, g.id());
+        ps.setLong(19, expectedUpdatedAt);
     }
 
     /**
@@ -265,13 +281,14 @@ public final class GuildRepository {
             return;
         }
         String memberSql = "UPDATE `" + db.t("guild_members") + "` SET `player_name`=?,`guild_id`=?,`rank`=?,"
-                + "`contributed`=?,`kills`=?,`deaths`=?,`last_checkin`=?,`checkin_streak`=? WHERE `player_uuid`=?";
+                + "`contributed`=?,`kills`=?,`deaths`=?,`last_checkin`=?,`checkin_streak`=? WHERE `player_uuid`=? AND `guild_id`=?";
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try (PreparedStatement gs = c.prepareStatement(guildUpdateSql());
                  PreparedStatement ms = c.prepareStatement(memberSql)) {
+                long now = System.currentTimeMillis();
                 for (Guild g : guilds) {
-                    bindGuildUpdate(gs, g);
+                    bindGuildUpdate(gs, g, now, g.updatedAt());
                     gs.addBatch();
                 }
                 for (GuildMember m : members) {
@@ -287,6 +304,48 @@ public final class GuildRepository {
                 c.commit();
             } catch (SQLException e) {
                 try { c.rollback(); } catch (SQLException ignored) { }
+                throw e;
+            } finally {
+                c.setAutoCommit(true);
+            }
+        }
+    }
+
+    /** 原子递减成员计数，避免退会时整行保存覆盖其它子服的新数据。 */
+    public void decrementMemberCount(String guildId) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                     + "` SET `member_count`=CASE WHEN `member_count`>0 THEN `member_count`-1 ELSE 0 END WHERE `guild_id`=?")) {
+            ps.setString(1, guildId);
+            ps.executeUpdate();
+        }
+    }
+
+    /** 条件删除成员并原子递减计数；成员关系已不属于该工会时不减计数。 */
+    public boolean removeMember(UUID uuid, String guildId) throws SQLException {
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                int removed;
+                try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_members")
+                        + "` WHERE `player_uuid`=? AND `guild_id`=?")) {
+                    ps.setString(1, uuid.toString());
+                    ps.setString(2, guildId);
+                    removed = ps.executeUpdate();
+                }
+                if (removed == 0) {
+                    c.rollback();
+                    return false;
+                }
+                try (PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                        + "` SET `member_count`=CASE WHEN `member_count`>0 THEN `member_count`-1 ELSE 0 END WHERE `guild_id`=?")) {
+                    ps.setString(1, guildId);
+                    ps.executeUpdate();
+                }
+                c.commit();
+                return true;
+            } catch (SQLException e) {
+                c.rollback();
                 throw e;
             } finally {
                 c.setAutoCommit(true);
@@ -623,15 +682,25 @@ public final class GuildRepository {
 
     /** Insert a member and update the denormalized member count in one transaction. */
     public boolean insertMemberAndIncrement(GuildMember member) throws SQLException {
+        return insertMemberAndIncrement(member, Integer.MAX_VALUE);
+    }
+
+    /** 加入成员并在同一事务检查数据库中的成员上限，避免多服同时入会超员。 */
+    public boolean insertMemberAndIncrement(GuildMember member, int limit) throws SQLException {
         String insert = "INSERT INTO `" + db.t("guild_members") + "` (`player_uuid`,`player_name`,`guild_id`,`rank`,`joined_at`,`contributed`,`kills`,`deaths`,`last_checkin`,`checkin_streak`) VALUES (?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try (PreparedStatement ps = c.prepareStatement(insert)) {
                 bindMember(ps, member);
                 ps.executeUpdate();
-                try (PreparedStatement update = c.prepareStatement("UPDATE `" + db.t("guilds") + "` SET `member_count`=`member_count`+1 WHERE `guild_id`=?")) {
+                try (PreparedStatement update = c.prepareStatement("UPDATE `" + db.t("guilds")
+                        + "` SET `member_count`=`member_count`+1 WHERE `guild_id`=? AND `member_count`<?")) {
                     update.setString(1, member.guildId());
-                    if (update.executeUpdate() != 1) throw new SQLException("Guild disappeared during member join");
+                    update.setInt(2, Math.max(1, limit));
+                    if (update.executeUpdate() != 1) {
+                        c.rollback();
+                        return false;
+                    }
                 }
                 c.commit();
                 return true;
@@ -670,10 +739,11 @@ public final class GuildRepository {
 
     public void updateMember(GuildMember m) throws SQLException {
         String sql = "UPDATE `" + db.t("guild_members") + "` SET `player_name`=?,`guild_id`=?,`rank`=?,"
-                + "`contributed`=?,`kills`=?,`deaths`=?,`last_checkin`=?,`checkin_streak`=? WHERE `player_uuid`=?";
+                + "`contributed`=?,`kills`=?,`deaths`=?,`last_checkin`=?,`checkin_streak`=? WHERE `player_uuid`=? AND `guild_id`=?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             bindMemberUpdate(ps, m);
+            ps.setString(10, m.guildId());
             ps.executeUpdate();
         }
     }
@@ -688,12 +758,21 @@ public final class GuildRepository {
         ps.setLong(7, m.lastCheckin());
         ps.setInt(8, m.checkinStreak());
         ps.setString(9, m.uuid().toString());
+        ps.setString(10, m.guildId());
     }
 
     public void deleteMember(UUID uuid) throws SQLException {
+        deleteMember(uuid, null);
+    }
+
+    /** 按 UUID + 工会条件删除，防止旧退会任务误删玩家刚加入的新工会成员关系。 */
+    public void deleteMember(UUID uuid, String guildId) throws SQLException {
+        String sql = "DELETE FROM `" + db.t("guild_members") + "` WHERE `player_uuid`=?"
+                + (guildId == null ? "" : " AND `guild_id`=?");
         try (Connection c = db.source().getConnection();
-             PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_members") + "` WHERE `player_uuid`=?")) {
+             PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, uuid.toString());
+            if (guildId != null) ps.setString(2, guildId);
             ps.executeUpdate();
         }
     }
@@ -735,6 +814,62 @@ public final class GuildRepository {
             ps.setLong(15, w.createdAt());
             ps.setLong(16, w.startedAt());
             ps.setLong(17, w.endedAt());
+            ps.executeUpdate();
+        }
+    }
+
+    /** 工会战玩家奖励 outbox 行。 */
+    public record WarReward(String warId, java.util.UUID player, String guildId, boolean win, String mode,
+                            double money, int passXp, int titleId) { }
+
+    /** 幂等写入玩家奖励明细；已存在（包括已发放）不覆盖。 */
+    public void saveWarRewards(java.util.List<WarReward> rewards) throws SQLException {
+        if (rewards == null || rewards.isEmpty()) return;
+        String insert = db.isSqlite()
+                ? "INSERT OR IGNORE INTO `" + db.t("guild_war_rewards") + "` (`war_id`,`player_uuid`,`guild_id`,`win`,`mode`,`money`,`pass_xp`,`title_id`,`status`,`created_at`) VALUES (?,?,?,?,?,?,?,?,'PENDING',?)"
+                : "INSERT IGNORE INTO `" + db.t("guild_war_rewards") + "` (`war_id`,`player_uuid`,`guild_id`,`win`,`mode`,`money`,`pass_xp`,`title_id`,`status`,`created_at`) VALUES (?,?,?,?,?,?,?,?,'PENDING',?)";
+        try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(insert)) {
+            for (WarReward r : rewards) {
+                ps.setString(1, r.warId());
+                ps.setString(2, r.player().toString());
+                ps.setString(3, r.guildId());
+                ps.setInt(4, r.win() ? 1 : 0);
+                ps.setString(5, r.mode());
+                ps.setDouble(6, r.money());
+                ps.setInt(7, r.passXp());
+                ps.setInt(8, r.titleId());
+                ps.setLong(9, System.currentTimeMillis());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    public java.util.List<WarReward> loadPendingWarRewards(int limit) throws SQLException {
+        java.util.List<WarReward> out = new ArrayList<>();
+        String sql = "SELECT `war_id`,`player_uuid`,`guild_id`,`win`,`mode`,`money`,`pass_xp`,`title_id` FROM `"
+                + db.t("guild_war_rewards") + "` WHERE `status`='PENDING' ORDER BY `created_at` LIMIT ?";
+        try (Connection c = db.source().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, Math.max(1, limit));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    try {
+                        out.add(new WarReward(rs.getString(1), java.util.UUID.fromString(rs.getString(2)),
+                                rs.getString(3), rs.getInt(4) != 0, rs.getString(5), rs.getDouble(6),
+                                rs.getInt(7), rs.getInt(8)));
+                    } catch (IllegalArgumentException ignored) { }
+                }
+            }
+        }
+        return out;
+    }
+
+    public void markWarRewardDone(String warId, java.util.UUID player) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_war_rewards")
+                     + "` SET `status`='DONE' WHERE `war_id`=? AND `player_uuid`=?")) {
+            ps.setString(1, warId);
+            ps.setString(2, player.toString());
             ps.executeUpdate();
         }
     }

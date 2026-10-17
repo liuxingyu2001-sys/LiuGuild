@@ -150,9 +150,12 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
     }
 
     private void status(CommandSender sender) {
-        for (String line : plugin.statusLines()) {
-            sender.sendMessage(Text.mm(cn(line)));
-        }
+        plugin.async(() -> {
+            java.util.List<String> lines = plugin.statusLines();
+            plugin.sync(() -> {
+                for (String line : lines) sender.sendMessage(Text.mm(cn(line)));
+            });
+        });
     }
 
     private static String cn(String s) {
@@ -918,25 +921,27 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             case "confirm", "apply", "run" -> false;
             default -> true;
         };
-        var targets = plugin.guilds().purgeInactive(dry);
-        sender.sendMessage(cn("&6===== 不活跃工会清理 ====="));
-        sender.sendMessage(cn("&7判定：连续 &f" + conf.cleanupInactiveDays + " &7天无活动且无人在线"
-                + (conf.cleanupMaxMembers > 0 ? "，成员数≤&f" + conf.cleanupMaxMembers : "")));
-        sender.sendMessage(cn("&7模式：" + (dry ? "&e试运行（未删除）" : "&c已执行删除")
-                + " &7命中：&f" + targets.size()));
-        int shown = 0;
-        for (Guild g : targets) {
-            if (shown++ >= 15) {
-                sender.sendMessage(cn("&8…还有 " + (targets.size() - 15) + " 个"));
-                break;
+        plugin.guilds().findInactiveGuildsAsync(targets -> {
+            if (!dry) for (Guild g : targets) plugin.guilds().disband(g, conf.cleanupBroadcast);
+            sender.sendMessage(cn("&6===== 不活跃工会清理 ====="));
+            sender.sendMessage(cn("&7判定：连续 &f" + conf.cleanupInactiveDays + " &7天无活动且无人在线"
+                    + (conf.cleanupMaxMembers > 0 ? "，成员数≤&f" + conf.cleanupMaxMembers : "")));
+            sender.sendMessage(cn("&7模式：" + (dry ? "&e试运行（未删除）" : "&c已执行删除")
+                    + " &7命中：&f" + targets.size()));
+            int shown = 0;
+            for (Guild g : targets) {
+                if (shown++ >= 15) {
+                    sender.sendMessage(cn("&8…还有 " + (targets.size() - 15) + " 个"));
+                    break;
+                }
+                long days = (System.currentTimeMillis() - g.lastActiveAt()) / 86_400_000L;
+                sender.sendMessage(cn("&7- &f" + g.name() + " &8[" + g.tag() + "] &7成员=&f" + g.memberCount()
+                        + " &7最后活跃=&f" + days + " 天前"));
             }
-            long days = (System.currentTimeMillis() - g.lastActiveAt()) / 86_400_000L;
-            sender.sendMessage(cn("&7- &f" + g.name() + " &8[" + g.tag() + "] &7成员=&f" + g.memberCount()
-                    + " &7最后活跃=&f" + days + " 天前"));
-        }
-        if (dry && !targets.isEmpty()) {
-            sender.sendMessage(cn("&7确认删除请执行：&f/guildadmin cleanup confirm"));
-        }
+            if (dry && !targets.isEmpty()) {
+                sender.sendMessage(cn("&7确认删除请执行：&f/guildadmin cleanup confirm"));
+            }
+        });
     }
 
     private Guild find(String key) {

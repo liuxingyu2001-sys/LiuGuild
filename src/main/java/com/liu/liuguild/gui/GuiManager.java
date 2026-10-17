@@ -1109,9 +1109,12 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "admin:status" -> {
                 closeMenu(player);
-                for (String line : plugin.statusLines()) {
-                    player.sendMessage(Text.mm(line.replace('&', '\u00a7')));
-                }
+                plugin.async(() -> {
+                    java.util.List<String> lines = plugin.statusLines();
+                    plugin.sync(() -> {
+                        for (String line : lines) player.sendMessage(Text.mm(line.replace('&', '\u00a7')));
+                    });
+                });
             }
             case "admin:arenas" -> openArenaList(player, 0);
             case "buffs:open" -> openBuffs(player);
@@ -1139,8 +1142,9 @@ public final class GuiManager implements GuildModule, Listener {
             case "admin:cleanup" -> {
                 closeMenu(player);
                 var conf = plugin.settings().guild;
-                var targets = plugin.guilds().purgeInactive(true);
-                plugin.messages().sendRaw(player, "admin-cleanup-scan", "days", conf.cleanupInactiveDays, "count", targets.size());
+                plugin.guilds().findInactiveGuildsAsync(targets ->
+                        plugin.messages().sendRaw(player, "admin-cleanup-scan",
+                                "days", conf.cleanupInactiveDays, "count", targets.size()));
             }
             case "admin:verify" -> {
                 closeMenu(player);

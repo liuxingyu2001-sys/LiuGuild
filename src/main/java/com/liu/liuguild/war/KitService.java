@@ -152,6 +152,9 @@ public final class KitService {
     }
 
     /** 把 Snapshot 中的 36 格背包 + 4 格护甲 + 1 格副手编码成 41 槽位 Base64。 */
+    /** 单次托管的字符上限；超过说明背包/组件异常，宁可拒绝入场也不能写入不可解码数据。 */
+    private static final int MAX_ESCROW_CHARS = 1024 * 1024;
+
     public String encodeSnapshotItems(Snapshot snap) {
         if (snap == null) {
             return "";
@@ -170,7 +173,11 @@ public final class KitService {
             }
         }
         data[40] = snap.offhand();
-        return ItemUtil.encode(data);
+        String encoded = ItemUtil.encode(data);
+        if (encoded == null || encoded.isBlank() || encoded.length() > MAX_ESCROW_CHARS) {
+            return "";
+        }
+        return encoded;
     }
 
     /** 还原状态（主线程）。若 skipTeleport=true，则不覆盖当前坐标（交由 finishTeleport 处理）。 */

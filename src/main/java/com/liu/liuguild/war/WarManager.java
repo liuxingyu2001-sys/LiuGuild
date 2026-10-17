@@ -148,6 +148,10 @@ public final class WarManager implements GuildModule {
     private final Map<String, Long> localQueuedAt = new ConcurrentHashMap<>();
     /** 本服队列中每个工会选择的模式。 */
     private final Map<String, String> localMode = new ConcurrentHashMap<>();
+    /** 主线程/占位符读取的队列快照，避免每次 ZCARD/HGET 阻塞服务器线程。 */
+    private final java.util.Set<String> cachedQueued = ConcurrentHashMap.newKeySet();
+    private final Map<String, String> cachedMode = new ConcurrentHashMap<>();
+    private volatile int cachedQueueSize;
     /** 允许跨服转发的队列通知 key（白名单，防任意消息 key）。 */
     private static final java.util.Set<String> QUEUE_NOTIFY_KEYS =
             java.util.Set.of("war-queue-timeout", "war-queue-removed");
@@ -212,6 +216,7 @@ public final class WarManager implements GuildModule {
         scheduleTasks();
         // 只在插件启动时做中断恢复；热重载不能碰本服正在进行的战斗。
         recoverInterruptedWars();
+        processPendingWarRewards();
         plugin.getLogger().info("工会战模块已启用（模式=" + conf().modes.keySet() + "）。");
     }
 
@@ -454,6 +459,7 @@ public final class WarManager implements GuildModule {
 
     public boolean isQueued(String guildId) {
         if (plugin.bus().isReady()) {
+            if (Bukkit.isPrimaryThread()) return cachedQueued.contains(guildId);
             return plugin.bus().isQueued(guildId);
         }
         return localQueue.contains(guildId);
@@ -559,6 +565,7 @@ public final class WarManager implements GuildModule {
 
     /** 入队成功后的本地提示与广播（必须在主线程）。 */
     private void announceQueued(Player player, Guild guild, WarMode mode) {
+        cacheQueued(guild.id(), mode.key);
         if (!player.isOnline()) {
             return;
         }
@@ -603,19 +610,24 @@ public final class WarManager implements GuildModule {
                 if (queued) {
                     plugin.bus().dequeueGuild(guild.id());
                 }
-                plugin.sync(() -> plugin.messages().send(player, queued ? "war-queue-left" : "war-not-queued"));
+                plugin.sync(() -> {
+                    if (queued) cacheDequeued(guild.id());
+                    plugin.messages().send(player, queued ? "war-queue-left" : "war-not-queued");
+                });
             });
             return;
         }
         boolean queued = localQueue.remove(guild.id());
         localQueuedAt.remove(guild.id());
         localMode.remove(guild.id());
+        if (queued) cacheDequeued(guild.id());
         plugin.messages().send(player, queued ? "war-queue-left" : "war-not-queued");
     }
 
     /** 该工会当前排队选择的模式 key；未排队返回 null。 */
     public String queuedMode(String guildId) {
         if (plugin.bus().isReady()) {
+            if (Bukkit.isPrimaryThread()) return cachedMode.get(guildId);
             String mode = plugin.bus().queuedMode(guildId);
             return mode == null ? null : (mode.isBlank() ? conf().defaultMode : mode);
         }
@@ -625,9 +637,40 @@ public final class WarManager implements GuildModule {
     /** 当前匹配队列中的工会数量。 */
     public int queueSize() {
         if (plugin.bus().isReady()) {
-            return plugin.bus().queueCount();
+            return Bukkit.isPrimaryThread() ? cachedQueueSize : plugin.bus().queueCount();
         }
         return localQueue.size();
+    }
+
+    private void cacheQueued(String guildId, String mode) {
+        if (guildId == null) return;
+        cachedQueued.add(guildId);
+        if (mode != null) cachedMode.put(guildId, mode);
+        cachedQueueSize = cachedQueued.size();
+    }
+
+    private void cacheDequeued(String guildId) {
+        if (guildId == null) return;
+        cachedQueued.remove(guildId);
+        cachedMode.remove(guildId);
+        cachedQueueSize = cachedQueued.size();
+    }
+
+    private void updateQueueCache(List<Map<String, String>> snapshot) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        Map<String, String> modes = new java.util.HashMap<>();
+        for (Map<String, String> meta : snapshot) {
+            String id = meta.get("guildId");
+            if (id == null) continue;
+            ids.add(id);
+            String mode = meta.get("mode");
+            if (mode != null && !mode.isBlank()) modes.put(id, mode);
+        }
+        cachedQueued.retainAll(ids);
+        cachedQueued.addAll(ids);
+        cachedMode.clear();
+        cachedMode.putAll(modes);
+        cachedQueueSize = ids.size();
     }
 
     // =====================================================================
@@ -706,7 +749,7 @@ public final class WarManager implements GuildModule {
             return;
         }
         if (plugin.bus() != null && plugin.bus().isReady()) {
-            plugin.bus().publish("SEASON_OPEN", CrossServerBus.map("mode", mode.key, "force-enqueue", Boolean.toString(forceEnqueue)));
+            plugin.publishAsync("SEASON_OPEN", CrossServerBus.map("mode", mode.key, "force-enqueue", Boolean.toString(forceEnqueue)));
         } else {
             applySeasonOpen(mode, forceEnqueue);
         }
@@ -791,6 +834,7 @@ public final class WarManager implements GuildModule {
 
     private void crossServerMatch() {
         List<Map<String, String>> snapshot = plugin.bus().queueSnapshot();
+        updateQueueCache(snapshot);
         long now = System.currentTimeMillis();
         int timeout = conf().matchTimeoutSeconds;
         List<Map<String, String>> valid = new ArrayList<>();
@@ -958,7 +1002,7 @@ public final class WarManager implements GuildModule {
                 "tagA", ga.tag(), "tagB", gb.tag(),
                 "server", plugin.serverId());
         if (plugin.bus().isReady()) {
-            plugin.bus().publish("WAR_MATCHED", data);
+            plugin.publishAsync("WAR_MATCHED", data);
         } else {
             handleWarMatched(data);
         }
@@ -1667,6 +1711,18 @@ public final class WarManager implements GuildModule {
         publishState(war);
     }
 
+    /** 结算队列逐条执行并记录失败；不能静默吞掉玩家奖励异常。 */
+    private void drainSettlements(int batch) {
+        for (int i = 0; i < batch; i++) {
+            Runnable reward = settleQueue.pollFirst();
+            if (reward == null) return;
+            try { reward.run(); }
+            catch (Throwable t) {
+                plugin.getLogger().warning("工会战玩家奖励发放失败（保留 outbox 待重试）: " + t);
+            }
+        }
+    }
+
     /** 每秒主线程 tick：倒计时、结束判定、比分播报。 */
     private void warTick() {
         try {
@@ -1716,7 +1772,7 @@ public final class WarManager implements GuildModule {
                 settling = true;
                 // 分帧发放奖励：每 tick 最多 settleBatchPerTick 人，避免大名单一次性阻塞。
                 int batch = Math.max(1, conf().settleBatchPerTick);
-                WarMath.drainBatch(settleQueue, batch, r -> r.run());
+                drainSettlements(batch);
                 if (remain <= 0 && settleQueue.isEmpty()) {
                     cleanup(war);
                 }
@@ -1762,9 +1818,69 @@ public final class WarManager implements GuildModule {
             broadcastWar(war, plugin.messages().component("war-ended",
                     "winner", winnerName, "score_a", war.scoreA(), "score_b", war.scoreB()));
         }
+        persistPlayerRewards(war, winner);
         applyRewards(war, winner);
         publishState(war, true);
         phaseUntil = System.currentTimeMillis() + modeOf(war).settleSeconds * 1000L;
+    }
+
+    /** 结算前先把玩家奖励写成 outbox；崩溃后由 processPendingWarRewards 继续。 */
+    private void persistPlayerRewards(GuildWar war, String winnerId) {
+        WarMode w = modeOf(war);
+        double mult = w.scheduled() ? Math.max(1.0, w.seasonPointsMultiplier) : 1.0;
+        boolean aWon = winnerId != null && winnerId.equals(war.guildA());
+        boolean bWon = winnerId != null && winnerId.equals(war.guildB());
+        java.util.List<com.liu.liuguild.db.GuildRepository.WarReward> rows = new java.util.ArrayList<>();
+        for (UUID u : new ArrayList<>(war.rosterA())) {
+            rows.add(new com.liu.liuguild.db.GuildRepository.WarReward(war.id(), u, war.guildA(), aWon,
+                    w.key, (aWon ? w.winPlayerMoney : w.losePlayerMoney) * mult,
+                    (int) Math.min(Integer.MAX_VALUE, Math.round((aWon ? w.winPassXp : w.losePassXp) * mult)),
+                    aWon ? w.winTitleId : 0));
+        }
+        for (UUID u : new ArrayList<>(war.rosterB())) {
+            rows.add(new com.liu.liuguild.db.GuildRepository.WarReward(war.id(), u, war.guildB(), bWon,
+                    w.key, (bWon ? w.winPlayerMoney : w.losePlayerMoney) * mult,
+                    (int) Math.min(Integer.MAX_VALUE, Math.round((bWon ? w.winPassXp : w.losePassXp) * mult)),
+                    bWon ? w.winTitleId : 0));
+        }
+        try { plugin.repo().saveWarRewards(rows); }
+        catch (Exception e) { plugin.getLogger().warning("保存工会战奖励明细失败: " + e.getMessage()); }
+    }
+
+    /** 启动/定时扫描未完成奖励；最多处理一批，避免启动时阻塞。 */
+    public void processPendingWarRewards() {
+        plugin.async(() -> {
+            try {
+                for (var row : plugin.repo().loadPendingWarRewards(200)) {
+                    plugin.sync(() -> settlePersistedReward(row));
+                }
+            } catch (Exception e) {
+                plugin.getLogger().warning("读取未完成工会战奖励失败: " + e.getMessage());
+            }
+        });
+    }
+
+    private void settlePersistedReward(com.liu.liuguild.db.GuildRepository.WarReward row) {
+        WarMode mode = mode(row.mode());
+        if (mode == null) {
+            markRewardDone(row);
+            return;
+        }
+        double money = row.money();
+        int passXp = row.passXp();
+        if (money > 0 && plugin.economy() != null && plugin.economy().available()) {
+            plugin.economy().deposit(plugin.offline(row.player()), money);
+        }
+        if (plugin.pass() != null && passXp > 0) plugin.pass().addXp(row.player(), mode.passId, passXp);
+        if (row.titleId() > 0 && plugin.playerTitle() != null) plugin.playerTitle().grant(row.player(), row.titleId());
+        markRewardDone(row);
+    }
+
+    private void markRewardDone(com.liu.liuguild.db.GuildRepository.WarReward row) {
+        plugin.async(() -> {
+            try { plugin.repo().markWarRewardDone(row.warId(), row.player()); }
+            catch (Exception e) { plugin.getLogger().warning("标记工会战奖励完成失败: " + e.getMessage()); }
+        });
     }
 
     /**
@@ -1784,10 +1900,10 @@ public final class WarManager implements GuildModule {
         long fundsA = rewardGuild(plugin.guilds().guild(war.guildA()), aWon, draw, w, mult);
         long fundsB = rewardGuild(plugin.guilds().guild(war.guildB()), bWon, draw, w, mult);
         for (UUID u : new ArrayList<>(war.rosterA())) {
-            settleQueue.add(() -> rewardPlayer(u, aWon, w, mult, fundsA, nominalA));
+            settleQueue.add(() -> rewardPlayer(war, u, aWon, w, mult, fundsA, nominalA));
         }
         for (UUID u : new ArrayList<>(war.rosterB())) {
-            settleQueue.add(() -> rewardPlayer(u, bWon, w, mult, fundsB, nominalB));
+            settleQueue.add(() -> rewardPlayer(war, u, bWon, w, mult, fundsB, nominalB));
         }
     }
 
@@ -1814,7 +1930,7 @@ public final class WarManager implements GuildModule {
         return granted;
     }
 
-    private void rewardPlayer(UUID uuid, boolean win, WarMode mode, double multiplier,
+    private void rewardPlayer(GuildWar war, UUID uuid, boolean win, WarMode mode, double multiplier,
                               long guildFundsGranted, long guildFundsNominal) {
         double money = (win ? mode.winPlayerMoney : mode.losePlayerMoney) * multiplier;
         int passXp = (int) Math.min(Integer.MAX_VALUE,
@@ -1831,6 +1947,10 @@ public final class WarManager implements GuildModule {
         if (hasTitle) {
             plugin.playerTitle().grant(uuid, titleId);
         }
+        plugin.async(() -> {
+            try { plugin.repo().markWarRewardDone(war.id(), uuid); }
+            catch (Exception e) { plugin.getLogger().warning("标记工会战奖励完成失败: " + e.getMessage()); }
+        });
 
         Player player = plugin.player(uuid);
         if (player == null) {

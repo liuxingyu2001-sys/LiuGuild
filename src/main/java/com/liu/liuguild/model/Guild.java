@@ -186,6 +186,10 @@ public final class Guild {
         this.updatedAt = System.currentTimeMillis();
     }
 
+    public void updatedAt(long updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
     public long lastActiveAt() {
         return lastActiveAt;
     }

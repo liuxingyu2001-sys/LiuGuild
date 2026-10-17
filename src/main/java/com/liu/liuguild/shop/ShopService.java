@@ -7,9 +7,13 @@ import com.liu.liuguild.model.GuildRank;
 import com.liu.liuguild.model.ShopListing;
 import com.liu.liuguild.module.GuildModule;
 import com.liu.liuguild.util.ItemCodec;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -35,13 +39,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>库存扣减走数据库原子 UPDATE（见 {@link ShopRepository#tryDecrement}），
  * 内存缓存只是展示用 —— 抢购的最后一件由数据库裁决，抢不到的人不会拿到东西。</p>
  */
-public final class ShopService implements GuildModule {
+public final class ShopService implements GuildModule, Listener {
 
     private final LiuGuild plugin;
     private final ShopRepository repo;
 
     /** listingId → listing（展示用缓存；库存以数据库为准）。 */
     private final Map<String, ShopListing> cache = new ConcurrentHashMap<>();
+    private boolean listenerRegistered;
 
     public ShopService(LiuGuild plugin) {
         this.plugin = plugin;
@@ -60,6 +65,10 @@ public final class ShopService implements GuildModule {
 
     @Override
     public void enable(LiuGuild plugin) {
+        if (!listenerRegistered) {
+            Bukkit.getPluginManager().registerEvents(this, plugin);
+            listenerRegistered = true;
+        }
         if (!plugin.settings().guild.shopEnabled) {
             return;
         }
@@ -190,32 +199,53 @@ public final class ShopService implements GuildModule {
             return "shop-hand-empty";
         }
         int take = Math.min(want, available);
-        // 先把物品从背包拿出来（这一步在主线程，失败就直接返回，没有副作用）
-        removeFromInventory(player.getInventory(), base, take);
         String encoded = ItemCodec.encode(base);
         if (encoded == null) {
-            // 序列化失败：把物品还回去，不能让玩家凭空丢东西
-            give(player, base, take);
             return "shop-serialize-failed";
         }
         ShopListing l = new ShopListing(UUID.randomUUID().toString(), g.id(), encoded, base,
                 take, Math.max(0, price), 0,
                 player.getUniqueId(), player.getName(), System.currentTimeMillis());
+        String opId = UUID.randomUUID().toString();
+        UUID buyer = player.getUniqueId();
         plugin.async(() -> {
             try {
-                repo.insert(l);
-                cache.put(l.id(), l);
-                broadcast(g.id());
+                repo.savePending(new ShopRepository.Pending(opId, buyer, g.id(), "ADD", null,
+                        encoded, take, "TO_REMOVE"));
             } catch (Exception e) {
-                // 落库失败：内存里的条目会在重启后消失，物品也已经被从玩家身上拿走了 ——
-                // 必须把物品退回，否则就是凭白吞物
-                plugin.getLogger().warning("上架工会商品失败: " + e.getMessage());
-                cache.remove(l.id());
-                plugin.sync(() -> {
-                    give(player, base, take);
-                    plugin.messages().send(player, "shop-listing-failed");
-                });
+                plugin.getLogger().warning("创建上架交接记录失败: " + e.getMessage());
+                plugin.sync(() -> plugin.messages().send(player, "shop-listing-failed"));
+                return;
             }
+            plugin.sync(() -> {
+                if (!player.isOnline() || countInInventory(player.getInventory(), base) < take) {
+                    deletePending(opId);
+                    if (player.isOnline()) plugin.messages().send(player, "shop-listing-failed");
+                    return;
+                }
+                removeFromInventory(player.getInventory(), base, take);
+                plugin.async(() -> {
+                    try {
+                        // 先持久化“已从背包扣除”，缩小扣除后崩溃导致的退物歧义窗口。
+                        try { repo.markPendingState(opId, "REMOVED"); }
+                        catch (Exception e) { plugin.getLogger().warning("标记上架交接状态失败: " + e.getMessage()); }
+                        repo.insert(l, opId, plugin.settings().guild.shopMaxListings);
+                        cache.put(l.id(), l);
+                        deletePending(opId);
+                        broadcast(g.id());
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("上架工会商品失败: " + e.getMessage());
+                        plugin.sync(() -> {
+                            if (player.isOnline()) {
+                                give(player, base, take);
+                                deletePending(opId);
+                                plugin.messages().send(player, "shop-listing-failed");
+                            }
+                            // 离线时保留 TO_REMOVE 记录，登录后 recoverPending 退物。
+                        });
+                    }
+                });
+            });
         });
         return null;
     }
@@ -228,12 +258,17 @@ public final class ShopService implements GuildModule {
 
     /** 改价（旧收购参数忽略）。 */
     public void updatePrices(Guild g, ShopListing l, long price, long buyPrice) {
+        long oldPrice = l.price();
+        long oldBuyPrice = l.buyPrice();
         l.price(Math.max(0, price));
         l.buyPrice(0);
         plugin.async(() -> {
             try {
                 repo.updatePrices(l.id(), l.price(), l.buyPrice());
             } catch (Exception e) {
+                // 数据库失败时回滚内存价格，避免界面显示与真实扣款价格长期不一致。
+                l.price(oldPrice);
+                l.buyPrice(oldBuyPrice);
                 plugin.getLogger().warning("修改工会商品价格失败: " + e.getMessage());
             }
         });
@@ -258,40 +293,54 @@ public final class ShopService implements GuildModule {
         if (l == null) {
             return "shop-not-found";
         }
-        if (g == null || !l.guildId().equals(g.id())) {
+        if (!l.guildId().equals(g.id())) {
             return "shop-not-found";
         }
         final Runnable done = onDone;
+        String opId = UUID.randomUUID().toString();
+        UUID uuid = player == null ? new UUID(0, 0) : player.getUniqueId();
+        String itemData = ItemCodec.encode(l.preview());
+        if (itemData == null || itemData.isBlank()) {
+            if (player != null) plugin.messages().send(player, "shop-serialize-failed");
+            if (onDone != null) onDone.run();
+            return "shop-serialize-failed";
+        }
         plugin.async(() -> {
-            final int stock;
+            int stock;
             try {
-                stock = repo.removeAndTakeStock(l.id());
+                repo.savePending(new ShopRepository.Pending(opId, uuid, g.id(), "REMOVE", l.id(),
+                        itemData, 0, "PREPARED"));
+                stock = repo.removeAndTakeStock(l.id(), opId);
             } catch (Exception e) {
+                deletePending(opId);
                 plugin.getLogger().warning("下架工会商品失败: " + e.getMessage());
                 plugin.sync(() -> {
-                    if (player != null) {
-                        plugin.messages().send(player, "shop-remove-failed");
-                    }
-                    if (done != null) {
-                        done.run();
-                    }
+                    if (player != null) plugin.messages().send(player, "shop-remove-failed");
+                    if (done != null) done.run();
                 });
                 return;
             }
+            if (stock <= 0) {
+                deletePending(opId);
+                plugin.sync(() -> {
+                    cache.remove(l.id());
+                    if (player != null) plugin.messages().send(player, "shop-removed", "item", itemName(l.preview()), "amount", "0");
+                    broadcast(l.guildId());
+                    if (done != null) done.run();
+                });
+                return;
+            }
+            ShopRepository.Pending pending = new ShopRepository.Pending(opId, uuid, g.id(), "REMOVE",
+                    l.id(), itemData, stock, "READY");
             plugin.sync(() -> {
                 cache.remove(l.id());
-                if (stock > 0 && player != null) {
-                    give(player, l.preview(), stock);
-                }
+                ShopRepository.Pending delivered = deliverNow(player, pending);
                 if (player != null) {
-                    plugin.messages().send(player, "shop-removed",
-                            "item", itemName(l.preview()),
-                            "amount", String.valueOf(stock));
+                    plugin.messages().send(player, delivered == null ? "shop-removed" : "shop-remove-failed",
+                            "item", itemName(l.preview()), "amount", String.valueOf(stock));
                 }
                 broadcast(l.guildId());
-                if (done != null) {
-                    done.run();
-                }
+                if (done != null) done.run();
             });
         });
         return null;
@@ -359,53 +408,140 @@ public final class ShopService implements GuildModule {
             return;
         }
         final UUID buyer = player.getUniqueId();
+        final String opId = UUID.randomUUID().toString();
+        final String itemData = ItemCodec.encode(preview);
+        if (itemData == null) {
+            plugin.messages().send(player, "shop-not-found");
+            if (onDone != null) onDone.run();
+            return;
+        }
         plugin.async(() -> {
-            long loaded;
             try {
-                loaded = new com.liu.liuguild.db.PersonalFundsRepository(plugin.db()).balance(buyer);
+                repo.savePending(new ShopRepository.Pending(opId, buyer, l.guildId(), "BUY", l.id(),
+                        itemData, amount, "PREPARED"));
             } catch (Exception e) {
-                loaded = -1;
-            }
-            final long balance = loaded;
-            if (balance >= 0 && balance < paid) {
+                plugin.getLogger().warning("创建购买交接记录失败: " + e.getMessage());
                 plugin.sync(() -> {
-                    plugin.messages().send(player, "shop-funds-not-enough",
-                            "cost", String.valueOf(paid), "have", String.valueOf(balance));
+                    plugin.messages().send(player, "shop-purchase-failed");
                     if (onDone != null) onDone.run();
                 });
                 return;
             }
             boolean success;
             try {
-                success = repo.purchase(l.id(), l.guildId(), buyer, amount, unit, paid, net);
+                success = repo.purchase(l.id(), l.guildId(), buyer, amount, unit, paid, net, opId);
             } catch (Exception e) {
                 plugin.getLogger().warning("购买工会商品失败: " + e.getMessage());
                 success = false;
             }
             final boolean ok = success;
-            plugin.sync(() -> {
-                if (!ok) {
+            if (!ok) {
+                deletePending(opId);
+                plugin.sync(() -> {
                     plugin.messages().send(player, "shop-purchase-failed");
                     if (onDone != null) onDone.run();
-                    return;
-                }
-                l.stock(l.stock() - amount);
-                give(player, preview, amount);
-                // 货款已随库存扣减在同一事务中进入工会点数账户。
-                plugin.guilds().reloadGuild(l.guildId());
-                plugin.broadcastGuildChange(l.guildId());
-                plugin.messages().send(player, "shop-bought",
-                        "item", itemName(preview),
-                        "amount", String.valueOf(amount),
-                        "cost", String.valueOf(paid));
-                if (paid > net) {
-                    plugin.messages().send(player, "shop-bought-tax",
+                });
+                return;
+            }
+            ShopRepository.Pending pending = new ShopRepository.Pending(opId, buyer, l.guildId(), "BUY",
+                    l.id(), itemData, amount, "READY");
+            plugin.sync(() -> {
+                l.stock(Math.max(0, l.stock() - amount));
+                ShopRepository.Pending notDelivered = deliverNow(player, pending);
+                if (notDelivered == null) {
+                    plugin.messages().send(player, "shop-bought",
+                            "item", itemName(preview), "amount", String.valueOf(amount), "cost", String.valueOf(paid));
+                    if (paid > net) plugin.messages().send(player, "shop-bought-tax",
                             "tax", String.valueOf(paid - net), "net", String.valueOf(net));
                 }
-                // 库存已变，通知其他子服刷新显示
+                plugin.guilds().reloadGuild(l.guildId());
+                plugin.broadcastGuildChange(l.guildId());
                 broadcast(l.guildId());
                 if (onDone != null) onDone.run();
             });
+        });
+    }
+
+    private final java.util.Set<UUID> recovering = ConcurrentHashMap.newKeySet();
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        plugin.syncDelayed(() -> recoverPending(event.getPlayer()), 1L);
+    }
+
+    /** 玩家登录/打开商店前继续未完成的发货，避免“已付款但没收到”或上架失败吞物。 */
+    public void recoverPending(Player player) {
+        if (player == null || !player.isOnline() || !recovering.add(player.getUniqueId())) return;
+        UUID uuid = player.getUniqueId();
+        plugin.async(() -> {
+            List<ShopRepository.Pending> list;
+            try { list = repo.loadPending(uuid); }
+            catch (Exception e) {
+                plugin.getLogger().warning("读取商店交接记录失败: " + e.getMessage());
+                recovering.remove(uuid);
+                return;
+            }
+            plugin.sync(() -> {
+                try {
+                    for (ShopRepository.Pending pending : list) {
+                        if (!player.isOnline()) return;
+                        if ("DONE".equals(pending.state()) || "PREPARED".equals(pending.state())) {
+                            deletePending(pending.opId());
+                            continue;
+                        }
+                        ItemStack item = ItemCodec.decode(pending.itemData());
+                        if ("ADD".equals(pending.action())
+                                && ("TO_REMOVE".equals(pending.state()) || "REMOVED".equals(pending.state()))) {
+                            if (item == null || item.getType().isAir()) {
+                                deletePending(pending.opId());
+                            } else if ("REMOVED".equals(pending.state())) {
+                                // 已持久化“背包已扣除但列表未写入”，必须退回。
+                                give(player, item, pending.amount());
+                                deletePending(pending.opId());
+                            } else if (countInInventory(player.getInventory(), item) >= pending.amount()) {
+                                // 交接记录写入后还没真正从背包扣除。
+                                deletePending(pending.opId());
+                            } else {
+                                give(player, item, pending.amount());
+                                deletePending(pending.opId());
+                            }
+                            continue;
+                        }
+                        if ("READY".equals(pending.state())) {
+                            if (item == null || item.getType().isAir()) {
+                                plugin.getLogger().severe("商店交接物品损坏，保留待人工处理: " + pending.opId());
+                                continue;
+                            }
+                            give(player, item, pending.amount());
+                            deletePending(pending.opId());
+                        } else {
+                            plugin.getLogger().warning("未知商店交接状态: " + pending.state() + " / " + pending.opId());
+                        }
+                    }
+                } finally {
+                    recovering.remove(uuid);
+                }
+            });
+        });
+    }
+
+    /** 在线时立即发货；离线则保留 READY 记录，登录后恢复。 */
+    private ShopRepository.Pending deliverNow(Player player, ShopRepository.Pending pending) {
+        if (player == null || !player.isOnline()) return pending;
+        ItemStack item = ItemCodec.decode(pending.itemData());
+        if (item == null || item.getType().isAir()) {
+            plugin.getLogger().severe("商店发货物品损坏，保留待人工处理: " + pending.opId());
+            return pending;
+        }
+        give(player, item, pending.amount());
+        deletePending(pending.opId());
+        return null;
+    }
+
+    private void deletePending(String opId) {
+        plugin.async(() -> {
+            try { repo.deletePending(opId); }
+            catch (Exception e) { plugin.getLogger().warning("清理商店交接记录失败: " + e.getMessage()); }
         });
     }
 

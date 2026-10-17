@@ -280,6 +280,7 @@ public final class TitleService implements GuildModule {
                 plugin.getLogger().warning("保存头衔装备失败: " + e.getMessage());
             }
         });
+        broadcastCrossServer(g.id());
         return null;
     }
 
@@ -296,6 +297,7 @@ public final class TitleService implements GuildModule {
                 plugin.getLogger().warning("卸下头衔失败: " + e.getMessage());
             }
         });
+        if (guildId != null) broadcastCrossServer(guildId);
     }
 
     /** 成员离会 / 被踢：卸下头衔。 */
@@ -334,7 +336,7 @@ public final class TitleService implements GuildModule {
     }
 
     private void broadcastCrossServer(String guildId) {
-        plugin.async(() -> plugin.bus().publish("GUILD_TITLES",
-                Map.of("guild", guildId, "server", plugin.serverId())));
+        if (guildId == null || plugin.bus() == null) return;
+        plugin.publishAsync("GUILD_TITLES", Map.of("guild", guildId, "server", plugin.serverId()));
     }
 }
