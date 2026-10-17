@@ -5,22 +5,27 @@ import com.liu.liuguild.model.Guild;
 import com.liu.liuguild.model.GuildWar;
 import org.bukkit.Bukkit;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * CustomNameplates 软依赖：注册 &#37;liuguild_war_guild&#37; 占位符，供铭牌/无限标签在头顶显示工会与阵营。
+ * CustomNameplates 软依赖：注册 %liuguild_war_guild% 占位符，供铭牌/无限标签在头顶显示工会名。
  *
  * <p>全部走反射，未安装 CustomNameplates 时不影响启动；不直接引用其类，
  * 避免软依赖缺失导致 NoClassDefFoundError。</p>
  */
 public final class CustomNameplatesHook {
 
+    private static final int MAX_ATTEMPTS = 20;
+
     private final LiuGuild plugin;
     private Object placeholderManager;
     private Method unregister;
     private boolean registered;
+    private boolean stopped;
+    private int attempts;
 
     public CustomNameplatesHook(LiuGuild plugin) {
         this.plugin = plugin;
@@ -30,26 +35,13 @@ public final class CustomNameplatesHook {
         if (Bukkit.getPluginManager().getPlugin("CustomNameplates") == null) {
             return;
         }
-        try {
-            Class<?> apiClass = Class.forName("net.momirealms.customnameplates.api.CustomNameplatesAPI");
-            Object api = apiClass.getMethod("getInstance").invoke(null);
-            Object cnPlugin = apiClass.getMethod("plugin").invoke(api);
-            placeholderManager = cnPlugin.getClass().getMethod("getPlaceholderManager").invoke(cnPlugin);
-            Class<?> managerInterface = Class.forName(
-                    "net.momirealms.customnameplates.api.placeholder.PlaceholderManager");
-            Method register = managerInterface.getMethod(
-                    "registerPlayerPlaceholder", String.class, Function.class);
-            register.invoke(placeholderManager, "liuguild_war_guild",
-                    (Function<Object, String>) this::placeholder);
-            unregister = managerInterface.getMethod("unregisterPlaceholder", String.class);
-            registered = true;
-            plugin.getLogger().info("CustomNameplates 已接入：%liuguild_war_guild%");
-        } catch (Throwable t) {
-            plugin.getLogger().warning("CustomNameplates 接入失败（不影响启动）: " + t.getMessage());
-        }
+        stopped = false;
+        attempts = 0;
+        attempt();
     }
 
     public void stop() {
+        stopped = true;
         if (!registered || placeholderManager == null || unregister == null) {
             return;
         }
@@ -62,6 +54,58 @@ public final class CustomNameplatesHook {
 
     public boolean available() {
         return registered;
+    }
+
+    /**
+     * CustomNameplates 的 API 可能在其 onEnable 的下一 tick 才初始化；
+     * 首次注册失败时延迟重试，避免启动顺序导致永久失效。
+     */
+    private void attempt() {
+        if (stopped || registered) {
+            return;
+        }
+        attempts++;
+        try {
+            register();
+        } catch (Throwable raw) {
+            Throwable error = raw instanceof InvocationTargetException && raw.getCause() != null
+                    ? raw.getCause() : raw;
+            if (attempts >= MAX_ATTEMPTS) {
+                plugin.getLogger().warning("CustomNameplates 接入失败（不影响启动）: "
+                        + error.getClass().getSimpleName()
+                        + (error.getMessage() == null ? "" : " - " + error.getMessage()));
+            } else {
+                long delay = Math.min(100L, 20L * attempts);
+                if (!stopped) {
+                    Bukkit.getScheduler().runTaskLater(plugin, this::attempt, delay);
+                }
+            }
+        }
+    }
+
+    private void register() throws Exception {
+        Class<?> apiClass = Class.forName("net.momirealms.customnameplates.api.CustomNameplatesAPI");
+        Object api = apiClass.getMethod("getInstance").invoke(null);
+        if (api == null) {
+            throw new IllegalStateException("CustomNameplatesAPI 尚未初始化");
+        }
+        Object cnPlugin = apiClass.getMethod("plugin").invoke(api);
+        if (cnPlugin == null) {
+            throw new IllegalStateException("CustomNameplates plugin() 返回 null");
+        }
+        placeholderManager = cnPlugin.getClass().getMethod("getPlaceholderManager").invoke(cnPlugin);
+        if (placeholderManager == null) {
+            throw new IllegalStateException("PlaceholderManager 尚未初始化");
+        }
+        Class<?> managerInterface = Class.forName(
+                "net.momirealms.customnameplates.api.placeholder.PlaceholderManager");
+        Method register = managerInterface.getMethod(
+                "registerPlayerPlaceholder", String.class, int.class, Function.class);
+        register.invoke(placeholderManager, "liuguild_war_guild", 20,
+                (Function<Object, String>) this::placeholder);
+        unregister = managerInterface.getMethod("unregisterPlaceholder", String.class);
+        registered = true;
+        plugin.getLogger().info("CustomNameplates 已接入：%liuguild_war_guild%");
     }
 
     /** 由 CustomNameplates 的占位符线程调用；只读内存数据，不操作 Bukkit 实体。 */

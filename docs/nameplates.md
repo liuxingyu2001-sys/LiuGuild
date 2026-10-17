@@ -27,28 +27,38 @@ war:
 
 ## 2. CustomNameplates 配置
 
-编辑 CustomNameplates 的 `configs/nameplate.yml`，让无限标签使用 LiuGuild 注册的占位符：
+**不要修改现有的 `tag_normal` / `tag_text_part`**。在 CustomNameplates 的 `configs/nameplate.yml` 的 `unlimited` 下新增一个只对工会战生效的标签：
 
 ```yaml
-always-show: true
-
 unlimited:
-  tag_normal:
-    text: '%liuguild_war_guild%'
-  tag_image_part:
-    text: '%liuguild_war_guild%'
-  tag_text_part:
-    text: '%liuguild_war_guild%'
+  liuguild_war:
+    text: "%liuguild_war_guild%"
+    translation: "0,0.4,0"
+    viewer-conditions: {}
+    owner-conditions:
+      condition_liuguild_war:
+        type: "!equals"
+        refresh-interval: 20
+        value:
+          value1: "%liuguild_war_guild%"
+          value2: ""
+      potion-effect: "INVISIBILITY<0"
+    affected-by-crouching: true
+    affected-by-scale-attribute: true
+    affected-by-spectator: true
+    line-width: 1024
+    background-color: "0,0,0,0"
+    is-see-through: false
 ```
 
-说明：
+关键点：
 
-- `always-show: true` 保证没有装备 nameplate 图片的玩家也能显示文字标签
-- `tag_normal` 用于没有 nameplate 图片的玩家
-- `tag_text_part` / `tag_image_part` 用于已有 nameplate 图片的玩家
-- 工会战外占位符返回空，因此不会给全服玩家增加常驻文本
+- `condition_liuguild_war` 要求占位符**非空**
+- 工会战外 `%liuguild_war_guild%` 返回空，条件不成立，标签不会显示
+- 不再使用 `always-show: true` 强制全服显示
+- 不要改掉原有的 `tag_normal` / `tag_text_part` / `tag_image_part`，否则会影响原有头顶标签
 
-改完 CustomNameplates 配置后执行其重载命令，或重启服务器。
+改完执行 CustomNameplates 重载，或重启服务器。
 
 ## 3. 验证
 
