@@ -46,7 +46,7 @@ public final class CustomNameplatesHook {
             return;
         }
         try {
-            unregister.invoke(placeholderManager, "liuguild_war_guild");
+            unregister.invoke(placeholderManager, "%liuguild_war_guild%");
         } catch (Throwable ignored) {
         }
         registered = false;
@@ -101,7 +101,7 @@ public final class CustomNameplatesHook {
                 "net.momirealms.customnameplates.api.placeholder.PlaceholderManager");
         Method register = managerInterface.getMethod(
                 "registerPlayerPlaceholder", String.class, int.class, Function.class);
-        register.invoke(placeholderManager, "liuguild_war_guild", 20,
+        register.invoke(placeholderManager, "%liuguild_war_guild%", 20,
                 (Function<Object, String>) this::placeholder);
         unregister = managerInterface.getMethod("unregisterPlaceholder", String.class);
         registered = true;
