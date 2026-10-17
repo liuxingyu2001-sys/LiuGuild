@@ -2,6 +2,12 @@ package com.liu.liuguild.config;
 
 import org.bukkit.configuration.file.FileConfiguration;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
 /** 主配置模块（config.yml：settings / hooks / channels；跨服段只来自 cross-server.yml，server-id 来自每服 server.yml）。 */
 public final class MainSettings {
 
@@ -63,13 +69,24 @@ public final class MainSettings {
     public String qqBotAppId = "";
     public String qqBotClientSecret = "";
     public boolean qqBotSandbox = false;
-    /** 订阅事件：默认 33554432（群聊@/C2C）；需要频道@消息再加 512。 */
+    /** 自定义网关；留空自动请求 /gateway，失败回退内置地址。 */
+    public String qqBotGateway = "";
+    /** 由 intents 名称 + intents-bits 计算出的位掩码。 */
     public int qqBotIntents = 33554432;
-    /** 主动推送目标：channel / group / c2c；留空只响应@消息。 */
-    public String qqBotPushType = "";
-    public String qqBotPushId = "";
-    public String qqBotCommandPrefix = "!";
     public int qqBotReconnectSeconds = 5;
+    public int qqBotReconnectMaxSeconds = 60;
+    public int qqBotTimeoutSeconds = 15;
+    public boolean qqBotReceiveEnabled = true;
+    public Set<String> qqBotReceiveChannels = Set.of();
+    public boolean qqBotLogTargets = true;
+    public int qqBotReceiveMaxLength = 300;
+    public boolean qqBotSendEnabled = false;
+    /** group:openid / c2c:openid / channel:id / direct:id；无前缀按 group。 */
+    public List<String> qqBotSendTargets = List.of();
+    public int qqBotSendIntervalMs = 1000;
+    public int qqBotSendMaxLength = 2000;
+    public boolean qqBotPassiveReply = true;
+    public String qqBotCommandPrefix = "!";
 
     /** LiuChat 工会频道消息格式（占位符由 LiuChat 提供）。 */
     public String guildChannelFormat = "&a[${channel_name}] &f${player}&7: ${message}";
@@ -125,17 +142,98 @@ public final class MainSettings {
             s.webhookApplication = c.getBoolean("webhook.events.application", true);
         }
         if (c.isConfigurationSection("qqbot")) {
-            s.qqBotEnabled = c.getBoolean("qqbot.enabled", false);
+            s.qqBotEnabled = c.getBoolean("qqbot.enable", c.getBoolean("qqbot.enabled", false));
             s.qqBotAppId = c.getString("qqbot.app-id", "");
-            s.qqBotClientSecret = c.getString("qqbot.client-secret", "");
+            // 新配置用 app-secret；兼容旧 server.yml 的 client-secret。
+            String secret = c.getString("qqbot.app-secret", "");
+            if (secret == null || secret.isBlank()) {
+                secret = c.getString("qqbot.client-secret", "");
+            }
+            s.qqBotClientSecret = secret == null ? "" : secret;
             s.qqBotSandbox = c.getBoolean("qqbot.sandbox", false);
-            s.qqBotIntents = Math.max(1, c.getInt("qqbot.intents", 33554432));
-            s.qqBotPushType = c.getString("qqbot.push.type", "");
-            s.qqBotPushId = c.getString("qqbot.push.id", "");
+            s.qqBotGateway = c.getString("qqbot.connection.gateway", "");
+            s.qqBotReconnectSeconds = Math.max(1, Math.min(3600,
+                    c.getInt("qqbot.connection.reconnect-seconds", 5)));
+            s.qqBotReconnectMaxSeconds = Math.max(s.qqBotReconnectSeconds, Math.min(3600,
+                    c.getInt("qqbot.connection.reconnect-max-seconds", 60)));
+            s.qqBotTimeoutSeconds = Math.max(3, Math.min(120,
+                    c.getInt("qqbot.connection.timeout-seconds", 15)));
+
+            List<String> intentNames = c.getStringList("qqbot.intents");
+            int bits = intentNames.isEmpty() ? numericIntent(c.get("qqbot.intents")) : intentBits(intentNames);
+            bits |= Math.max(0, c.getInt("qqbot.intents-bits", 0));
+            s.qqBotIntents = bits == 0 ? 33554432 : bits;
+
+            s.qqBotReceiveEnabled = c.getBoolean("qqbot.receive.enable", true);
+            s.qqBotReceiveChannels = Set.copyOf(readStrings(c, "qqbot.receive.channels"));
+            s.qqBotLogTargets = c.getBoolean("qqbot.receive.log-targets", true);
+            s.qqBotReceiveMaxLength = Math.max(1, Math.min(4000,
+                    c.getInt("qqbot.receive.max-length", 300)));
             s.qqBotCommandPrefix = c.getString("qqbot.command-prefix", "!");
-            s.qqBotReconnectSeconds = Math.max(1, Math.min(60,
-                    c.getInt("qqbot.reconnect-seconds", 5)));
+
+            boolean newSend = c.isConfigurationSection("qqbot.send");
+            s.qqBotSendEnabled = c.getBoolean("qqbot.send.enable", false);
+            List<String> targets = new ArrayList<>(readStrings(c, "qqbot.send.targets"));
+            if (targets.isEmpty()) {
+                // 兼容旧版 push.type/push.id。
+                String type = c.getString("qqbot.push.type", "");
+                String id = c.getString("qqbot.push.id", "");
+                if (type != null && !type.isBlank() && id != null && !id.isBlank()) {
+                    targets.add(type.toLowerCase(Locale.ROOT) + ":" + id);
+                    if (!newSend) {
+                        s.qqBotSendEnabled = true;
+                    }
+                }
+            }
+            s.qqBotSendTargets = List.copyOf(targets);
+            s.qqBotSendIntervalMs = Math.max(0, Math.min(60000,
+                    c.getInt("qqbot.send.interval-ms", 1000)));
+            s.qqBotSendMaxLength = Math.max(1, Math.min(4000,
+                    c.getInt("qqbot.send.max-length", 2000)));
+            s.qqBotPassiveReply = c.getBoolean("qqbot.send.passive-reply", true);
         }
+    }
+
+    private static List<String> readStrings(FileConfiguration c, String path) {
+        List<String> out = new ArrayList<>();
+        for (String raw : c.getStringList(path)) {
+            if (raw != null && !raw.isBlank()) {
+                out.add(raw.strip());
+            }
+        }
+        return out;
+    }
+
+    private static int numericIntent(Object raw) {
+        if (raw instanceof Number n) {
+            return n.intValue();
+        }
+        if (raw instanceof String str) {
+            try {
+                return Integer.parseInt(str.strip());
+            } catch (NumberFormatException ignored) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    /** 与 QQ 官方文档一致：命名 intent 转位掩码；未知名称忽略。 */
+    static int intentBits(List<String> names) {
+        int bits = 0;
+        for (String raw : names) {
+            String name = raw == null ? "" : raw.strip().toLowerCase(Locale.ROOT);
+            switch (name) {
+                case "group", "c2c" -> bits |= 1 << 25;
+                case "guild" -> bits |= 1 << 30;
+                case "guild-private" -> bits |= 1 << 9;
+                case "direct" -> bits |= 1 << 12;
+                case "all" -> bits |= (1 << 25) | (1 << 30) | (1 << 12);
+                default -> {
+                }
+            }
+        }
+        return bits;
     }
 
     /** 读取跨服段（唯一来源：cross-server.yml）。 */

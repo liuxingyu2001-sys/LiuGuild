@@ -1100,14 +1100,20 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         if (s.main.qqBotEnabled) {
             if (s.main.qqBotAppId == null || s.main.qqBotAppId.isBlank()
                     || s.main.qqBotClientSecret == null || s.main.qqBotClientSecret.isBlank()) {
-                bad.add("hooks.qqbot.enabled=true 但 app-id / client-secret 未填写");
+                bad.add("qqbot.enable=true 但 app-id / app-secret 未填写");
             }
-            String pushType = s.main.qqBotPushType == null ? "" : s.main.qqBotPushType.toLowerCase(Locale.ROOT);
-            if (!pushType.isBlank() && !java.util.Set.of("channel", "group", "c2c").contains(pushType)) {
-                bad.add("hooks.qqbot.push.type 只能是 channel/group/c2c");
+            if (s.main.qqBotGateway != null && !s.main.qqBotGateway.isBlank()
+                    && !s.main.qqBotGateway.startsWith("ws://") && !s.main.qqBotGateway.startsWith("wss://")) {
+                bad.add("qqbot.connection.gateway 必须是 ws:// 或 wss:// 地址");
             }
-            if (!pushType.isBlank() && (s.main.qqBotPushId == null || s.main.qqBotPushId.isBlank())) {
-                bad.add("hooks.qqbot.push.type 已填写但 push.id 为空");
+            if (s.main.qqBotSendEnabled && s.main.qqBotSendTargets.isEmpty()) {
+                warn.add("qqbot.send.enable=true 但 send.targets 为空，不会主动推送");
+            }
+            for (String target : s.main.qqBotSendTargets) {
+                String prefix = target.contains(":") ? target.substring(0, target.indexOf(':')).toLowerCase(Locale.ROOT) : "group";
+                if (!java.util.Set.of("group", "c2c", "channel", "direct").contains(prefix)) {
+                    bad.add("qqbot.send.targets 含未知类型：" + target + "（可用 group:/c2c:/channel:/direct:）");
+                }
             }
         }
         if (s.main.webhookEnabled) {

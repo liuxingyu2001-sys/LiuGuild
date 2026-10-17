@@ -33,6 +33,11 @@ public final class ServerTransfer implements PluginMessageListener {
     private volatile String proxyName;
     /** 代理登记的全部子服名（小写，GetServers 返回）；用于校验承办服是否存在。 */
     private volatile List<String> proxyServers = List.of();
+    /** GetServers 的刷新节流：列表会随代理增删子服变化，不能只在首次为空时请求。 */
+    private static final long SERVER_LIST_REFRESH_MS = 5L * 60L * 1000L;
+    private static final long SERVER_LIST_REQUEST_COOLDOWN_MS = 30L * 1000L;
+    private volatile long serversLoadedAt;
+    private volatile long serversRequestedAt;
     /** 探测到本服代理名后的回调（用于补领早于探测到达的工会战）。 */
     private volatile java.util.function.Consumer<String> onDetected;
 
@@ -66,10 +71,14 @@ public final class ServerTransfer implements PluginMessageListener {
      * 与本服对应起来）。
      */
     public void detect(Player player) {
-        if (player == null || !registered || proxyName != null) {
+        if (player == null || !registered) {
             return;
         }
-        send(player, "GetServer");
+        if (proxyName == null) {
+            send(player, "GetServer");
+        }
+        // 列表可能因代理新增/重载子服而变化：有玩家进服时按节流刷新，而不是只查一次。
+        requestServers(player);
     }
 
     /** 本服代理登记名；未探测到返回 null。 */
@@ -82,7 +91,7 @@ public final class ServerTransfer implements PluginMessageListener {
         this.onDetected = callback;
     }
 
-    /** 代理登记的子服名（小写）；未探测到返回空列表。 */
+    /** 代理登记的子服名（小写）；未探测到或尚未刷新到返回旧值。 */
     public List<String> proxyServers() {
         return proxyServers;
     }
@@ -174,6 +183,7 @@ public final class ServerTransfer implements PluginMessageListener {
                     }
                     if (!list.isEmpty()) {
                         proxyServers = list;
+                        serversLoadedAt = System.currentTimeMillis();
                     }
                 }
                 default -> {
@@ -185,9 +195,17 @@ public final class ServerTransfer implements PluginMessageListener {
     }
 
     private void requestServers(Player player) {
-        if (!proxyServers.isEmpty()) {
+        long now = System.currentTimeMillis();
+        if (!shouldRequestServers(proxyServers.isEmpty(), serversLoadedAt, serversRequestedAt, now)) {
             return;
         }
+        serversRequestedAt = now;
         send(player, "GetServers");
+    }
+
+    /** 纯函数：列表为空或过期，且距上次请求已超过冷却时间。 */
+    static boolean shouldRequestServers(boolean listEmpty, long loadedAt, long requestedAt, long now) {
+        boolean stale = listEmpty || now - loadedAt >= SERVER_LIST_REFRESH_MS;
+        return stale && now - requestedAt >= SERVER_LIST_REQUEST_COOLDOWN_MS;
     }
 }

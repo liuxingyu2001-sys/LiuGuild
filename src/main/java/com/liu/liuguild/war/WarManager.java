@@ -179,6 +179,8 @@ public final class WarManager implements GuildModule {
     private final Map<String, Long> hostBackoff = new ConcurrentHashMap<>();
     /** 承办服最近被选中的时间（毫秒），用于在候选池中做最久未用轮换。 */
     private final Map<String, Long> hostLastUsed = new ConcurrentHashMap<>();
+    /** 承办服不在代理列表时只提示一次，避免每场重复刷屏。 */
+    private final Set<String> unknownHostWarned = ConcurrentHashMap.newKeySet();
     /** 刚完成跨服返程的玩家：短时间内跳过托管恢复里的二次返程，避免重复切服。 */
     private final java.util.Set<UUID> returning = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /** 未发出的终态广播（Redis 不可用时暂存，恢复后补发）。 */
@@ -1343,9 +1345,14 @@ public final class WarManager implements GuildModule {
         WarMode mode = mode(modeKey);
         ServerTransfer transfer = plugin.bus() == null ? null : plugin.bus().transfer();
         if (transfer != null && !transfer.knowsServer(host) && !isHostServer(host)) {
-            plugin.getLogger().warning("工会战承办服 \"" + host
-                    + "\" 不在代理登记的子服列表中，跨服玩家将无法传送过去；"
-                    + "请核对 arena.yml 的 server 与代理 [servers] 名称。");
+            String key = host.toLowerCase(java.util.Locale.ROOT);
+            if (unknownHostWarned.add(key)) {
+                plugin.getLogger().warning("工会战承办服 \"" + host
+                        + "\" 不在代理登记的子服列表中；本场仍会尝试传送，实际成功可忽略。"
+                        + "如持续失败请核对 arena.yml 的 server 与代理 [servers] 名称（仅提示一次）。");
+            }
+        } else if (transfer != null) {
+            unknownHostWarned.remove(host.toLowerCase(java.util.Locale.ROOT));
         }
         GuildWar war = new GuildWar(UUID.randomUUID().toString(), ga.id(), gb.id());
         war.mode(mode.key);

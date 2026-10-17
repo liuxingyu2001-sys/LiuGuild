@@ -35,13 +35,37 @@ webhook:
     application: true
 
 qqbot:
-  enabled: false
+  enable: false
   app-id: ""
-  client-secret: ""
+  app-secret: ""
   sandbox: false
-  intents: 33554432
-  push:
-    type: ""
-    id: ""
+  connection:
+    # 留空自动请求 /gateway；正式/沙箱按 sandbox 选择
+    gateway: ""
+    reconnect-seconds: 5
+    reconnect-max-seconds: 60
+    timeout-seconds: 15
+  # 命名 intents：group / c2c / guild / guild-private / direct / all
+  intents: [group, c2c]
+  # 额外位掩码，一般留 0
+  intents-bits: 0
   command-prefix: "!"
-  reconnect-seconds: 5
+  receive:
+    enable: true
+    # 只接收这些会话；留空接收全部。填群 openid / 用户 openid / 频道 ID
+    channels: []
+    # 首次收到某会话时在控制台打印 target，方便复制到 channels
+    log-targets: true
+    # 单条进游戏消息最大长度
+    max-length: 300
+  send:
+    # 主动推送总开关；指令回复不受此开关影响
+    enable: false
+    # 可多条：group:<群openid> / c2c:<用户openid> / channel:<频道ID> / direct:<私信频道ID>
+    targets: []
+    # 两条主动消息最小间隔（毫秒）
+    interval-ms: 1000
+    # 单条发到 QQ 的最大长度
+    max-length: 2000
+    # 回复@消息时是否带 msg_id（被动回复）
+    passive-reply: true

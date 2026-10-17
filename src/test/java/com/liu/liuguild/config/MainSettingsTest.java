@@ -53,32 +53,60 @@ class MainSettingsTest {
         assertEquals(5, defaults.qqBotReconnectSeconds);
 
         YamlConfiguration c = new YamlConfiguration();
-        c.set("qqbot.enabled", true);
+        c.set("qqbot.enable", true);
         c.set("qqbot.app-id", "123");
-        c.set("qqbot.client-secret", "secret");
+        c.set("qqbot.app-secret", "secret");
         c.set("qqbot.sandbox", true);
-        c.set("qqbot.intents", 33554944);
-        c.set("qqbot.push.type", "group");
-        c.set("qqbot.push.id", "g1");
+        c.set("qqbot.connection.gateway", "wss://example.test/ws");
+        c.set("qqbot.connection.reconnect-seconds", 2);
+        c.set("qqbot.connection.reconnect-max-seconds", 40);
+        c.set("qqbot.connection.timeout-seconds", 20);
+        c.set("qqbot.intents", java.util.List.of("group", "guild"));
+        c.set("qqbot.intents-bits", 0);
+        c.set("qqbot.receive.enable", false);
+        c.set("qqbot.receive.channels", java.util.List.of("g1"));
+        c.set("qqbot.receive.log-targets", false);
+        c.set("qqbot.send.enable", true);
+        c.set("qqbot.send.targets", java.util.List.of("group:g1", "channel:c1"));
+        c.set("qqbot.send.interval-ms", 1500);
+        c.set("qqbot.send.max-length", 1800);
+        c.set("qqbot.send.passive-reply", false);
         c.set("qqbot.command-prefix", "!");
-        c.set("qqbot.reconnect-seconds", 99);
         MainSettings s = MainSettings.parse(c);
         MainSettings.applyServerHooks(s, c);
         assertTrue(s.qqBotEnabled);
         assertEquals("123", s.qqBotAppId);
-        assertEquals("group", s.qqBotPushType);
-        assertEquals("g1", s.qqBotPushId);
-        assertEquals(60, s.qqBotReconnectSeconds);
+        assertEquals("secret", s.qqBotClientSecret);
+        assertEquals((1 << 25) | (1 << 30), s.qqBotIntents);
+        assertEquals(2, s.qqBotReconnectSeconds);
+        assertEquals(40, s.qqBotReconnectMaxSeconds);
+        assertEquals(20, s.qqBotTimeoutSeconds);
+        assertFalse(s.qqBotReceiveEnabled);
+        assertEquals(java.util.Set.of("g1"), s.qqBotReceiveChannels);
+        assertFalse(s.qqBotLogTargets);
+        assertTrue(s.qqBotSendEnabled);
+        assertEquals(java.util.List.of("group:g1", "channel:c1"), s.qqBotSendTargets);
+        assertEquals(1500, s.qqBotSendIntervalMs);
+        assertEquals(1800, s.qqBotSendMaxLength);
+        assertFalse(s.qqBotPassiveReply);
+    }
 
-        YamlConfiguration webhook = new YamlConfiguration();
-        webhook.set("webhook.enabled", true);
-        webhook.set("webhook.url", "https://example.test/hook");
-        webhook.set("webhook.events.guild-create", true);
-        MainSettings w = MainSettings.parse(new YamlConfiguration());
-        MainSettings.applyServerHooks(w, webhook);
-        assertTrue(w.webhookEnabled);
-        assertEquals("https://example.test/hook", w.webhookUrl);
-        assertTrue(w.webhookGuildCreate);
+    @Test
+    void qqBotKeepsLegacyCredentialAndPushKeys() {
+        YamlConfiguration legacy = new YamlConfiguration();
+        legacy.set("qqbot.enabled", true);
+        legacy.set("qqbot.app-id", "123");
+        legacy.set("qqbot.client-secret", "secret");
+        legacy.set("qqbot.intents", 33554432);
+        legacy.set("qqbot.push.type", "group");
+        legacy.set("qqbot.push.id", "g1");
+        MainSettings s = MainSettings.parse(new YamlConfiguration());
+        MainSettings.applyServerHooks(s, legacy);
+        assertTrue(s.qqBotEnabled);
+        assertEquals("secret", s.qqBotClientSecret);
+        assertEquals(33554432, s.qqBotIntents);
+        assertTrue(s.qqBotSendEnabled);
+        assertEquals(java.util.List.of("group:g1"), s.qqBotSendTargets);
     }
 
     @Test

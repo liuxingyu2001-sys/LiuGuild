@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -57,6 +58,10 @@ public final class QqBotHook {
     private final AtomicBoolean reconnectScheduled = new AtomicBoolean();
     private final AtomicLong lastSeq = new AtomicLong();
     private final AtomicInteger msgSeq = new AtomicInteger(1);
+    private final AtomicInteger reconnectAttempts = new AtomicInteger();
+    private final Set<String> loggedTargets = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Object pushLock = new Object();
+    private long nextPushAt;
 
     private volatile WebSocket socket;
     private volatile String accessToken;
@@ -102,19 +107,66 @@ public final class QqBotHook {
         scheduler.shutdownNow();
     }
 
-    /** 主动推送文本到配置的 channel/group/c2c；未配置目标则静默。 */
+    /** 主动推送文本到 send.targets；未启用/未配置目标则静默。 */
     public void push(String content) {
-        if (!enabled() || content == null || content.isBlank()) {
-            return;
-        }
         var s = plugin.settings().main;
-        String type = s.qqBotPushType == null ? "" : s.qqBotPushType.toLowerCase(Locale.ROOT);
-        if (type.isBlank() || s.qqBotPushId == null || s.qqBotPushId.isBlank()) {
+        if (!enabled() || !s.qqBotSendEnabled || content == null || content.isBlank()) {
             return;
         }
-        String text = content.length() > 1800 ? content.substring(0, 1800) : content;
+        String text = truncate(content, s.qqBotSendMaxLength);
         String prefixed = "[" + plugin.serverId() + "] " + text;
-        ensureToken(() -> sendApi(new Context(type, s.qqBotPushId, null), prefixed));
+        for (String raw : s.qqBotSendTargets) {
+            Context ctx = parseTarget(raw);
+            if (ctx != null) {
+                enqueuePush(ctx, prefixed);
+            }
+        }
+    }
+
+    /** group:openid / c2c:openid / channel:id / direct:id；无前缀按 group。 */
+    private static Context parseTarget(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.strip();
+        int colon = value.indexOf(':');
+        String type = colon > 0 ? value.substring(0, colon).toLowerCase(Locale.ROOT) : "group";
+        String id = colon > 0 ? value.substring(colon + 1).strip() : value;
+        if (id.isBlank()) {
+            return null;
+        }
+        type = switch (type) {
+            case "group", "群聊" -> "group";
+            case "c2c", "私聊" -> "c2c";
+            case "channel", "频道" -> "channel";
+            case "direct", "私信" -> "channel";
+            default -> null;
+        };
+        return type == null ? null : new Context(type, id, null);
+    }
+
+    /** 事件推送按 send.interval-ms 排队，避免 QQ 频率限制；指令回复不排队。 */
+    private void enqueuePush(Context ctx, String text) {
+        if (stopped.get()) {
+            return;
+        }
+        long wait;
+        long interval = Math.max(0, plugin.settings().main.qqBotSendIntervalMs);
+        synchronized (pushLock) {
+            long now = System.currentTimeMillis();
+            long at = Math.max(now, nextPushAt);
+            wait = at - now;
+            nextPushAt = at + interval;
+        }
+        Runnable task = () -> ensureToken(() -> sendApi(ctx, text));
+        if (wait <= 0) {
+            task.run();
+            return;
+        }
+        try {
+            scheduler.schedule(task, wait, TimeUnit.MILLISECONDS);
+        } catch (Throwable ignored) {
+        }
     }
 
     private void ensureToken(Runnable then) {
@@ -171,12 +223,19 @@ public final class QqBotHook {
         if (stopped.get() || !connecting.compareAndSet(false, true)) {
             return;
         }
-        String base = plugin.settings().main.qqBotSandbox
-                ? "wss://sandbox.api.sgroup.qq.com/websocket"
-                : "wss://api.sgroup.qq.com/websocket";
+        String gateway;
+        try {
+            gateway = gatewayUrl();
+        } catch (Throwable t) {
+            connecting.set(false);
+            plugin.getLogger().warning("QQ 机器人网关地址无效: " + t.getMessage());
+            scheduleReconnect();
+            return;
+        }
+        int timeout = Math.max(3, plugin.settings().main.qqBotTimeoutSeconds);
         http.newWebSocketBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .buildAsync(URI.create(base), new Listener())
+                .connectTimeout(Duration.ofSeconds(timeout))
+                .buildAsync(URI.create(gateway), new Listener())
                 .whenComplete((ws, err) -> {
                     connecting.set(false);
                     if (err != null || ws == null) {
@@ -189,18 +248,63 @@ public final class QqBotHook {
                 });
     }
 
+    /** 自定义 gateway 优先；否则请求 /gateway，失败回退官方内置地址。 */
+    private String gatewayUrl() {
+        var s = plugin.settings().main;
+        String configured = s.qqBotGateway == null ? "" : s.qqBotGateway.strip();
+        if (!configured.isEmpty()) {
+            if (!configured.startsWith("ws://") && !configured.startsWith("wss://")) {
+                throw new IllegalArgumentException("connection.gateway 必须是 ws:// 或 wss://");
+            }
+            return configured;
+        }
+        String base = apiBase();
+        try {
+            HttpRequest req = HttpRequest.newBuilder(URI.create(base + "/gateway"))
+                    .timeout(Duration.ofSeconds(Math.max(3, s.qqBotTimeoutSeconds)))
+                    .header("Authorization", "QQBot " + accessToken)
+                    .header("X-Union-Appid", s.qqBotAppId)
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
+                JsonObject json = JsonParser.parseString(resp.body()).getAsJsonObject();
+                String url = string(json, "url");
+                if (url != null && (url.startsWith("wss://") || url.startsWith("ws://"))) {
+                    return url;
+                }
+            }
+            plugin.getLogger().warning("QQ 机器人获取 /gateway 失败（HTTP " + resp.statusCode() + "），使用内置地址");
+        } catch (Throwable t) {
+            plugin.getLogger().warning("QQ 机器人获取 /gateway 异常（"
+                    + t.getClass().getSimpleName() + "），使用内置地址");
+        }
+        return s.qqBotSandbox
+                ? "wss://sandbox.api.sgroup.qq.com/websocket"
+                : "wss://api.sgroup.qq.com/websocket";
+    }
+
+    private String apiBase() {
+        return plugin.settings().main.qqBotSandbox
+                ? "https://sandbox.api.sgroup.qq.com"
+                : "https://api.sgroup.qq.com";
+    }
+
     private void scheduleReconnect() {
         if (stopped.get() || !reconnectScheduled.compareAndSet(false, true)) {
             return;
         }
-        long delay = Math.max(1, plugin.settings().main.qqBotReconnectSeconds);
+        int attempt = reconnectAttempts.getAndIncrement();
+        long base = Math.max(1, plugin.settings().main.qqBotReconnectSeconds);
+        long max = Math.max(base, plugin.settings().main.qqBotReconnectMaxSeconds);
+        long delay = Math.min(max, base * (1L << Math.min(6, attempt)));
         scheduler.schedule(() -> {
             reconnectScheduled.set(false);
             if (stopped.get()) {
                 return;
             }
             ensureToken(this::connect);
-        }, delay, TimeUnit.SECONDS);
+        }, Math.max(1, delay), TimeUnit.SECONDS);
     }
 
     private void cancelHeartbeat() {
@@ -292,6 +396,7 @@ public final class QqBotHook {
                 sessionId = d.get("session_id").getAsString();
             }
             ready = true;
+            reconnectAttempts.set(0);
             plugin.getLogger().info("QQ 机器人已连接（WebSocket READY）");
             return;
         }
@@ -329,10 +434,22 @@ public final class QqBotHook {
     }
 
     private void handleMessage(Context ctx, JsonObject d) {
+        var s = plugin.settings().main;
+        if (!s.qqBotReceiveEnabled) {
+            return;
+        }
+        if (!s.qqBotReceiveChannels.isEmpty() && !s.qqBotReceiveChannels.contains(ctx.id)) {
+            return;
+        }
+        if (s.qqBotLogTargets && loggedTargets.add(ctx.type + ":" + ctx.id)) {
+            plugin.getLogger().info("QQ 机器人收到消息 target=" + ctx.type + ":" + ctx.id
+                    + "（可加入 qqbot.receive.channels）");
+        }
         String content = string(d, "content");
         if (content == null || content.isBlank()) {
             return;
         }
+        content = truncate(content, s.qqBotReceiveMaxLength);
         String cleaned = content.replaceFirst("^\\s*<@!?\\d+>\\s*", "").trim();
         String prefix = plugin.settings().main.qqBotCommandPrefix;
         if (prefix == null) {
@@ -352,7 +469,7 @@ public final class QqBotHook {
         plugin.sync(() -> {
             String reply = execute(cmd);
             if (reply != null && !reply.isBlank()) {
-                String text = reply.length() > 1800 ? reply.substring(0, 1800) : reply;
+                String text = truncate(reply, s.qqBotSendMaxLength);
                 ensureToken(() -> sendApi(ctx, text));
             }
         });
@@ -452,10 +569,11 @@ public final class QqBotHook {
             return;
         }
         var s = plugin.settings().main;
-        String base = s.qqBotSandbox ? "https://sandbox.api.sgroup.qq.com" : "https://api.sgroup.qq.com";
+        String text = truncate(content, s.qqBotSendMaxLength);
+        String base = apiBase();
         String path;
         JsonObject body = new JsonObject();
-        body.addProperty("content", content);
+        body.addProperty("content", text);
         if ("group".equals(ctx.type)) {
             path = "/v2/groups/" + encode(ctx.id) + "/messages";
             body.addProperty("msg_type", 0);
@@ -465,15 +583,16 @@ public final class QqBotHook {
         } else {
             path = "/channels/" + encode(ctx.id) + "/messages";
         }
-        if (ctx.msgId != null && !ctx.msgId.isBlank()) {
+        if (s.qqBotPassiveReply && ctx.msgId != null && !ctx.msgId.isBlank()) {
             body.addProperty("msg_id", ctx.msgId);
             if (!"channel".equals(ctx.type)) {
                 body.addProperty("msg_seq", msgSeq.getAndIncrement());
             }
         }
+        int timeout = Math.max(3, s.qqBotTimeoutSeconds);
         HttpRequest req = HttpRequest.newBuilder(URI.create(base + path))
-                .timeout(Duration.ofSeconds(10))
-                .header("Content-Type", "application/json")
+                .timeout(Duration.ofSeconds(timeout))
+                .header("Content-Type", "application/json; charset=utf-8")
                 .header("Authorization", "QQBot " + accessToken)
                 .header("X-Union-Appid", plugin.settings().main.qqBotAppId)
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
@@ -487,13 +606,21 @@ public final class QqBotHook {
                     }
                     if (resp != null && resp.statusCode() == 401) {
                         accessToken = null;
-                        ensureToken(() -> sendApi(ctx, content));
+                        ensureToken(() -> sendApi(ctx, text));
                         return;
                     }
                     if (resp != null && resp.statusCode() / 100 != 2) {
                         plugin.getLogger().warning("QQ 机器人发送消息失败：HTTP " + resp.statusCode());
                     }
                 });
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        int limit = Math.max(1, max);
+        return s.length() <= limit ? s : s.substring(0, limit);
     }
 
     private static String encode(String s) {
