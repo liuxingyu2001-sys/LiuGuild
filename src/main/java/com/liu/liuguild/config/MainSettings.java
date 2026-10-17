@@ -94,33 +94,48 @@ public final class MainSettings {
         s.passDonate = c.getBoolean("hooks.liupass.donate", s.passDonate);
         s.passBankDeposit = c.getBoolean("hooks.liupass.bank-deposit", s.passBankDeposit);
         s.passLegacyTaskIds = c.getBoolean("hooks.liupass.legacy-task-ids", s.passLegacyTaskIds);
-        s.webhookEnabled = c.getBoolean("hooks.webhook.enabled", s.webhookEnabled);
-        s.webhookUrl = c.getString("hooks.webhook.url", s.webhookUrl == null ? "" : s.webhookUrl);
-        s.webhookFormat = c.getString("hooks.webhook.format", s.webhookFormat);
-        s.webhookUsername = c.getString("hooks.webhook.username", s.webhookUsername);
-        s.webhookTimeoutSeconds = Math.max(1, Math.min(30,
-                c.getInt("hooks.webhook.timeout-seconds", s.webhookTimeoutSeconds)));
-        s.webhookRetries = Math.max(0, Math.min(5,
-                c.getInt("hooks.webhook.retries", s.webhookRetries)));
-        s.webhookWarResult = c.getBoolean("hooks.webhook.events.war-result", s.webhookWarResult);
-        s.webhookSeasonResult = c.getBoolean("hooks.webhook.events.season-result", s.webhookSeasonResult);
-        s.webhookGuildLevel = c.getBoolean("hooks.webhook.events.guild-level-up", s.webhookGuildLevel);
-        s.webhookGuildCreate = c.getBoolean("hooks.webhook.events.guild-create", s.webhookGuildCreate);
-        s.webhookGuildDisband = c.getBoolean("hooks.webhook.events.guild-disband", s.webhookGuildDisband);
-        s.webhookApplication = c.getBoolean("hooks.webhook.events.application", s.webhookApplication);
-        s.qqBotEnabled = c.getBoolean("hooks.qqbot.enabled", s.qqBotEnabled);
-        s.qqBotAppId = c.getString("hooks.qqbot.app-id", s.qqBotAppId == null ? "" : s.qqBotAppId);
-        s.qqBotClientSecret = c.getString("hooks.qqbot.client-secret",
-                s.qqBotClientSecret == null ? "" : s.qqBotClientSecret);
-        s.qqBotSandbox = c.getBoolean("hooks.qqbot.sandbox", s.qqBotSandbox);
-        s.qqBotIntents = Math.max(1, c.getInt("hooks.qqbot.intents", s.qqBotIntents));
-        s.qqBotPushType = c.getString("hooks.qqbot.push.type", s.qqBotPushType == null ? "" : s.qqBotPushType);
-        s.qqBotPushId = c.getString("hooks.qqbot.push.id", s.qqBotPushId == null ? "" : s.qqBotPushId);
-        s.qqBotCommandPrefix = c.getString("hooks.qqbot.command-prefix", s.qqBotCommandPrefix);
-        s.qqBotReconnectSeconds = Math.max(1, Math.min(60,
-                c.getInt("hooks.qqbot.reconnect-seconds", s.qqBotReconnectSeconds)));
+        // webhook / qqbot 属于每服独立配置，只从 server.yml 读取（见 applyServerHooks）。
         s.guildChannelFormat = c.getString("channels.guild-format", s.guildChannelFormat);
         return s;
+    }
+
+    /**
+     * 读取每服独立的 webhook / QQ 机器人配置（唯一来源：server.yml）。
+     *
+     * <p>这两项会连接外部服务或主动推送；如果放在共享 config.yml，多台子服会重复建连、
+     * 重复推送。因此不从 config.yml 解析，server.yml 不存在对应段时保持默认关闭。</p>
+     */
+    public static void applyServerHooks(MainSettings s, FileConfiguration c) {
+        if (s == null || c == null) {
+            return;
+        }
+        if (c.isConfigurationSection("webhook")) {
+            s.webhookEnabled = c.getBoolean("webhook.enabled", false);
+            s.webhookUrl = c.getString("webhook.url", "");
+            s.webhookFormat = c.getString("webhook.format", "discord");
+            s.webhookUsername = c.getString("webhook.username", "LiuGuild");
+            s.webhookTimeoutSeconds = Math.max(1, Math.min(30,
+                    c.getInt("webhook.timeout-seconds", 5)));
+            s.webhookRetries = Math.max(0, Math.min(5, c.getInt("webhook.retries", 2)));
+            s.webhookWarResult = c.getBoolean("webhook.events.war-result", true);
+            s.webhookSeasonResult = c.getBoolean("webhook.events.season-result", true);
+            s.webhookGuildLevel = c.getBoolean("webhook.events.guild-level-up", true);
+            s.webhookGuildCreate = c.getBoolean("webhook.events.guild-create", false);
+            s.webhookGuildDisband = c.getBoolean("webhook.events.guild-disband", true);
+            s.webhookApplication = c.getBoolean("webhook.events.application", true);
+        }
+        if (c.isConfigurationSection("qqbot")) {
+            s.qqBotEnabled = c.getBoolean("qqbot.enabled", false);
+            s.qqBotAppId = c.getString("qqbot.app-id", "");
+            s.qqBotClientSecret = c.getString("qqbot.client-secret", "");
+            s.qqBotSandbox = c.getBoolean("qqbot.sandbox", false);
+            s.qqBotIntents = Math.max(1, c.getInt("qqbot.intents", 33554432));
+            s.qqBotPushType = c.getString("qqbot.push.type", "");
+            s.qqBotPushId = c.getString("qqbot.push.id", "");
+            s.qqBotCommandPrefix = c.getString("qqbot.command-prefix", "!");
+            s.qqBotReconnectSeconds = Math.max(1, Math.min(60,
+                    c.getInt("qqbot.reconnect-seconds", 5)));
+        }
     }
 
     /** 读取跨服段（唯一来源：cross-server.yml）。 */

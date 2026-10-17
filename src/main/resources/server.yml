@@ -16,3 +16,32 @@ language: ""
 #     hooks.mcmmo.enabled: true
 #   cross-server.yml:
 #     transfer.enabled: true
+
+# 外部通知属于每服独立配置：只在本服 server.yml 填写。
+# 多台子服同时启用会重复建连/重复推送，建议只在一台启用（或分别使用不同目标）。
+webhook:
+  enabled: false
+  url: ""
+  format: discord
+  username: "LiuGuild"
+  timeout-seconds: 5
+  retries: 2
+  events:
+    war-result: true
+    season-result: true
+    guild-level-up: true
+    guild-create: false
+    guild-disband: true
+    application: true
+
+qqbot:
+  enabled: false
+  app-id: ""
+  client-secret: ""
+  sandbox: false
+  intents: 33554432
+  push:
+    type: ""
+    id: ""
+  command-prefix: "!"
+  reconnect-seconds: 5

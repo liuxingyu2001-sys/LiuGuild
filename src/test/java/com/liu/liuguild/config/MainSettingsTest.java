@@ -53,20 +53,41 @@ class MainSettingsTest {
         assertEquals(5, defaults.qqBotReconnectSeconds);
 
         YamlConfiguration c = new YamlConfiguration();
-        c.set("hooks.qqbot.enabled", true);
-        c.set("hooks.qqbot.app-id", "123");
-        c.set("hooks.qqbot.client-secret", "secret");
-        c.set("hooks.qqbot.sandbox", true);
-        c.set("hooks.qqbot.intents", 33554944);
-        c.set("hooks.qqbot.push.type", "group");
-        c.set("hooks.qqbot.push.id", "g1");
-        c.set("hooks.qqbot.command-prefix", "!");
-        c.set("hooks.qqbot.reconnect-seconds", 99);
+        c.set("qqbot.enabled", true);
+        c.set("qqbot.app-id", "123");
+        c.set("qqbot.client-secret", "secret");
+        c.set("qqbot.sandbox", true);
+        c.set("qqbot.intents", 33554944);
+        c.set("qqbot.push.type", "group");
+        c.set("qqbot.push.id", "g1");
+        c.set("qqbot.command-prefix", "!");
+        c.set("qqbot.reconnect-seconds", 99);
         MainSettings s = MainSettings.parse(c);
+        MainSettings.applyServerHooks(s, c);
         assertTrue(s.qqBotEnabled);
         assertEquals("123", s.qqBotAppId);
         assertEquals("group", s.qqBotPushType);
         assertEquals("g1", s.qqBotPushId);
         assertEquals(60, s.qqBotReconnectSeconds);
+
+        YamlConfiguration webhook = new YamlConfiguration();
+        webhook.set("webhook.enabled", true);
+        webhook.set("webhook.url", "https://example.test/hook");
+        webhook.set("webhook.events.guild-create", true);
+        MainSettings w = MainSettings.parse(new YamlConfiguration());
+        MainSettings.applyServerHooks(w, webhook);
+        assertTrue(w.webhookEnabled);
+        assertEquals("https://example.test/hook", w.webhookUrl);
+        assertTrue(w.webhookGuildCreate);
+    }
+
+    @Test
+    void externalNotificationsAreNotReadFromSharedConfig() {
+        YamlConfiguration shared = new YamlConfiguration();
+        shared.set("hooks.qqbot.enabled", true);
+        shared.set("hooks.webhook.enabled", true);
+        MainSettings s = MainSettings.parse(shared);
+        assertFalse(s.qqBotEnabled, "QQ 机器人不能从共享 config.yml 启用");
+        assertFalse(s.webhookEnabled, "webhook 不能从共享 config.yml 启用");
     }
 }

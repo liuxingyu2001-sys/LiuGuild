@@ -26,7 +26,7 @@ plugins/LiuGuild/
 
 | 文件 | 是否共享 | 说明 |
 |---|---|---|
-| `server.yml` | ❌ **每服独立** | 唯一 `server-id`；可覆盖 `language` / `debug` / `auto-reload-config`；通用每服覆盖 `overrides` |
+| `server.yml` | ❌ **每服独立** | 唯一 `server-id`；可覆盖 `language` / `debug` / `auto-reload-config`；`webhook` / `qqbot` 外部通知；通用每服覆盖 `overrides` |
 | `plugins/LiuGuild/config.yml` | ❌ 每服引导 | 仅用于读取共享路径与自动重载开关 |
 | `database.yml` | ✅ 共享 | 跨服必须同一库、同一表前缀 |
 | `cross-server.yml` | ✅ 共享 | 同一 Redis、同一 `channel`、同一 `database` |
@@ -44,6 +44,7 @@ plugins/LiuGuild/
 |---|---|---|
 | `server-id` | 每服唯一 | `server.yml: server-id` |
 | `language` / `debug` | 各服可不同 | `server.yml`（已支持） |
+| `webhook` / `qqbot` | 多服同时启用会重复推送/重复建连 | `server.yml`（不随共享配置同步） |
 | 其它任意键（如 `hooks.*`、`transfer.enabled`） | 各服安装插件/策略不同 | `server.yml: overrides.<模块>: { 路径: 值 }` |
 
 `server.yml` 的通用覆盖示例（只影响本服，不写回共享目录）：

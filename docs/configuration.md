@@ -17,7 +17,7 @@
 | `gui.yml` | GUI 菜单布局 |
 | `icons.yml` | 工会图标定义 |
 | `messages.yml` | 多语言消息 |
-| `server.yml` | **每服独立**，设置唯一 `server-id`，并可覆盖 `language` / `debug` / `auto-reload-config` / 任意键（`overrides`）（不随共享配置同步） |
+| `server.yml` | **每服独立**，设置唯一 `server-id`、`webhook` / `qqbot` 外部通知，并可覆盖 `language` / `debug` / `auto-reload-config` / 任意键（`overrides`）（不随共享配置同步） |
 
 ## 共享配置目录
 
@@ -130,8 +130,8 @@ hooks:
 
 `hooks.liupass` 只控制任务进度；工会战通行证经验由 `war-modes.yml` 配置，完整用法见 [tasks.md](tasks.md)。
 
-- `hooks.webhook`：Discord / 通用 JSON webhook，见 [webhook.md](webhook.md)。
-- `hooks.qqbot`：QQ 官方机器人 WebSocket + 指令 + 主动推送，见 [qqbot.md](qqbot.md)。
+- `webhook`：Discord / 通用 JSON webhook，配置在每服 `server.yml`，见 [webhook.md](webhook.md)。
+- `qqbot`：QQ 官方机器人 WebSocket + 指令 + 主动推送，配置在每服 `server.yml`，见 [qqbot.md](qqbot.md)。
 
 - `messages.yml`：按语言段组织（内置 `zh_CN`），占位符用 `{name}`，同时支持 MiniMessage 与 `&` legacy 颜色代码（含 `&#RRGGBB`）。占位符值默认按纯文本插入以防注入。升级后新增的消息键会自动回退到内置默认，不会显示为键名。
 

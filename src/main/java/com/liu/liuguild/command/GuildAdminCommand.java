@@ -1117,6 +1117,11 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 warn.add("hooks.webhook.url 不是 https://，Discord/公网 webhook 通常要求 HTTPS");
             }
         }
+        if (plugin.configs().file("config.yml") != null
+                && (plugin.configs().file("config.yml").contains("hooks.webhook")
+                || plugin.configs().file("config.yml").contains("hooks.qqbot"))) {
+            warn.add("共享 config.yml 仍保留 hooks.webhook / hooks.qqbot；这两项已改为每服 server.yml，旧段不会生效");
+        }
         deprecated(warn, "war.yml", "war.announce-server");
         deprecated(warn, "war.yml", "war.defaults.keep-inventory");
         deprecated(warn, "war.yml", "war.defaults.score.objective");

@@ -9,26 +9,30 @@
 
 > 这是 **QQ 官方机器人 API**，不是 OneBot / 第三方 QQ 框架。需要先在 QQ 开放平台创建机器人并拿到 AppID / ClientSecret。
 
-## 配置（`config.yml`）
+## 配置（`server.yml`，每服独立）
+
+QQ 机器人会建立外部 WebSocket 连接，**不能放在共享 `config.yml`**；否则每台子服都会重复建连/重复回复。请在**只负责推送/接待的那台子服**的 `server.yml` 配置：
 
 ```yaml
-hooks:
-  qqbot:
-    enabled: true
-    app-id: "你的AppID"
-    client-secret: "你的ClientSecret"
-    sandbox: false
-    # 默认 33554432 = 群聊@ + C2C；需要频道@消息时再加 512
-    intents: 33554432
-    # 主动推送目标：channel / group / c2c；留空只响应@消息
-    push:
-      type: "group"
-      id: "群openid或频道id"
-    command-prefix: "!"
-    reconnect-seconds: 5
+# server.yml
+qqbot:
+  enabled: true
+  app-id: "你的AppID"
+  client-secret: "你的ClientSecret"
+  sandbox: false
+  # 默认 33554432 = 群聊@ + C2C；需要频道@消息时再加 512
+  intents: 33554432
+  # 主动推送目标：channel / group / c2c；留空只响应@消息
+  push:
+    type: "group"
+    id: "群openid或频道id"
+  command-prefix: "!"
+  reconnect-seconds: 5
 ```
 
-`app-id` / `client-secret` 只放在共享配置，**不要提交到公开仓库**。
+共享 `config.yml` 里的 `hooks.qqbot` 已被忽略；旧配置请迁移到 `server.yml`。
+
+`app-id` / `client-secret` 只放在本服 `server.yml`，**不要提交到公开仓库**。
 
 ## 机器人指令
 
@@ -51,14 +55,14 @@ hooks:
 
 ## 事件推送
 
-QQ 推送复用 `hooks.webhook.events` 的开关与 `WebhookHook` 生成的文本：
+QQ 推送复用 `server.yml` 中 `webhook.events` 的开关与 `WebhookHook` 生成的文本：
 
 - 工会战结束
 - 赛季混战结束
 - 工会升级/新建/解散
 - 新入会申请
 
-即使 `hooks.webhook.enabled=false`，只要 QQ 机器人启用且配置了 `push`，事件仍会推送到 QQ；Discord webhook 是否发送由 `webhook` 自己控制。
+即使同服 `webhook.enabled=false`，只要 QQ 机器人启用且配置了 `push`，事件仍会推送到 QQ；Discord webhook 是否发送由 `webhook` 自己控制。
 
 > 主动推送（无 `msg_id`）受 QQ 官方主动消息频控/模板限制；群聊/C2C 建议优先使用被动回复，或确认机器人有主动消息权限。
 

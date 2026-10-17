@@ -137,13 +137,13 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
 
 ## Webhook（Discord / 通用 JSON）
 
-- 配置在 `config.yml` 的 `hooks.webhook`，默认关闭。
+- 配置在每服 `server.yml` 的 `webhook`，默认关闭；不随共享配置同步。
 - 支持工会战/赛季/升级/创建/解散/入会申请事件，异步发送、失败重试。
 - 详细字段、payload 与安全说明见 [webhook.md](webhook.md)。
 
 ## QQ 官方机器人（WebSocket）
 
-- 配置在 `config.yml` 的 `hooks.qqbot`，默认关闭。
+- 配置在每服 `server.yml` 的 `qqbot`，默认关闭；不随共享配置同步。
 - 支持官方 WebSocket 网关、token 自动刷新、心跳/重连、@机器人查询工会/战况/排行。
 - 战报等事件可主动推送到 channel/group/c2c，复用 webhook 事件开关。
 - 详细配置、指令与限制见 [qqbot.md](qqbot.md)。

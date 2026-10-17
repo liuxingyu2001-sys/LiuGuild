@@ -2,27 +2,31 @@
 
 把工会战、赛季、工会升级等关键事件推送到 Discord 或自建 webhook。默认关闭。
 
-## 配置（`config.yml`）
+## 配置（`server.yml`，每服独立）
+
+Webhook 会主动连接外部服务，**不能放在共享 `config.yml`**；否则多台子服会重复推送。请在需要推送的那台子服的 `server.yml` 配置：
 
 ```yaml
-hooks:
-  webhook:
-    enabled: false
-    url: "https://discord.com/api/webhooks/xxx/yyy"
-    # discord = {"content":"...","username":"..."}
-    # generic = {"content":"..."}（自建服务/QQ 机器人网关可自行适配）
-    format: discord
-    username: "LiuGuild"
-    timeout-seconds: 5
-    retries: 2
-    events:
-      war-result: true
-      season-result: true
-      guild-level-up: true
-      guild-create: false
-      guild-disband: true
-      application: true
+# server.yml
+webhook:
+  enabled: false
+  url: "https://discord.com/api/webhooks/xxx/yyy"
+  # discord = {"content":"...","username":"..."}
+  # generic = {"content":"..."}（自建服务/QQ 机器人网关可自行适配）
+  format: discord
+  username: "LiuGuild"
+  timeout-seconds: 5
+  retries: 2
+  events:
+    war-result: true
+    season-result: true
+    guild-level-up: true
+    guild-create: false
+    guild-disband: true
+    application: true
 ```
+
+共享 `config.yml` 里的 `hooks.webhook` 已被忽略；旧配置请迁移到 `server.yml`。
 
 ## 推送内容
 
@@ -42,7 +46,7 @@ hooks:
 
 ## 安全
 
-- `url` 含 token，不要提交到公开仓库；建议只放在共享配置。
+- `url` 含 token，不要提交到公开仓库；只放在本服 `server.yml`，不要放共享配置。
 - 如果 webhook 服务支持，限制来源 IP 或使用代理。
 - 日志只提示“Webhook 推送失败/URL 无效”，不会打印完整 URL。
 

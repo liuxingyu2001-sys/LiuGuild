@@ -414,6 +414,8 @@ public final class ConfigManager {
         if (yml.isSet("auto-reload-config")) {
             main.autoReload = yml.getBoolean("auto-reload-config", main.autoReload);
         }
+        // webhook / qqbot 是每服独立项：不从共享 config.yml 读取，避免多服重复建连/推送。
+        MainSettings.applyServerHooks(main, yml);
     }
 
     /**
