@@ -8,7 +8,8 @@
 用于在**网络包层**锁定准备阶段的参赛者，开销低：
 
 - 移动/转视角包（`PLAYER_POSITION` / `PLAYER_POSITION_AND_ROTATION` / `PLAYER_ROTATION` / `PLAYER_FLYING`）
-  以及挖掘 / 放置 / 使用物品 / 攻击 / 交互 / 丢物 / 快捷栏 / 载具等包**直接取消**。
+  以及挖掘 / 放置 / 使用物品 / 攻击 / 交互 / 丢物 / 载具等包**直接取消**。
+  > 快捷栏切换（`HELD_ITEM_CHANGE`）不取消：否则服务端 held slot 与客户端脱节，开战后会继续按空手判定。
   > 只取消、**绝不改写字节**：曾因改写包 buffer 导致 `accept_teleportation` 解析失败而踢人。
 - 未安装 PacketEvents 时自动回退 Bukkit 事件拦截，功能等价。
 - 跳跃单独处理（见 `war.md`）：`allow-jump-on-prepare` + Y 速度清零 + `prepare-platform` 屏障地盘。

@@ -44,7 +44,8 @@ public final class PacketEventsHook {
             PacketType.Play.Client.INTERACT_ENTITY,
             PacketType.Play.Client.ANIMATION,
             PacketType.Play.Client.ENTITY_ACTION,
-            PacketType.Play.Client.HELD_ITEM_CHANGE,
+            // 不拦截 HELD_ITEM_CHANGE：切换快捷栏不破坏准备阶段冻结，
+            // 拦截会让服务端 held slot 与客户端脱节，开战后仍按空手判定攻击。
             PacketType.Play.Client.CLICK_WINDOW,
             PacketType.Play.Client.CREATIVE_INVENTORY_ACTION,
             PacketType.Play.Client.PLAYER_INPUT,
