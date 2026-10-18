@@ -207,6 +207,9 @@ public final class LiuGuild extends JavaPlugin {
         if (mcmmo != null) mcmmo.register();
         guildChat = new GuildChatHook(this);
         guildChat.start();
+        if (mail != null) {
+            mail.startExternal();
+        }
         GuildAPI.init(this);
         if (pass != null) Bukkit.getPluginManager().registerEvents(pass, this);
         registerPapi();

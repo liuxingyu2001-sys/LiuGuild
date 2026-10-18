@@ -1810,7 +1810,15 @@ public final class WarManager implements GuildModule {
                 String warId = data.get("war");
                 GuildWar w = warId == null ? null : observed.get(warId);
                 if (w != null) {
-                    plugin.sync(() -> sendAcceptPrompts(w));
+                    plugin.sync(() -> {
+                        for (GuildWar.Party party : w.parties()) {
+                            Player initiator = party.initiator() == null ? null : plugin.player(party.initiator());
+                            if (initiator != null && initiator.isOnline()) {
+                                accept(initiator);
+                            }
+                        }
+                        sendAcceptPrompts(w);
+                    });
                 }
             }
             case "WAR_STATE" -> handleWarState(data);
@@ -2159,6 +2167,14 @@ public final class WarManager implements GuildModule {
         for (GuildWar.Party party : war.parties()) {
             if (party.initiator() != null) {
                 session.accepted.add(party.initiator());
+                Player initiator = plugin.player(party.initiator());
+                if (initiator != null && initiator.isOnline()) {
+                    WarOrigin origin = originOf(initiator, war);
+                    if (origin != null) {
+                        originOf.put(initiator.getUniqueId(), origin);
+                        saveOriginAsync(origin);
+                    }
+                }
             }
         }
         publishAcceptOpen(war);
@@ -2226,6 +2242,11 @@ public final class WarManager implements GuildModule {
         if (war == null || !"match".equalsIgnoreCase(war.mode()) || war.state() != WarState.MATCHED) {
             plugin.messages().send(player, "war-join-locked");
             return;
+        }
+        WarOrigin acceptOrigin = originOf(player, war);
+        if (acceptOrigin != null) {
+            originOf.put(player.getUniqueId(), acceptOrigin);
+            saveOriginAsync(acceptOrigin);
         }
         WarSession session = session(war);
         if (session != null) {
@@ -2602,14 +2623,22 @@ public final class WarManager implements GuildModule {
         final UUID uuid = player.getUniqueId();
         final String host = war.hostServer();
         final String warId = war.id();
-        final WarOrigin origin = originOf(player, war);
+        WarOrigin origin = originOf.get(uuid);
+        if (origin == null || !war.id().equals(origin.warId())) {
+            origin = originOf(player, war);
+        }
+        final WarOrigin transferOrigin = origin;
         // 先异步写「待入场」标记（Redis IO），成功后再回主线程发起代理传送；
         // 标记同时携带出发服/坐标，供赛后跨服返程与崩溃恢复。
         plugin.async(() -> {
-            boolean ok = plugin.bus().setPendingWar(uuid, warId, origin == null ? null : origin.sourceServer(),
-                    origin == null ? null : origin.world(), origin == null ? 0 : origin.x(),
-                    origin == null ? 0 : origin.y(), origin == null ? 0 : origin.z(),
-                    origin == null ? 0f : origin.yaw(), origin == null ? 0f : origin.pitch());
+            boolean ok = plugin.bus().setPendingWar(uuid, warId,
+                    transferOrigin == null ? null : transferOrigin.sourceServer(),
+                    transferOrigin == null ? null : transferOrigin.world(),
+                    transferOrigin == null ? 0 : transferOrigin.x(),
+                    transferOrigin == null ? 0 : transferOrigin.y(),
+                    transferOrigin == null ? 0 : transferOrigin.z(),
+                    transferOrigin == null ? 0f : transferOrigin.yaw(),
+                    transferOrigin == null ? 0f : transferOrigin.pitch());
             if (!ok) {
                 plugin.sync(() -> plugin.messages().send(player, "war-transfer-failed"));
                 return;

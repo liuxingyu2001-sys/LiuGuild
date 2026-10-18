@@ -3,6 +3,7 @@ package com.liu.liuguild.mail;
 import com.liu.liuguild.LiuGuild;
 import com.liu.liuguild.db.MailEntry;
 import com.liu.liuguild.db.MailRepository;
+import com.liu.liuguild.hook.LiuChatMailHook;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -18,10 +19,21 @@ public final class MailService {
 
     private final LiuGuild plugin;
     private final MailRepository repo;
+    private final LiuChatMailHook liuChatMail;
 
     public MailService(LiuGuild plugin) {
         this.plugin = plugin;
         this.repo = new MailRepository(plugin.db());
+        this.liuChatMail = new LiuChatMailHook(plugin);
+    }
+
+    /** 在 LiuChat 启用后调用；失败时继续使用内置邮件表。 */
+    public void startExternal() {
+        liuChatMail.start();
+    }
+
+    public boolean externalAvailable() {
+        return liuChatMail.available();
     }
 
     public void send(UUID recipient, String guildId, String type, String title, String body) {
@@ -43,6 +55,16 @@ public final class MailService {
             return;
         }
         List<MailEntry> copy = new ArrayList<>(entries);
+        if (liuChatMail.available()) {
+            for (MailEntry entry : copy) {
+                liuChatMail.send(entry, ok -> {
+                    if (!ok) {
+                        plugin.getLogger().warning("工会邮件未写入 LiuChat: " + entry.recipient());
+                    }
+                });
+            }
+            return;
+        }
         plugin.async(() -> {
             try {
                 repo.insertMany(copy);
@@ -84,6 +106,20 @@ public final class MailService {
             return;
         }
         UUID uuid = player.getUniqueId();
+        if (liuChatMail.available()) {
+            liuChatMail.inbox(uuid, list -> {
+                int unread = 0;
+                for (MailEntry entry : list) {
+                    if (entry.readAt() == 0) {
+                        unread++;
+                    }
+                }
+                if (unread > 0 && player.isOnline()) {
+                    plugin.messages().send(player, "mail-login-summary", "count", String.valueOf(unread));
+                }
+            });
+            return;
+        }
         plugin.async(() -> {
             int unread;
             try {
@@ -103,6 +139,10 @@ public final class MailService {
     }
 
     public void inboxAsync(UUID recipient, int limit, Consumer<List<MailEntry>> callback) {
+        if (liuChatMail.available()) {
+            liuChatMail.inbox(recipient, list -> callback.accept(list.stream().limit(limit).toList()));
+            return;
+        }
         plugin.async(() -> {
             List<MailEntry> list;
             try {
@@ -117,6 +157,10 @@ public final class MailService {
     }
 
     public void markReadAsync(UUID recipient, String id) {
+        if (liuChatMail.available()) {
+            liuChatMail.markRead(recipient, id);
+            return;
+        }
         plugin.async(() -> {
             try {
                 repo.markRead(recipient, id);
@@ -127,6 +171,10 @@ public final class MailService {
     }
 
     public void markAllReadAsync(UUID recipient) {
+        if (liuChatMail.available()) {
+            liuChatMail.markAllRead(recipient);
+            return;
+        }
         plugin.async(() -> {
             try {
                 repo.markAllRead(recipient);
