@@ -901,6 +901,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 plugin.war().leaveQueue(player, g);
             }
             case "join" -> plugin.war().join(player);
+            case "accept" -> plugin.war().accept(player);
             case "reject", "refuse" -> plugin.war().reject(player);
             case "rejoin" -> plugin.war().rejoin(player);
             case "spectate" -> plugin.war().spectate(player);
@@ -1018,7 +1019,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 return filter(new ArrayList<>(plugin.settings().icons.icons.keySet()), args[1]);
             }
             if (sub.equals("war")) {
-                return filter(List.of("queue", "leave", "join", "reject", "rejoin", "spectate", "status", "stats", "history"), args[1]);
+                return filter(List.of("queue", "leave", "join", "accept", "reject", "rejoin", "spectate", "status", "stats", "history"), args[1]);
             }
             if (sub.equals("mail")) {
                 return filter(List.of("read", "clear"), args[1]);

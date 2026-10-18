@@ -475,4 +475,5 @@ zh_CN:
   war-accept-prompt: "<gold>[工会战]</gold> <white>本场已锁定，是否参战？</white> "
   war-accept-button: "<green>[接受]</green>"
   war-reject-button: "<red>[拒绝]</red>"
+  war-accept-ok: "<green>已接受本场工会战，10 秒窗口结束后统一传送。</green>"
   war-accept-rejected: "<gray>已拒绝本场工会战，你仍留在原地。"

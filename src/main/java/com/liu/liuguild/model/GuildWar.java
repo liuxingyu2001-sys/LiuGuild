@@ -125,6 +125,18 @@ public final class GuildWar {
         return side == null ? null : parties.get(side);
     }
 
+    public synchronized boolean isInitiator(UUID uuid) {
+        if (uuid == null) {
+            return false;
+        }
+        for (Party party : parties.values()) {
+            if (uuid.equals(party.initiator)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public synchronized Party partyOfGuild(String guildId) {
         for (Party p : parties.values()) {
             if (p.guildId.equals(guildId)) {

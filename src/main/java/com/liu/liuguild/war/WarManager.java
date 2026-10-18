@@ -1767,6 +1767,42 @@ public final class WarManager implements GuildModule {
         }
         switch (type) {
             case "WAR_MATCHED" -> handleWarMatched(data);
+            case "WAR_ACCEPT" -> {
+                String warId = data.get("war");
+                GuildWar w = warId == null ? null : observed.get(warId);
+                WarSession session = w == null ? null : session(w);
+                if (session != null && !session.acceptClosed) {
+                    try {
+                        session.accepted.add(UUID.fromString(data.get("player")));
+                    } catch (RuntimeException ignored) {
+                    }
+                }
+            }
+            case "WAR_ACCEPT_GO" -> {
+                if (plugin.serverId().equals(data.get("server"))) {
+                    return;
+                }
+                String warId = data.get("war");
+                GuildWar w = warId == null ? null : observed.get(warId);
+                if (w == null) {
+                    return;
+                }
+                String raw = data.get("accepted");
+                if (raw == null || raw.isBlank()) {
+                    return;
+                }
+                plugin.sync(() -> {
+                    for (String s : raw.split(",")) {
+                        try {
+                            Player p = plugin.player(UUID.fromString(s));
+                            if (p != null && p.isOnline() && !w.containsPlayer(p.getUniqueId())) {
+                                join(p);
+                            }
+                        } catch (RuntimeException ignored) {
+                        }
+                    }
+                });
+            }
             case "WAR_ACCEPT_OPEN" -> {
                 if (plugin.serverId().equals(data.get("server"))) {
                     return;
@@ -1774,10 +1810,7 @@ public final class WarManager implements GuildModule {
                 String warId = data.get("war");
                 GuildWar w = warId == null ? null : observed.get(warId);
                 if (w != null) {
-                    plugin.sync(() -> {
-                        sendAcceptPrompts(w);
-                        acceptInitiators(w);
-                    });
+                    plugin.sync(() -> sendAcceptPrompts(w));
                 }
             }
             case "WAR_STATE" -> handleWarState(data);
@@ -2123,9 +2156,13 @@ public final class WarManager implements GuildModule {
         war.state(WarState.MATCHED);
         war.phaseUntil(until);
         publishState(war, true);
+        for (GuildWar.Party party : war.parties()) {
+            if (party.initiator() != null) {
+                session.accepted.add(party.initiator());
+            }
+        }
         publishAcceptOpen(war);
         sendAcceptPrompts(war);
-        acceptInitiators(war);
         plugin.getLogger().info("工会战 " + war.id() + " 进入 " + conf().matchAcceptSeconds
                 + " 秒接受窗口，参赛公会 " + war.parties().size());
     }
@@ -2146,34 +2183,75 @@ public final class WarManager implements GuildModule {
                 continue;
             }
             for (Player player : plugin.guilds().onlineMembers(guild)) {
-                if (player != null && player.isOnline()) {
-                    player.sendMessage(acceptPrompt(war));
+                if (player == null || !player.isOnline()) {
+                    continue;
                 }
+                // 发起匹配的队长/官员已经自动加入；不再显示接受/拒绝。
+                WarSession session = session(war);
+                if (war.containsPlayer(player.getUniqueId())
+                        || war.isInitiator(player.getUniqueId())
+                        || (session != null && session.accepted.contains(player.getUniqueId()))) {
+                    continue;
+                }
+                player.sendMessage(acceptPrompt(war));
             }
         }
     }
 
-    private void acceptInitiators(GuildWar war) {
-        for (GuildWar.Party party : war.parties()) {
-            UUID uuid = party.initiator();
-            if (uuid == null) {
-                continue;
-            }
+    /** 接受窗口关闭：先统一登记，再统一传送已接受玩家，最后进入准备阶段。 */
+    private void finishAccept(GuildWar war, WarSession session) {
+        session.acceptUntil = 0;
+        session.acceptClosed = true;
+        // 先进入准备阶段，再让接受者落位，这样 joinLocal 会把所有人冻结在准备点。
+        beginPrepare(war);
+        for (UUID uuid : new java.util.ArrayList<>(session.accepted)) {
             Player player = plugin.player(uuid);
-            if (player != null && player.isOnline() && !war.containsPlayer(uuid)) {
-                if (isHostServer(war.hostServer())) {
-                    joinLocal(player, war);
-                } else {
-                    join(player);
-                }
+            if (player != null && player.isOnline()) {
+                joinLocal(player, war);
             }
+        }
+        if (plugin.bus() != null && plugin.bus().isReady()) {
+            String ids = session.accepted.stream().map(UUID::toString)
+                    .collect(java.util.stream.Collectors.joining(","));
+            plugin.publishAsync("WAR_ACCEPT_GO", CrossServerBus.map(
+                    "war", war.id(), "host", war.hostServer(), "server", plugin.serverId(),
+                    "accepted", ids));
+        }
+    }
+
+    /** 接受邀请：只登记，不传送；10 秒窗口结束后统一进场。 */
+    public void accept(Player player) {
+        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+        GuildWar war = guild == null ? null : warOf(guild.id());
+        if (war == null || !"match".equalsIgnoreCase(war.mode()) || war.state() != WarState.MATCHED) {
+            plugin.messages().send(player, "war-join-locked");
+            return;
+        }
+        WarSession session = session(war);
+        if (session != null) {
+            if (session.acceptClosed) {
+                plugin.messages().send(player, "war-join-locked");
+                return;
+            }
+            session.accepted.add(player.getUniqueId());
+            plugin.messages().send(player, "war-accept-ok");
+            return;
+        }
+        // 非承办服：把接受结果发给承办服，由承办服在窗口结束时统一下发入场。
+        if (plugin.bus() != null && plugin.bus().isReady()) {
+            plugin.publishAsync("WAR_ACCEPT", CrossServerBus.map(
+                    "war", war.id(), "host", war.hostServer(), "server", plugin.serverId(),
+                    "player", player.getUniqueId().toString()));
+            plugin.messages().send(player, "war-accept-ok");
+        } else {
+            plugin.messages().send(player, "war-join-locked");
         }
     }
 
     private Component acceptPrompt(GuildWar war) {
         return plugin.messages().component("war-accept-prompt")
                 .append(plugin.messages().component("war-accept-button")
-                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/guild war join")))
+                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/guild war accept")))
                 .append(Component.text("  "))
                 .append(plugin.messages().component("war-reject-button")
                         .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/guild war reject")));
@@ -2965,9 +3043,7 @@ public final class WarManager implements GuildModule {
         switch (war.state()) {
             case MATCHED -> {
                 if (session.acceptUntil > 0 && now >= session.acceptUntil) {
-                    session.acceptUntil = 0;
-                    session.acceptClosed = true;
-                    beginPrepare(war);
+                    finishAccept(war, session);
                 }
             }
             case PREPARING -> {
@@ -3746,7 +3822,13 @@ public final class WarManager implements GuildModule {
         long now = System.currentTimeMillis();
         WarSession acceptSession = session(war);
         if ("match".equalsIgnoreCase(war.mode()) && acceptSession != null
-                && acceptSession.acceptClosed && !war.containsPlayer(player.getUniqueId())
+                && !acceptSession.acceptClosed && war.state() == WarState.MATCHED) {
+            accept(player);
+            return;
+        }
+        if ("match".equalsIgnoreCase(war.mode()) && acceptSession != null
+                && acceptSession.acceptClosed && !acceptSession.accepted.contains(player.getUniqueId())
+                && !war.containsPlayer(player.getUniqueId())
                 && !isReconnectAllowed(war, player.getUniqueId(), now)) {
             plugin.messages().send(player, "war-join-locked");
             return;
@@ -3782,7 +3864,13 @@ public final class WarManager implements GuildModule {
         }
         GuildWar war = warOf(guild.id());
         if (war == null || !"match".equalsIgnoreCase(war.mode())
-                || war.state() != WarState.MATCHED || war.containsPlayer(player.getUniqueId())) {
+                || war.state() != WarState.MATCHED
+                || war.containsPlayer(player.getUniqueId())
+                || war.isInitiator(player.getUniqueId())) {
+            return;
+        }
+        WarSession acceptSession = session(war);
+        if (acceptSession != null && acceptSession.accepted.contains(player.getUniqueId())) {
             return;
         }
         WarSession session = session(war);
@@ -4005,7 +4093,8 @@ public final class WarManager implements GuildModule {
         long joinNow = System.currentTimeMillis();
         WarSession joiningSession = session(war);
         if ("match".equalsIgnoreCase(war.mode()) && joiningSession != null
-                && joiningSession.acceptClosed && !war.containsPlayer(player.getUniqueId())
+                && joiningSession.acceptClosed && !joiningSession.accepted.contains(player.getUniqueId())
+                && !war.containsPlayer(player.getUniqueId())
                 && !isReconnectAllowed(war, player.getUniqueId(), joinNow)) {
             if (origin != null) {
                 returnToOrigin(player, origin);
@@ -5488,6 +5577,7 @@ public final class WarManager implements GuildModule {
         long phaseUntil;
         long acceptUntil;
         boolean acceptClosed;
+        final java.util.Set<UUID> accepted = java.util.concurrent.ConcurrentHashMap.newKeySet();
         long prepareStartedAt;
         long lastBroadcastSecond = -1;
         boolean settling;
