@@ -222,4 +222,20 @@ class WarConfigTest {
         assertEquals("A:{guild}:{player}", w.nameplateFormatA);
         assertEquals("B:{guild}", w.nameplateFormatB);
     }
+
+    @Test
+    void nameplateSectionIsNotParsedAsAWarMode() throws Exception {
+        WarSettings w = war("""
+                war:
+                  nameplate:
+                    enabled: true
+                    format-a: "A:{guild}"
+                    format-b: "B:{guild}"
+                  defaults:
+                    team-size: 8
+                """);
+        assertFalse(w.inlineModes.containsKey("nameplate"),
+                "nameplate 是全局配置段，不能出现在工会战模式列表里");
+        assertEquals(8, w.defaults.teamSize);
+    }
 }

@@ -117,7 +117,7 @@ public final class WarSettings {
 
     /** war 下已被全局配置占用的段名，不能当作模式名。 */
     private static final java.util.Set<String> INLINE_RESERVED = java.util.Set.of(
-            "defaults", "modes", "score", "lives", "rewards");
+            "defaults", "modes", "score", "lives", "rewards", "nameplate");
 
     /** 判断一个段是否像模式配置，避免把将来的全局段误认成模式。 */
     private static boolean looksLikeMode(ConfigurationSection sec) {
