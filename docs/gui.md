@@ -145,7 +145,7 @@ gui:
 成员条目：`{player}` `{rank}` `{contributed}` `{kills}` `{deaths}` `{joined}`。
 
 模式条目（工会战菜单）：`{mode}` `{mode_key}` `{mode_state}` `{mode_min}` `{mode_team}`
-`{mode_fair}` `{mode_health}` `{mode_arena}` `{mode_schedule}` `{mode_duration}`。
+`{mode_fair}` `{mode_health}` `{mode_arena}` `{mode_schedule}` `{mode_duration}` `{ranking}`。
 
 其它：`{count}` `{state}` `{enemy}` `{score}` `{enemy_score}` `{icon_name}` `{icon_cost}`
 `{history_count}` `{home_slots}` `{chat_state}` `{invite_count}`；签到：`{checkin_streak}` `{checkin_state}`；

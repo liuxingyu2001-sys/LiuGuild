@@ -176,6 +176,11 @@ public final class RedisBridge {
         return prefix + "war:queue:meta:" + guildId;
     }
 
+    /** 匹配招募窗口：值为窗口截止时间毫秒。 */
+    public String keyWarGather() {
+        return prefix + "war:gather";
+    }
+
     public String keyWarPending(java.util.UUID player) {
         return prefix + "war:pending:" + player;
     }

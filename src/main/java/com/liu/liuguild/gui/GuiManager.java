@@ -196,6 +196,13 @@ public final class GuiManager implements GuildModule, Listener {
     }
 
     public void openMembers(Player player, Guild g, int page) {
+        openMembers(player, g, page, false);
+    }
+
+    /**
+     * @param viewOnly 查看其它工会时只读：不绑定晋升/降级/踢人/邀请动作
+     */
+    public void openMembers(Player player, Guild g, int page, boolean viewOnly) {
         if (g == null) {
             return;
         }
@@ -225,7 +232,9 @@ public final class GuiManager implements GuildModule, Listener {
                     def.entry.name, def.entry.lore, mph, m.uuid());
             int slot = i;
             inv.setItem(slot, item);
-            holder.actions.put(slot, "member:" + m.uuid());
+            if (!viewOnly) {
+                holder.actions.put(slot, "member:" + m.uuid());
+            }
         }
         addBack(inv, holder, def, ph, player, "back:main", page, "members", members.size(), perPage);
         // 邀请入口：权限与冷却由 GuildManager.invite 统一校验，这里只负责收集名字。
@@ -234,7 +243,7 @@ public final class GuiManager implements GuildModule, Listener {
         if (inviteSlot == inv.getSize() - 5) {
             inviteSlot = inv.getSize() - 6;
         }
-        if (inviteSlot >= 0) {
+        if (!viewOnly && inviteSlot >= 0) {
             inv.setItem(inviteSlot, GuiUtil.build(player, "NAME_TAG", "NAME_TAG", "<green>邀请玩家",
                     List.of("<gray>输入在线玩家名字发出入会邀请"), Map.of(), null));
             holder.actions.put(inviteSlot, "invite_player");
@@ -323,13 +332,21 @@ public final class GuiManager implements GuildModule, Listener {
         GuildWar war = plugin.war() == null ? null : plugin.war().warOf(g.id());
         String queuedMode = plugin.war() == null ? null : plugin.war().queuedMode(g.id());
         ph.put("state", war == null ? (queuedMode == null ? "空闲" : "排队中") : war.state().display());
-        ph.put("enemy", war == null ? "-" : (war.guildA().equals(g.id()) ? war.nameB() : war.nameA()));
-        boolean home = war != null && war.guildA().equals(g.id());
-        ph.put("score", war == null ? "0" : String.valueOf(home ? war.scoreA() : war.scoreB()));
-        ph.put("enemy_score", war == null ? "0" : String.valueOf(home ? war.scoreB() : war.scoreA()));
+        ph.put("enemy", war == null ? "-" : war.parties().stream()
+                .filter(party -> !party.guildId().equals(g.id()))
+                .map(GuildWar.Party::name).collect(java.util.stream.Collectors.joining(",")));
+        String ownSide = war == null ? null : war.sideOfGuild(g.id());
+        ph.put("score", war == null || ownSide == null ? "0" : String.valueOf(war.scoreOfSide(ownSide)));
+        ph.put("enemy_score", war == null ? "0" : String.valueOf(war.parties().stream()
+                .filter(party -> !party.guildId().equals(g.id()))
+                .mapToInt(GuildWar.Party::score).max().orElse(0)));
         ph.put("lives", String.valueOf(plugin.war() == null ? 0 : plugin.war().lives(player.getUniqueId())));
         ph.put("arena", plugin.war() == null ? "-" : plugin.war().arenaOf(war).id);
         ph.put("host", war == null ? "-" : war.hostServer());
+        ph.put("ranking", war == null ? "-" : war.ranking().stream()
+                .map(party -> "#" + (war.ranking().indexOf(party) + 1) + " "
+                        + party.name() + " " + party.score())
+                .collect(java.util.stream.Collectors.joining("  ")));
         ph.put("history_count", String.valueOf(g.wins() + g.losses()));
         Holder holder = new Holder("war", g.id(), 0);
         Inventory inv = create(holder, def, ph, player);
@@ -415,16 +432,10 @@ public final class GuiManager implements GuildModule, Listener {
             return;
         }
         Map<String, String> ph = detailPlaceholders(g);
-        Holder holder = new Holder("info", g.id(), 0);
+        Holder holder = new Holder("info", g.id(), others ? 1 : 0);
         Inventory inv = create(holder, def, ph, player);
-        Guild self = plugin.guilds().guildOf(player.getUniqueId());
-        boolean sameGuild = self != null && self.id().equals(g.id());
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
             ButtonDef b = e.getValue();
-            // 看别人的工会时隐藏「成员列表」（避免暴露成员名单给外人）
-            if (others && !sameGuild && "members".equals(e.getKey())) {
-                continue;
-            }
             ItemStack item = "card".equals(e.getKey())
                     ? GuiUtil.guildIcon(plugin, player, g, b.fallback())
                     : GuiUtil.fromButton(player, b, ph);
@@ -1262,30 +1273,38 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "info:open" -> openInfo(player, require(g, player), false);
             case "info:notice" -> {
-                if (g != null) {
+                Guild target = infoTarget(holder, g);
+                if (target != null) {
                     plugin.messages().sendRawRich(player, "info-notice",
-                            "notice", g.notice().isBlank() ? "暂无公告" : Text.sanitizeToMini(g.notice()));
+                            "notice", target.notice().isBlank() ? "暂无公告" : Text.sanitizeToMini(target.notice()));
                     plugin.messages().sendRawRich(player, "info-desc-line",
-                            "description", g.description().isBlank() ? "暂无简介" : Text.sanitizeToMini(g.description()));
+                            "description", target.description().isBlank() ? "暂无简介" : Text.sanitizeToMini(target.description()));
                 }
             }
             case "info:desc" -> {
-                if (g != null) {
+                Guild target = infoTarget(holder, g);
+                if (target != null) {
                     plugin.messages().sendRawRich(player, "info-desc-line",
-                            "description", g.description().isBlank() ? "暂无简介" : Text.sanitizeToMini(g.description()));
+                            "description", target.description().isBlank() ? "暂无简介" : Text.sanitizeToMini(target.description()));
                 }
             }
-            case "info:members" -> openMembers(player, require(g, player), 0);
+            case "info:members" -> {
+                Guild target = infoTarget(holder, g);
+                if (target != null) {
+                    openMembers(player, target, 0, g == null || !g.id().equals(target.id()));
+                }
+            }
             case "info:history" -> {
-                if (g != null) {
-                    showHistory(player, g);
+                Guild target = infoTarget(holder, g);
+                if (target != null) {
+                    showHistory(player, target);
                 }
             }
             case "info:back" -> {
-                if (holder != null && "info".equals(holder.menu)) {
-                    openMain(player);
-                } else {
+                if (holder != null && holder.page > 0) {
                     openList(player, 0);
+                } else {
+                    openMain(player);
                 }
             }
             case "close" -> closeMenu(player);
@@ -1449,11 +1468,17 @@ public final class GuiManager implements GuildModule, Listener {
                         plugin.messages().send(player, q == null ? "war-not-in-war" : "war-queue-joined",
                                 "mode", plugin.settings().mode(q == null ? "match" : q).display);
                     } else {
-                        boolean home = w.guildA().equals(g.id());
-                        plugin.messages().sendRaw(player, "war-score", "guild_a", w.nameA(), "guild_b", w.nameB(),
-                                "score_a", w.scoreA(), "score_b", w.scoreB());
-                        player.sendMessage(Text.mm("<gray>状态: " + w.state().display() + " 对手: "
-                                + (home ? w.nameB() : w.nameA())));
+                        String ownSide = w.sideOfGuild(g.id());
+                        String enemies = w.parties().stream()
+                                .filter(party -> !party.guildId().equals(g.id()))
+                                .map(GuildWar.Party::name)
+                                .collect(java.util.stream.Collectors.joining(","));
+                        plugin.messages().sendRaw(player, "war-score", "guild_a", g.name(), "guild_b", enemies,
+                                "score_a", ownSide == null ? 0 : w.scoreOfSide(ownSide),
+                                "score_b", w.parties().stream()
+                                        .filter(party -> !party.guildId().equals(g.id()))
+                                        .mapToInt(GuildWar.Party::score).max().orElse(0));
+                        player.sendMessage(Text.mm("<gray>状态: " + w.state().display() + " 对手: " + enemies));
                     }
                 }
                 // 重开菜单，让上面的比分/状态 lore 拿到最新值
@@ -1545,6 +1570,16 @@ public final class GuiManager implements GuildModule, Listener {
             }
             default -> handleDynamic(player, holder, action);
         }
+    }
+
+    private Guild infoTarget(Holder holder, Guild fallback) {
+        if (holder != null && holder.guildId != null && !holder.guildId.isBlank()) {
+            Guild target = plugin.guilds().guild(holder.guildId);
+            if (target != null) {
+                return target;
+            }
+        }
+        return fallback;
     }
 
     private void handleDynamic(Player player, Holder holder, String action) {
@@ -2724,13 +2759,16 @@ public final class GuiManager implements GuildModule, Listener {
             }
             plugin.messages().sendRaw(player, "war-history-header");
             for (GuildWar w : list) {
-                boolean home = w.guildA().equals(g.id());
-                String enemy = home ? w.nameB() : w.nameA();
-                int self = home ? w.scoreA() : w.scoreB();
-                int opp = home ? w.scoreB() : w.scoreA();
-                String result = w.winner() == null || w.winner().isBlank()
-                        ? "平局"
-                        : (w.winner().equals(g.id()) ? "胜利" : "失败");
+                String side = w.sideOfGuild(g.id());
+                if (side == null) {
+                    continue;
+                }
+                String enemy = w.enemyOf(g.id());
+                int self = w.scoreOfSide(side);
+                int opp = w.parties().stream().filter(party -> !party.guildId().equals(g.id()))
+                        .mapToInt(GuildWar.Party::score).max().orElse(0);
+                boolean draw = w.winner() == null || w.winner().isBlank();
+                String result = draw ? "平局" : (w.winner().equals(g.id()) ? "胜利" : "失败");
                 plugin.messages().sendRaw(player, "war-history-line",
                         "enemy", enemy, "self", self, "opp", opp, "result", result);
             }

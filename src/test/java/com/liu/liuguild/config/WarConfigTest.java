@@ -238,4 +238,15 @@ class WarConfigTest {
                 "nameplate 是全局配置段，不能出现在工会战模式列表里");
         assertEquals(8, w.defaults.teamSize);
     }
+
+    @Test
+    void parsesMultiGuildMatchWindows() throws Exception {
+        WarSettings w = war("""
+                war:
+                  match-gather-seconds: 12
+                  match-accept-seconds: 8
+                """);
+        assertEquals(12, w.matchGatherSeconds);
+        assertEquals(8, w.matchAcceptSeconds);
+    }
 }

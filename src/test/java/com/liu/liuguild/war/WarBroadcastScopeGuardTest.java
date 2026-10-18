@@ -22,8 +22,7 @@ class WarBroadcastScopeGuardTest {
         String war = source("src/main/java/com/liu/liuguild/war/WarManager.java");
         String body = war.substring(war.indexOf("private void broadcastWar("));
         body = body.substring(0, body.indexOf("\n    }", body.indexOf("private void broadcastWar(")));
-        assertTrue(body.contains("war.rosterA()"));
-        assertTrue(body.contains("war.rosterB()"));
+        assertTrue(body.contains("war.allPlayers()"));
         assertTrue(body.contains("spectators"));
         assertFalse(body.contains("announceGuild"));
         assertFalse(body.contains("announceServer"));

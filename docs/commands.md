@@ -33,7 +33,8 @@
 | `/guild top <points\|bank\|level\|wins>` | 排行榜 |
 | `/guild war queue [模式]` | 参与匹配（默认模式） |
 | `/guild war leave` | 退出匹配队列 |
-| `/guild war join` | 进入竞技场（匹配成功后） |
+| `/guild war join` | 接受匹配并进入竞技场（需在 10 秒接受窗口内） |
+| `/guild war reject` | 拒绝本次匹配邀请，留在原地 |
 | `/guild war rejoin` | 开战后掉线，在 `reconnect-seconds` 宽限内重连回战场 |
 | `/guild war spectate` | 旁观（支持任意子服跨服传送到承办服，赛后自动返程） |
 | `/guild war status` | 当前战况 |

@@ -219,6 +219,17 @@ public final class Database {
                     + "PRIMARY KEY (`war_id`)"
                     + ")" + engine);
 
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_war_parties") + "` ("
+                    + "`war_id` VARCHAR(36) NOT NULL,"
+                    + "`guild_id` VARCHAR(36) NOT NULL,"
+                    + "`name` VARCHAR(64),"
+                    + "`tag` VARCHAR(32),"
+                    + "`score` INT NOT NULL DEFAULT 0,"
+                    + "`deaths` INT NOT NULL DEFAULT 0,"
+                    + "`winner` INT NOT NULL DEFAULT 0,"
+                    + "PRIMARY KEY (`war_id`,`guild_id`)"
+                    + ")" + engine);
+
             st.executeUpdate("CREATE TABLE IF NOT EXISTS `" + t("guild_homes") + "` ("
                     + "`guild_id` VARCHAR(36) NOT NULL,"
                     + "`slot` INT NOT NULL,"

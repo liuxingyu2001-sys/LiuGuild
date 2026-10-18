@@ -484,6 +484,64 @@ public final class CrossServerBus {
         });
     }
 
+    /**
+     * 开启匹配招募窗口；只有第一个服务器能设置成功。
+     *
+     * @return true = 本服开启；false = 已有窗口/Redis 不可用
+     */
+    public boolean startGather(int seconds) {
+        if (!isReady()) {
+            return false;
+        }
+        long until = System.currentTimeMillis() + Math.max(1, seconds) * 1000L;
+        String result = bridge.withJedis(jedis -> jedis.set(bridge.keyWarGather(),
+                String.valueOf(until),
+                redis.clients.jedis.params.SetParams.setParams().nx()
+                        .px((Math.max(1, seconds) + 10L) * 1000L)));
+        return "OK".equals(result);
+    }
+
+    /** 招募窗口截止时间；无窗口返回 0。 */
+    public long gatherUntil() {
+        if (!isReady()) {
+            return 0L;
+        }
+        String v = bridge.withJedis(jedis -> jedis.get(bridge.keyWarGather()));
+        if (v == null) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(v);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    public void clearGather() {
+        if (!isReady()) {
+            return;
+        }
+        bridge.withJedis(jedis -> jedis.del(bridge.keyWarGather()));
+    }
+
+    /**
+     * 原子领取一批工会；任意一个不在队列中就全部不领取，避免半场匹配。
+     */
+    public boolean claimGuilds(java.util.List<String> guildIds) {
+        if (!isReady() || guildIds == null || guildIds.isEmpty()) {
+            return false;
+        }
+        String[] args = guildIds.toArray(new String[0]);
+        Object result = bridge.withJedis(jedis -> jedis.eval(
+                "local q=KEYS[1]; local mp=KEYS[2]; "
+                        + "for i=1,#ARGV do if redis.call('ZSCORE',q,ARGV[i])==false then return 0 end end; "
+                        + "for i=1,#ARGV do redis.call('ZREM',q,ARGV[i]); redis.call('DEL',mp..ARGV[i]) end; "
+                        + "return #ARGV",
+                java.util.List.of(bridge.keyWarQueue(), bridge.prefix() + "war:queue:meta:"),
+                java.util.Arrays.asList(args)));
+        return result instanceof Long n && n > 0;
+    }
+
     /** 从队列中原子移除指定的两个工会；两个都移除成功才返回 true。 */
     public boolean claimPair(String guildA, String guildB) {
         Long removed = bridge.withJedis(jedis -> {
@@ -511,12 +569,26 @@ public final class CrossServerBus {
     // =====================================================================
 
     public void publishWarState(String warId, String state, int scoreA, int scoreB, long leftSeconds) {
+        publishWarState(warId, state, scoreA, scoreB, leftSeconds, Map.of());
+    }
+
+    /** 额外阵营分数编码：C=3,D=5；两公会时为空。 */
+    public void publishWarState(String warId, String state, int scoreA, int scoreB, long leftSeconds,
+                                Map<String, Integer> partyScores) {
         Map<String, String> m = new HashMap<>();
         m.put("war", warId);
         m.put("state", state);
         m.put("sa", String.valueOf(scoreA));
         m.put("sb", String.valueOf(scoreB));
         m.put("left", String.valueOf(Math.max(0, leftSeconds)));
+        if (partyScores != null && !partyScores.isEmpty()) {
+            StringBuilder sc = new StringBuilder();
+            for (Map.Entry<String, Integer> e : partyScores.entrySet()) {
+                if (sc.length() > 0) sc.append(',');
+                sc.append(e.getKey()).append(':').append(e.getValue());
+            }
+            m.put("sc", sc.toString());
+        }
         publish("WAR_STATE", m);
     }
 

@@ -158,6 +158,7 @@ public final class WarManager implements GuildModule {
     private volatile long lastMirrorPruneAt;
     /** 无 Redis 时的本服匹配队列。 */
     private final List<String> localQueue = new CopyOnWriteArrayList<>();
+    private volatile long localGatherUntil;
     private final Map<String, Long> localQueuedAt = new ConcurrentHashMap<>();
     /** 本服队列中每个工会选择的模式。 */
     private final Map<String, String> localMode = new ConcurrentHashMap<>();
@@ -866,7 +867,8 @@ public final class WarManager implements GuildModule {
                     }
                     if (!plugin.bus().queueGuild(guild.id(), CrossServerBus.map(
                             "name", guild.name(), "tag", guild.tag(), "server", plugin.serverId(),
-                            "mode", mode.key, "leader", player.getName()))) {
+                            "mode", mode.key, "leader", player.getName(),
+                            "initiator", player.getUniqueId().toString()))) {
                         // 写 Redis 失败不能提示“已排队”，否则玩家会一直等一个不存在的队列项。
                         plugin.sync(() -> plugin.messages().send(player, "war-queue-error"));
                         return;
@@ -1370,13 +1372,60 @@ public final class WarManager implements GuildModule {
         if (valid.size() < 2) {
             return;
         }
-        // 必须找到「同一模式」的两个工会，否则继续等待（不能只看前两个）
+
+        // ---- 匹配模式：先开启 10 秒招募窗口，窗口结束一次性领取所有同模式公会 ----
+        List<Map<String, String>> matchReady = new ArrayList<>();
+        for (Map<String, String> meta : valid) {
+            if ("match".equalsIgnoreCase(meta.getOrDefault("mode", conf().defaultMode))) {
+                matchReady.add(meta);
+            }
+        }
+        if (matchReady.size() >= 2) {
+            long gatherUntil = plugin.bus().gatherUntil();
+            if (gatherUntil <= 0L) {
+                if (plugin.bus().startGather(conf().matchGatherSeconds)) {
+                    plugin.getLogger().info("匹配招募窗口开启：" + matchReady.size()
+                            + " 个公会，等待 " + conf().matchGatherSeconds + " 秒");
+                }
+                return;
+            }
+            if (now < gatherUntil) {
+                return; // 窗口内继续收集，不创建战斗
+            }
+            plugin.bus().clearGather();
+            List<String> ids = new ArrayList<>();
+            for (Map<String, String> meta : matchReady) {
+                String id = meta.get("guildId");
+                if (id != null) {
+                    ids.add(id);
+                }
+            }
+            if (ids.size() < 2 || !plugin.bus().claimGuilds(ids)) {
+                return;
+            }
+            plugin.getLogger().info("匹配招募窗口结束，锁定 " + ids.size() + " 个公会");
+            WarMode chosen = mode("match");
+            String host = selectHost(chosen);
+            if (host == null || (isHostServer(host) && chooseArena(chosen) == null)) {
+                requeueFailedMatch(ids, "match");
+                return;
+            }
+            if (!createMatch(matchReady, "match", host)) {
+                requeueFailedMatch(ids, "match");
+            }
+            return;
+        }
+
+        // ---- 非匹配模式：保持原两两配对 ----
         Map<String, String> a = null;
         Map<String, String> b = null;
         String chosenMode = null;
         outer:
         for (int i = 0; i < valid.size(); i++) {
             String mi = valid.get(i).getOrDefault("mode", conf().defaultMode);
+            if ("match".equalsIgnoreCase(mi)) {
+                continue;
+            }
             for (int j = i + 1; j < valid.size(); j++) {
                 if (mi.equals(valid.get(j).getOrDefault("mode", conf().defaultMode))) {
                     a = valid.get(i);
@@ -1392,10 +1441,10 @@ public final class WarManager implements GuildModule {
         WarMode chosen = mode(chosenMode);
         String host = selectHost(chosen);
         if (host == null) {
-            return; // 候选承办服都在忙：保留队列，等本轮结束再配对
+            return;
         }
         if (isHostServer(host) && chooseArena(chosen) == null) {
-            return; // 本服有空位但该模式没有空闲 arena，不能把双方拉进来再取消
+            return;
         }
         String idA = a.get("guildId");
         String idB = b.get("guildId");
@@ -1437,10 +1486,55 @@ public final class WarManager implements GuildModule {
                 }
             }
         }
+        // 单服兜底也遵循 10 秒招募窗口，避免 Redis 不可用时退化成立即开战。
+        List<String> localMatch = new ArrayList<>();
+        for (String id : localQueue) {
+            if ("match".equalsIgnoreCase(localMode.getOrDefault(id, conf().defaultMode))) {
+                localMatch.add(id);
+            }
+        }
+        if (localMatch.size() >= 2) {
+            if (localGatherUntil <= 0L) {
+                localGatherUntil = now + conf().matchGatherSeconds * 1000L;
+                plugin.guilds().broadcastAll(plugin.messages().component("war-match-found",
+                        "enemy", "多公会", "seconds", conf().matchGatherSeconds));
+                return;
+            }
+            if (now < localGatherUntil) {
+                return;
+            }
+            localGatherUntil = 0L;
+            List<Map<String, String>> metas = new ArrayList<>();
+            for (String id : localMatch) {
+                Guild guild = plugin.guilds().guild(id);
+                if (guild != null) {
+                    metas.add(CrossServerBus.map("guildId", id, "server", plugin.serverId(),
+                            "mode", "match", "name", guild.name(), "tag", guild.tag()));
+                }
+            }
+            for (String id : localMatch) {
+                localQueue.remove(id);
+                localQueuedAt.remove(id);
+                localMode.remove(id);
+            }
+            if (metas.size() >= 2) {
+                plugin.getLogger().info("匹配招募窗口结束，锁定 " + metas.size() + " 个公会");
+                String host = selectHost(mode("match"));
+                if (host == null || !createMatch(metas, "match", host)) {
+                    requeueFailedMatch(localMatch, "match");
+                }
+            }
+            return;
+        }
+
         // 按模式分组，同模式两两配对
         Map<String, List<String>> byMode = new LinkedHashMap<>();
         for (String id : localQueue) {
-            byMode.computeIfAbsent(localMode.getOrDefault(id, conf().defaultMode), k -> new ArrayList<>()).add(id);
+            String key = localMode.getOrDefault(id, conf().defaultMode);
+            if ("match".equalsIgnoreCase(key)) {
+                continue;
+            }
+            byMode.computeIfAbsent(key, k -> new ArrayList<>()).add(id);
         }
         for (Map.Entry<String, List<String>> e : byMode.entrySet()) {
             List<String> ids = e.getValue();
@@ -1535,10 +1629,21 @@ public final class WarManager implements GuildModule {
      * @return true = 已写库并广播；false = 创建失败（工会消失 / 写库异常）
      */
     private boolean createMatch(Map<String, String> a, Map<String, String> b, String modeKey, String host) {
-        Guild ga = plugin.guilds().guild(a.get("guildId"));
-        Guild gb = plugin.guilds().guild(b.get("guildId"));
-        if (ga == null || gb == null || host == null || host.isBlank()) {
+        return createMatch(List.of(a, b), modeKey, host);
+    }
+
+    /** 2～N 公会创建；前两个写入 guild_a/guild_b，额外公会通过 WAR_MATCHED 的 party 字段同步。 */
+    private boolean createMatch(List<Map<String, String>> partyMeta, String modeKey, String host) {
+        if (partyMeta == null || partyMeta.size() < 2 || host == null || host.isBlank()) {
             return false;
+        }
+        java.util.List<Guild> guilds = new java.util.ArrayList<>();
+        for (Map<String, String> meta : partyMeta) {
+            Guild guild = plugin.guilds().guild(meta.get("guildId"));
+            if (guild == null) {
+                return false;
+            }
+            guilds.add(guild);
         }
         WarMode mode = mode(modeKey);
         ServerTransfer transfer = plugin.bus() == null ? null : plugin.bus().transfer();
@@ -1552,12 +1657,18 @@ public final class WarManager implements GuildModule {
         } else if (transfer != null) {
             unknownHostWarned.remove(host.toLowerCase(java.util.Locale.ROOT));
         }
+        Guild ga = guilds.get(0);
+        Guild gb = guilds.get(1);
         GuildWar war = new GuildWar(UUID.randomUUID().toString(), ga.id(), gb.id());
         war.mode(mode.key);
         war.nameA(ga.name());
         war.nameB(gb.name());
         war.tagA(ga.tag());
         war.tagB(gb.tag());
+        for (int i = 2; i < guilds.size(); i++) {
+            Guild extra = guilds.get(i);
+            war.addParty(extra.id(), extra.name(), extra.tag());
+        }
         war.state(WarState.MATCHED);
         war.hostServer(host);
         try {
@@ -1571,13 +1682,30 @@ public final class WarManager implements GuildModule {
                 "a", ga.id(), "b", gb.id(),
                 "nameA", ga.name(), "nameB", gb.name(),
                 "tagA", ga.tag(), "tagB", gb.tag(),
+                "partyCount", String.valueOf(guilds.size()),
                 "server", plugin.serverId());
+        for (int i = 0; i < guilds.size(); i++) {
+            String init = partyMeta.get(i).get("initiator");
+            if (init != null && !init.isBlank()) {
+                try {
+                    war.initiator(guilds.get(i).id(), UUID.fromString(init));
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            if (i < 2) {
+                data.put(i == 0 ? "a_init" : "b_init", init == null ? "" : init);
+            } else {
+                Guild extra = guilds.get(i);
+                data.put("p" + i + "_guild", extra.id());
+                data.put("p" + i + "_name", extra.name());
+                data.put("p" + i + "_tag", extra.tag());
+                data.put("p" + i + "_init", init == null ? "" : init);
+            }
+        }
         if (plugin.bus().isReady()) {
             plugin.publishAsync("WAR_MATCHED", data);
         }
-        // 本服也立即处理；回声到达时 handleWarMatched 会按 warId 去重。
         handleWarMatched(data);
-        // 远程承办服：等待 ACK；超时未认领会取消并重排，避免“匹配成功但永远不开战”。
         if (!isHostServer(host)) {
             pendingMatches.put(war.id(), new PendingMatch(data));
         }
@@ -1639,6 +1767,19 @@ public final class WarManager implements GuildModule {
         }
         switch (type) {
             case "WAR_MATCHED" -> handleWarMatched(data);
+            case "WAR_ACCEPT_OPEN" -> {
+                if (plugin.serverId().equals(data.get("server"))) {
+                    return;
+                }
+                String warId = data.get("war");
+                GuildWar w = warId == null ? null : observed.get(warId);
+                if (w != null) {
+                    plugin.sync(() -> {
+                        sendAcceptPrompts(w);
+                        acceptInitiators(w);
+                    });
+                }
+            }
             case "WAR_STATE" -> handleWarState(data);
             case "WAR_AUTOJOIN" -> {
                 GuildWar w = data.get("war") == null ? null : observed.get(data.get("war"));
@@ -1715,6 +1856,16 @@ public final class WarManager implements GuildModule {
         });
     }
 
+    private void applyInitiator(GuildWar war, String guildId, String raw) {
+        if (war == null || guildId == null || raw == null || raw.isBlank()) {
+            return;
+        }
+        try {
+            war.initiator(guildId, UUID.fromString(raw));
+        } catch (IllegalArgumentException ignored) {
+        }
+    }
+
     private void handleWarMatched(Map<String, String> data) {
         String warId = data.get("war");
         String host = data.get("host");
@@ -1736,6 +1887,16 @@ public final class WarManager implements GuildModule {
         war.nameB(data.get("nameB"));
         war.tagA(data.get("tagA"));
         war.tagB(data.get("tagB"));
+        int partyCount = parseInt(data.get("partyCount"), 2);
+        applyInitiator(war, war.guildA(), data.get("a_init"));
+        applyInitiator(war, war.guildB(), data.get("b_init"));
+        for (int i = 2; i < partyCount; i++) {
+            String gid = data.get("p" + i + "_guild");
+            if (gid != null && !gid.isBlank()) {
+                war.addParty(gid, data.get("p" + i + "_name"), data.get("p" + i + "_tag"));
+                applyInitiator(war, gid, data.get("p" + i + "_init"));
+            }
+        }
         war.hostServer(host);
         observed.put(warId, war);
         plugin.sync(() -> {
@@ -1760,6 +1921,16 @@ public final class WarManager implements GuildModule {
         war.state(WarState.parse(data.get("state")));
         war.scoreA(parseInt(data.get("sa"), war.scoreA()));
         war.scoreB(parseInt(data.get("sb"), war.scoreB()));
+        String sc = data.get("sc");
+        if (sc != null && !sc.isBlank()) {
+            for (String part : sc.split(",")) {
+                int colon = part.indexOf(':');
+                if (colon > 0) {
+                    war.scoreOfSide(part.substring(0, colon),
+                            parseInt(part.substring(colon + 1), 0));
+                }
+            }
+        }
         long left = parseLong(data.get("left"), 0);
         if (left > 0) {
             war.phaseUntil(System.currentTimeMillis() + left * 1000L);
@@ -1884,7 +2055,7 @@ public final class WarManager implements GuildModule {
             session.world = world;
             applyWorldSettings(def, world);
             war.arenaWorld(world.getName());
-            beginPrepare(war);
+            beginAfterArena(war);
             return;
         }
         if (plugin.dungeon() != null && plugin.dungeon().available() && def.hasTemplate()
@@ -1906,7 +2077,7 @@ public final class WarManager implements GuildModule {
                             session.world = world.world();
                             war.arenaWorld(world.worldName());
                             applyWorldSettings(def, world.world());
-                            beginPrepare(war);
+                            beginAfterArena(war);
                         });
                     });
         } else {
@@ -1928,8 +2099,84 @@ public final class WarManager implements GuildModule {
             session.fallbackWorld = world;
             applyWorldSettings(def, world);
             war.arenaWorld(world.getName());
+            beginAfterArena(war);
+        }
+    }
+
+    /** 场地就绪后：匹配模式先开放 10 秒接受/拒绝，其他模式沿用原准备流程。 */
+    private void beginAfterArena(GuildWar war) {
+        if ("match".equalsIgnoreCase(war.mode())) {
+            beginRecruit(war);
+        } else {
             beginPrepare(war);
         }
+    }
+
+    private void beginRecruit(GuildWar war) {
+        WarSession session = session(war);
+        if (session == null) {
+            return;
+        }
+        long until = System.currentTimeMillis() + conf().matchAcceptSeconds * 1000L;
+        session.acceptUntil = until;
+        session.phaseUntil = until;
+        war.state(WarState.MATCHED);
+        war.phaseUntil(until);
+        publishState(war, true);
+        publishAcceptOpen(war);
+        sendAcceptPrompts(war);
+        acceptInitiators(war);
+        plugin.getLogger().info("工会战 " + war.id() + " 进入 " + conf().matchAcceptSeconds
+                + " 秒接受窗口，参赛公会 " + war.parties().size());
+    }
+
+    private void publishAcceptOpen(GuildWar war) {
+        if (plugin.bus() == null || !plugin.bus().isReady()) {
+            return;
+        }
+        plugin.publishAsync("WAR_ACCEPT_OPEN", CrossServerBus.map(
+                "war", war.id(), "host", war.hostServer(), "server", plugin.serverId(),
+                "seconds", String.valueOf(conf().matchAcceptSeconds)));
+    }
+
+    private void sendAcceptPrompts(GuildWar war) {
+        for (GuildWar.Party party : war.parties()) {
+            Guild guild = plugin.guilds().guild(party.guildId());
+            if (guild == null) {
+                continue;
+            }
+            for (Player player : plugin.guilds().onlineMembers(guild)) {
+                if (player != null && player.isOnline()) {
+                    player.sendMessage(acceptPrompt(war));
+                }
+            }
+        }
+    }
+
+    private void acceptInitiators(GuildWar war) {
+        for (GuildWar.Party party : war.parties()) {
+            UUID uuid = party.initiator();
+            if (uuid == null) {
+                continue;
+            }
+            Player player = plugin.player(uuid);
+            if (player != null && player.isOnline() && !war.containsPlayer(uuid)) {
+                if (isHostServer(war.hostServer())) {
+                    joinLocal(player, war);
+                } else {
+                    join(player);
+                }
+            }
+        }
+    }
+
+    private Component acceptPrompt(GuildWar war) {
+        return plugin.messages().component("war-accept-prompt")
+                .append(plugin.messages().component("war-accept-button")
+                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/guild war join")))
+                .append(Component.text("  "))
+                .append(plugin.messages().component("war-reject-button")
+                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/guild war reject")));
     }
 
     /** 创建 LiuGuild 自建临时世界（environment / name-format / world-type 均生效）。 */
@@ -2132,8 +2379,8 @@ public final class WarManager implements GuildModule {
         phaseUntil = startedAt + mode.prepareSeconds * 1000L;
         lastBroadcastSecond = -1;
         Bukkit.getPluginManager().callEvent(new GuildWarMatchEvent(war));
-        boolean auto = plugin.settings().war.autoEnter;
-        if (!auto) {
+        boolean auto = plugin.settings().war.autoEnter && !"match".equalsIgnoreCase(war.mode());
+        if (!auto && !"match".equalsIgnoreCase(war.mode())) {
             // 手动入场模式需要让本会成员知道并点击进入；这是工会内部邀请，不发全服。
             // fast-start 下不承诺固定秒数：人员到齐会提前开战。
             String foundKey = conf().fastStart ? "war-match-found-fast" : "war-match-found";
@@ -2174,7 +2421,7 @@ public final class WarManager implements GuildModule {
         if (guild == null) {
             return;
         }
-        Set<UUID> roster = "A".equals(side) ? war.rosterA() : war.rosterB();
+        Set<UUID> roster = war.rosterOf(guildId);
         WarMode mode = modeOf(war);
         boolean host = isHostServer(war.hostServer());
         List<Player> remote = new ArrayList<>();
@@ -2531,9 +2778,7 @@ public final class WarManager implements GuildModule {
     /** 解除当前战局所有参赛者的锁定（开战 / 结束时调用）。 */
     private void unfreezeAll(GuildWar war) {
         removePreparePlatform(war);
-        java.util.Set<UUID> targets = new java.util.HashSet<>();
-        targets.addAll(war.rosterA());
-        targets.addAll(war.rosterB());
+        java.util.Set<UUID> targets = new java.util.HashSet<>(war.allPlayers());
         for (UUID u : targets) {
             Player p = plugin.player(u);
             if (p != null) {
@@ -2555,7 +2800,7 @@ public final class WarManager implements GuildModule {
             return;
         }
         for (UUID u : new java.util.ArrayList<>(frozen)) {
-            if (!war.rosterA().contains(u) && !war.rosterB().contains(u)) {
+            if (!war.containsPlayer(u)) {
                 continue;
             }
             Player p = plugin.player(u);
@@ -2596,7 +2841,7 @@ public final class WarManager implements GuildModule {
 
     private void beginActive(GuildWar war) {
         WarMode mode = modeOf(war);
-        if (war.rosterA().isEmpty() || war.rosterB().isEmpty()) {
+        if (!war.hasEnoughParties(2)) {
             cancelWar(war, "war-no-participants");
             return;
         }
@@ -2627,10 +2872,7 @@ public final class WarManager implements GuildModule {
         }
         BossBar bar = session != null ? session.bar : warBar;
         if (bar != null) {
-            for (UUID u : war.rosterA()) {
-                showWarBar(u, bar);
-            }
-            for (UUID u : war.rosterB()) {
+            for (UUID u : war.allPlayers()) {
                 showWarBar(u, bar);
             }
         }
@@ -2721,6 +2963,13 @@ public final class WarManager implements GuildModule {
             bar.progress(Math.max(0f, Math.min(1f, progress)));
         }
         switch (war.state()) {
+            case MATCHED -> {
+                if (session.acceptUntil > 0 && now >= session.acceptUntil) {
+                    session.acceptUntil = 0;
+                    session.acceptClosed = true;
+                    beginPrepare(war);
+                }
+            }
             case PREPARING -> {
                 enforceFreeze(war);
                 if (canFastStart(war, now)) {
@@ -2740,7 +2989,10 @@ public final class WarManager implements GuildModule {
                 if (isKoth(war)) {
                     tickKoth(war);
                     WarMode koth = modeOf(war);
-                    if (war.scoreA() >= koth.objectiveTarget || war.scoreB() >= koth.objectiveTarget) {
+                    boolean reached = war.parties().size() > 2
+                            ? war.parties().stream().anyMatch(p -> p.score() >= koth.objectiveTarget)
+                            : war.scoreA() >= koth.objectiveTarget || war.scoreB() >= koth.objectiveTarget;
+                    if (reached) {
                         endWar(war);
                         return;
                     }
@@ -2775,11 +3027,11 @@ public final class WarManager implements GuildModule {
         if (!conf().fastStart || war.state() != WarState.PREPARING) {
             return false;
         }
-        if (war.rosterA().isEmpty() || war.rosterB().isEmpty()) {
+        if (!war.hasEnoughParties(2)) {
             return false;
         }
         for (UUID id : capturing) {
-            if (war.rosterA().contains(id) || war.rosterB().contains(id)) {
+            if (war.containsPlayer(id)) {
                 return false; // 本场还有人正在采集装备：等落位后再开
             }
         }
@@ -2825,8 +3077,7 @@ public final class WarManager implements GuildModule {
         }
         war.state(WarState.SETTLING);
         war.endedAt(System.currentTimeMillis());
-        String winner = !forcedWinner.isBlank() ? forcedWinner
-                : (war.scoreA() == war.scoreB() ? "" : (war.scoreA() > war.scoreB() ? war.guildA() : war.guildB()));
+        String winner = !forcedWinner.isBlank() ? forcedWinner : war.firstPlace();
         forcedWinner = "";
         war.winner(winner);
         WarSession ending = session(war);
@@ -2853,6 +3104,7 @@ public final class WarManager implements GuildModule {
                     // 状态已经是 SETTLING：后续写失败也不能把奖励吞掉，outbox 行与补扫会兜底。
                     try {
                         plugin.repo().updateWar(war);
+                        plugin.repo().saveWarParties(war);
                     } catch (Exception e) {
                         plugin.getLogger().warning("结算工会战写库失败: " + e.getMessage());
                     }
@@ -2912,9 +3164,7 @@ public final class WarManager implements GuildModule {
             resetWarStats();
             return;
         }
-        java.util.Set<UUID> ids = new java.util.HashSet<>();
-        ids.addAll(war.rosterA());
-        ids.addAll(war.rosterB());
+        java.util.Set<UUID> ids = new java.util.HashSet<>(war.allPlayers());
         if (knownPlayers != null) {
             ids.addAll(knownPlayers);
         }
@@ -2953,9 +3203,7 @@ public final class WarManager implements GuildModule {
      */
     private java.util.List<com.liu.liuguild.db.WarPlayerStat> buildWarStats(GuildWar war) {
         long end = war.endedAt() > 0 ? war.endedAt() : System.currentTimeMillis();
-        java.util.Set<UUID> ids = new java.util.LinkedHashSet<>();
-        ids.addAll(war.rosterA());
-        ids.addAll(war.rosterB());
+        java.util.Set<UUID> ids = new java.util.LinkedHashSet<>(war.allPlayers());
         for (Map.Entry<UUID, GuildWar> e : statWar.entrySet()) {
             if (e.getValue() == war) {
                 ids.add(e.getKey());
@@ -2967,12 +3215,15 @@ public final class WarManager implements GuildModule {
         for (UUID uuid : ids) {
             String side = statSide.get(uuid);
             if (side == null) {
-                side = war.rosterA().contains(uuid) ? "A" : (war.rosterB().contains(uuid) ? "B" : null);
+                side = war.sideOf(uuid);
             }
             if (side == null) {
                 continue;
             }
-            String guildId = "A".equals(side) ? war.guildA() : war.guildB();
+            String guildId = war.guildOfSide(side);
+            if (guildId == null) {
+                continue;
+            }
             int kills = statKills.getOrDefault(uuid, 0);
             int deaths = statDeaths.getOrDefault(uuid, 0);
             long joined = statJoinedAt.getOrDefault(uuid, war.startedAt() > 0 ? war.startedAt() : end);
@@ -3075,12 +3326,13 @@ public final class WarManager implements GuildModule {
         }
         GuildWarEndEvent.Result result = winner == null || winner.isEmpty()
                 ? GuildWarEndEvent.Result.DRAW
-                : (winner.equals(war.guildA()) ? GuildWarEndEvent.Result.A_WIN : GuildWarEndEvent.Result.B_WIN);
+                : (winner.equals(war.guildB()) ? GuildWarEndEvent.Result.B_WIN : GuildWarEndEvent.Result.A_WIN);
         Bukkit.getPluginManager().callEvent(new GuildWarEndEvent(war, result));
         if (winner == null || winner.isEmpty()) {
-            broadcastWar(war, plugin.messages().component("war-draw", "score_a", war.scoreA(), "score_b", war.scoreB()));
+            broadcastWar(war, plugin.messages().component("war-draw",
+                    "score_a", war.scoreA(), "score_b", war.scoreB()));
         } else {
-            String winnerName = winner.equals(war.guildA()) ? war.nameA() : war.nameB();
+            String winnerName = war.nameOf(winner);
             broadcastWar(war, plugin.messages().component("war-ended",
                     "winner", winnerName, "score_a", war.scoreA(), "score_b", war.scoreB()));
         }
@@ -3097,12 +3349,13 @@ public final class WarManager implements GuildModule {
         if (plugin.mail() != null && stats != null && !stats.isEmpty()) {
             java.util.List<com.liu.liuguild.db.MailEntry> mails = new java.util.ArrayList<>();
             for (com.liu.liuguild.db.WarPlayerStat stat : stats) {
-                boolean sideA = stat.guildId() != null && stat.guildId().equals(war.guildA());
-                String enemy = sideA ? war.nameB() : war.nameA();
+                String enemy = war.enemyOf(stat.guildId());
                 String resultText = winner == null || winner.isBlank() ? "平局"
                         : (winner.equals(stat.guildId()) ? "胜利" : "失败");
                 String title = "工会战：" + resultText;
-                String body = "对阵 " + enemy + "，比分 " + war.scoreA() + ":" + war.scoreB()
+                String body = "对阵 " + (enemy == null || enemy.isBlank() ? "多公会" : enemy)
+                        + "，排名 " + war.ranking().stream()
+                        .map(GuildWar.Party::guildId).toList().indexOf(stat.guildId())
                         + (stat.mvp() ? "；本场 MVP 是你" : "");
                 mails.add(plugin.mail().build(stat.player(), stat.guildId(), "war.result",
                         title, body, com.liu.liuguild.mail.MailService.TTL_WAR));
@@ -3113,16 +3366,17 @@ public final class WarManager implements GuildModule {
         if (mode != null) {
             double mult = mode.scheduled() ? Math.max(1.0, mode.seasonPointsMultiplier) : 1.0;
             boolean draw = winner == null || winner.isBlank();
-            boolean aWon = winner != null && winner.equals(war.guildA());
-            boolean bWon = winner != null && winner.equals(war.guildB());
-            long nominalA = rewardService.wonGuildFunds(aWon, mode, mult);
-            long nominalB = rewardService.wonGuildFunds(bWon, mode, mult);
-            long fundsA = rewardService.grantGuild(plugin.guilds().guild(war.guildA()), aWon, draw, mode, mult);
-            long fundsB = rewardService.grantGuild(plugin.guilds().guild(war.guildB()), bWon, draw, mode, mult);
+            java.util.Map<String, Long> grantedFunds = new java.util.HashMap<>();
+            java.util.Map<String, Long> nominalFunds = new java.util.HashMap<>();
+            for (GuildWar.Party party : war.parties()) {
+                boolean won = !draw && party.guildId().equals(winner);
+                nominalFunds.put(party.guildId(), rewardService.wonGuildFunds(won, mode, mult));
+                grantedFunds.put(party.guildId(), rewardService.grantGuild(
+                        plugin.guilds().guild(party.guildId()), won, draw, mode, mult));
+            }
             for (com.liu.liuguild.db.GuildRepository.WarReward row : rewards) {
-                boolean sideA = row.guildId() != null && row.guildId().equals(war.guildA());
-                long granted = sideA ? fundsA : fundsB;
-                long nominal = sideA ? nominalA : nominalB;
+                long granted = grantedFunds.getOrDefault(row.guildId(), 0L);
+                long nominal = nominalFunds.getOrDefault(row.guildId(), 0L);
                 pendingRewardClaims.incrementAndGet();
                 WarSession queueSession = session(war);
                 (queueSession != null ? queueSession.settlements : settleQueue).add(() -> {
@@ -3310,7 +3564,7 @@ public final class WarManager implements GuildModule {
         for (WarSession session : new ArrayList<>(sessions.values())) {
             GuildWar war = session.war;
             if (war.state().isLive() && war.state() != WarState.SETTLING
-                    && (guildId.equals(war.guildA()) || guildId.equals(war.guildB()))) {
+                    && war.involves(guildId)) {
                 cancelWar(war, "war-guild-disbanded");
             }
         }
@@ -3348,13 +3602,9 @@ public final class WarManager implements GuildModule {
 
     private void cleanup(GuildWar war, boolean publishTerminal) {
         java.util.Set<UUID> warPlayers = new java.util.HashSet<>();
-        warPlayers.addAll(war.rosterA());
-        warPlayers.addAll(war.rosterB());
+        warPlayers.addAll(war.allPlayers());
         // 传送所有参赛者/旁观者回原位并还原数据
-        for (UUID u : new ArrayList<>(war.rosterA())) {
-            leaveLocal(u);
-        }
-        for (UUID u : new ArrayList<>(war.rosterB())) {
+        for (UUID u : new ArrayList<>(war.allPlayers())) {
             leaveLocal(u);
         }
         for (UUID u : new ArrayList<>(spectatorWar.keySet())) {
@@ -3362,8 +3612,9 @@ public final class WarManager implements GuildModule {
                 leaveSpectator(u);
             }
         }
-        war.rosterA().clear();
-        war.rosterB().clear();
+        for (GuildWar.Party party : war.parties()) {
+            party.roster().clear();
+        }
         WarSession session = session(war);
         ArenaDef activeDef = session != null ? session.def : currentArena;
         boolean keepWorld = activeDef != null && activeDef.tempWorld.keepOnEnd;
@@ -3493,6 +3744,13 @@ public final class WarManager implements GuildModule {
         // 开战后锁定名单：不要在“注定被拒”的情况下先把玩家传送过去；
         // fast-start 的宽限期内仍允许陆续赶到的成员加入。
         long now = System.currentTimeMillis();
+        WarSession acceptSession = session(war);
+        if ("match".equalsIgnoreCase(war.mode()) && acceptSession != null
+                && acceptSession.acceptClosed && !war.containsPlayer(player.getUniqueId())
+                && !isReconnectAllowed(war, player.getUniqueId(), now)) {
+            plugin.messages().send(player, "war-join-locked");
+            return;
+        }
         if (war.state() != WarState.MATCHED && war.state() != WarState.PREPARING
                 && !isFastLateJoin(war, now) && !isReconnectAllowed(war, player.getUniqueId(), now)) {
             plugin.messages().send(player, "war-join-locked");
@@ -3503,6 +3761,36 @@ public final class WarManager implements GuildModule {
         } else {
             transferToWar(player, war);
         }
+    }
+
+    /** 接受窗口内拒绝参战：只记录表态，不传送、不创建快照。 */
+    public void reject(Player player) {
+        if (player == null) {
+            return;
+        }
+        plugin.messages().send(player, "war-accept-rejected");
+    }
+
+    /** 玩家在 10 秒接受窗口内重新登录时补发一次接受/拒绝消息。 */
+    public void notifyAcceptWindow(Player player) {
+        if (player == null || !player.isOnline() || plugin.messages() == null) {
+            return;
+        }
+        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+        if (guild == null) {
+            return;
+        }
+        GuildWar war = warOf(guild.id());
+        if (war == null || !"match".equalsIgnoreCase(war.mode())
+                || war.state() != WarState.MATCHED || war.containsPlayer(player.getUniqueId())) {
+            return;
+        }
+        WarSession session = session(war);
+        if (session != null && (session.acceptClosed
+                || (session.acceptUntil > 0 && System.currentTimeMillis() >= session.acceptUntil))) {
+            return;
+        }
+        player.sendMessage(acceptPrompt(war));
     }
 
     /** 玩家进入承办服后由监听器调用，消费待处理工会战 / 跨服竞技场传送。 */
@@ -3715,6 +4003,15 @@ public final class WarManager implements GuildModule {
             origin = originOf.get(player.getUniqueId());
         }
         long joinNow = System.currentTimeMillis();
+        WarSession joiningSession = session(war);
+        if ("match".equalsIgnoreCase(war.mode()) && joiningSession != null
+                && joiningSession.acceptClosed && !war.containsPlayer(player.getUniqueId())
+                && !isReconnectAllowed(war, player.getUniqueId(), joinNow)) {
+            if (origin != null) {
+                returnToOrigin(player, origin);
+            }
+            return;
+        }
         if (war.state() != WarState.MATCHED && war.state() != WarState.PREPARING
                 && !isFastLateJoin(war, joinNow)
                 && !isReconnectAllowed(war, player.getUniqueId(), joinNow)) {
@@ -3736,20 +4033,21 @@ public final class WarManager implements GuildModule {
             }
             return;
         }
-        String side = guild.id().equals(war.guildA()) ? "A" : (guild.id().equals(war.guildB()) ? "B" : null);
-        String s = side;
+        String s = war.sideOfGuild(guild.id());
         if (s == null) {
             if (origin != null) {
                 returnToOrigin(player, origin);
             }
             return;
         }
-        Set<UUID> roster = "A".equals(s) ? war.rosterA() : war.rosterB();
+        Set<UUID> roster = war.rosterOfSide(s);
         WarMode mode = modeOf(war);
         if (roster.contains(player.getUniqueId())) {
             return; // 已在名单：幂等返回，避免重复提示“已满”
         }
-        if (roster.size() >= mode.teamSize) {
+        // 匹配模式改为确认制后，接受者全部参战；旧模式仍保留 team-size 上限。
+        boolean unlimited = "match".equalsIgnoreCase(war.mode());
+        if (!unlimited && roster.size() >= mode.teamSize) {
             boolean spectated = false;
             if (mode.allowSpectators) {
                 spectated = spectateLocal(player, war);
@@ -3809,7 +4107,10 @@ public final class WarManager implements GuildModule {
             plugin.messages().send(player, "war-joined");
             // 传送后确保 game mode，并在准备阶段锁定（开战时自动解除）
             player.setGameMode(org.bukkit.GameMode.SURVIVAL);
-            if (war.state() == WarState.PREPARING) {
+            WarSession joinedSession = session(war);
+            boolean accepting = "match".equalsIgnoreCase(war.mode())
+                    && joinedSession != null && joinedSession.acceptUntil > 0;
+            if (war.state() == WarState.PREPARING || accepting) {
                 freezePlayer(player, war, s);
             }
             showWarBar(player.getUniqueId());
@@ -4135,16 +4436,19 @@ public final class WarManager implements GuildModule {
         if (war == null) return def.teamSpawn(side);
         Map<UUID, Integer> assignments = spawnAssignments.computeIfAbsent(
                 war.id(), id -> new java.util.HashMap<>());
-        if (!assignments.containsKey(uuid)) {
-            for (var team : java.util.List.of(war.rosterA(), war.rosterB())) {
-                var roster = new java.util.ArrayList<>(team);
-                roster.sort(UUID::compareTo);
-                for (int i = 0; i < roster.size(); i++) {
-                    assignments.putIfAbsent(roster.get(i), i);
-                }
+        for (GuildWar.Party party : war.parties()) {
+            var roster = new java.util.ArrayList<>(party.roster());
+            roster.sort(UUID::compareTo);
+            for (int i = 0; i < roster.size(); i++) {
+                assignments.putIfAbsent(roster.get(i), i);
             }
         }
-        return def.teamSpawn(side, assignments.getOrDefault(uuid, 0));
+        int memberIndex = assignments.getOrDefault(uuid, 0);
+        if (war.parties().size() > 2) {
+            int partyIndex = war.partyIndex(side);
+            return def.partySpawn(Math.max(0, partyIndex), war.parties().size(), memberIndex);
+        }
+        return def.teamSpawn(side, memberIndex);
     }
 
     private void teleportToSpawn(Player player, GuildWar war, String side) {
@@ -4154,7 +4458,8 @@ public final class WarManager implements GuildModule {
         }
         ArenaDef def = arenaDef(war);
         ArenaDef.Spawn spawn = assignedSpawn(def, war, side, player.getUniqueId());
-        Location loc = (spawn == null ? ("A".equals(side) ? def.spawnA : def.spawnB) : spawn).toLocation(world);
+        Location loc = (spawn == null ? def.partySpawn(Math.max(0, war.partyIndex(side)),
+                Math.max(1, war.parties().size()), 0) : spawn).toLocation(world);
         warTeleport(player, loc);
     }
 
@@ -4249,8 +4554,7 @@ public final class WarManager implements GuildModule {
             returnLoc.remove(uuid);
             livesRemaining.remove(uuid);
             if (war != null) {
-                war.rosterA().remove(uuid);
-                war.rosterB().remove(uuid);
+                war.removePlayer(uuid);
                 playerWars.remove(uuid, war);
                 statWar.remove(uuid, war);
                 spectatorWar.remove(uuid);
@@ -4290,8 +4594,7 @@ public final class WarManager implements GuildModule {
                     returnLoc.remove(uuid);
                     livesRemaining.remove(uuid);
                     if (war != null) {
-                        war.rosterA().remove(uuid);
-                        war.rosterB().remove(uuid);
+                        war.removePlayer(uuid);
                         playerWars.remove(uuid, war);
                         statWar.remove(uuid, war);
                         spectatorWar.remove(uuid);
@@ -4501,8 +4804,7 @@ public final class WarManager implements GuildModule {
                     return;
                 }
                 GuildWar originWar = session(origin.warId()) == null ? null : session(origin.warId()).war;
-                if (originWar != null
-                        && (originWar.rosterA().contains(uuid) || originWar.rosterB().contains(uuid))) {
+                if (originWar != null && originWar.containsPlayer(uuid)) {
                     return; // 仍在出战名单：保留记录，等结束后再送
                 }
                 plugin.getLogger().info("为玩家 " + player.getName() + " 补做跨服返程（" + origin.sourceServer() + "）。");
@@ -4525,8 +4827,8 @@ public final class WarManager implements GuildModule {
         if (war == null && guildId != null) {
             for (WarSession session : sessions.values()) {
                 GuildWar candidate = session.war;
-                if (guildId.equals(candidate.guildA()) || guildId.equals(candidate.guildB())) {
-                    if (candidate.rosterA().contains(uuid) || candidate.rosterB().contains(uuid)) {
+                if (candidate.involves(guildId)) {
+                    if (candidate.containsPlayer(uuid)) {
                         war = candidate;
                         break;
                     }
@@ -4536,7 +4838,7 @@ public final class WarManager implements GuildModule {
         if (war == null) {
             return;
         }
-        boolean wasParticipant = war.rosterA().remove(uuid) | war.rosterB().remove(uuid);
+        boolean wasParticipant = war.removePlayer(uuid);
         boolean wasSpectator = spectators.remove(uuid);
         spectatorWar.remove(uuid);
         if (!wasParticipant && !wasSpectator && !sideOf.containsKey(uuid)) {
@@ -4614,8 +4916,7 @@ public final class WarManager implements GuildModule {
         }
         refreshLuckPerms(player);
         if (war != null) {
-            war.rosterA().remove(uuid);
-            war.rosterB().remove(uuid);
+            war.removePlayer(uuid);
         }
         if (side != null || sparrowSnap.containsKey(uuid) || localSnap.containsKey(uuid)) {
             restoreSnapshot(uuid, player, true, null);
@@ -4651,18 +4952,11 @@ public final class WarManager implements GuildModule {
             return;
         }
         int points = modeOf(war).scoreKill;
-        if ("A".equals(ks)) {
-            war.scoreA(war.scoreA() + points);
-        } else {
-            war.scoreB(war.scoreB() + points);
-        }
+        war.addScore(ks, points);
+        war.addDeath(vs);
         int dp = modeOf(war).scoreDeath;
         if (dp != 0) {
-            if ("A".equals(vs)) {
-                war.scoreA(war.scoreA() + dp);
-            } else {
-                war.scoreB(war.scoreB() + dp);
-            }
+            war.addScore(vs, dp);
         }
         statKills.merge(killer.getUniqueId(), 1, Integer::sum);
         statDeaths.merge(victim.getUniqueId(), 1, Integer::sum);
@@ -4695,6 +4989,15 @@ public final class WarManager implements GuildModule {
 
     /** 比赛开始时锁定实际参赛者，并按较小队伍人数归一双方总生命池。 */
     private void initializeLives(GuildWar war, WarMode mode) {
+        if (war.parties().size() > 2) {
+            for (GuildWar.Party party : war.parties()) {
+                for (UUID id : party.roster()) {
+                    livesRemaining.put(id, mode.livesPerPlayer);
+                    eliminated.remove(id);
+                }
+            }
+            return;
+        }
         List<UUID> a = new ArrayList<>(war.rosterA());
         List<UUID> b = new ArrayList<>(war.rosterB());
         for (UUID id : a) {
@@ -4764,10 +5067,28 @@ public final class WarManager implements GuildModule {
     }
 
     private void checkElimination(GuildWar war, String side) {
-        Set<UUID> team = "A".equals(side) ? war.rosterA() : war.rosterB();
-        boolean out = team.stream().allMatch(eliminated::contains);
-        if (out) {
-            forcedWinner = "A".equals(side) ? war.guildB() : war.guildA();
+        Set<UUID> team = war.rosterOfSide(side);
+        if (team.isEmpty() || !team.stream().allMatch(eliminated::contains)) {
+            return;
+        }
+        GuildWar.Party remaining = war.parties().stream()
+                .filter(p -> !p.roster().isEmpty()
+                        && !p.roster().stream().allMatch(eliminated::contains))
+                .findFirst().orElse(null);
+        if (remaining == null) {
+            // 全部淘汰：按当前击杀分排名结算
+            forcedWinner = "";
+            endWar(war);
+            return;
+        }
+        int aliveParties = 0;
+        for (GuildWar.Party p : war.parties()) {
+            if (!p.roster().isEmpty() && !p.roster().stream().allMatch(eliminated::contains)) {
+                aliveParties++;
+            }
+        }
+        if (aliveParties <= 1) {
+            forcedWinner = remaining.guildId();
             endWar(war);
         }
     }
@@ -4885,16 +5206,23 @@ public final class WarManager implements GuildModule {
             left = secondsLeft(war);
         }
         final long leftSeconds = left;
-        plugin.async(() -> plugin.bus().publishWarState(id, state, scoreA, scoreB, leftSeconds));
+        java.util.Map<String, Integer> partyScores = new java.util.LinkedHashMap<>();
+        for (GuildWar.Party party : war.parties()) {
+            partyScores.put(party.side(), party.score());
+        }
+        plugin.async(() -> plugin.bus().publishWarState(id, state, scoreA, scoreB, leftSeconds, partyScores));
     }
 
     private void broadcastWar(GuildWar war, net.kyori.adventure.text.Component text) {
         // 两个工会之间的战况只发给本场实际参与者和承办服旁观者；
         // 不跨服、不发给未参赛的工会成员，避免无关玩家收到刷屏消息。
         Set<UUID> audience = new java.util.LinkedHashSet<>();
-        audience.addAll(war.rosterA());
-        audience.addAll(war.rosterB());
-        audience.addAll(spectators);
+        audience.addAll(war.allPlayers());
+        for (UUID id : spectators) {
+            if (spectatorWar.get(id) == war) {
+                audience.add(id);
+            }
+        }
         for (UUID uuid : audience) {
             Player player = plugin.player(uuid);
             if (player != null && player.isOnline()) {
@@ -4939,16 +5267,15 @@ public final class WarManager implements GuildModule {
         BossBar bar = session != null ? session.bar : warBar;
         if (bar != null) {
             if (war != null) {
-                for (UUID u : war.rosterA()) {
-                    Player p = plugin.player(u);
-                    if (p != null) p.hideBossBar(bar);
-                }
-                for (UUID u : war.rosterB()) {
+                for (UUID u : war.allPlayers()) {
                     Player p = plugin.player(u);
                     if (p != null) p.hideBossBar(bar);
                 }
             }
             for (UUID u : new ArrayList<>(spectators)) {
+                if (spectatorWar.get(u) != war) {
+                    continue;
+                }
                 Player p = plugin.player(u);
                 if (p != null) p.hideBossBar(bar);
             }
@@ -4957,6 +5284,29 @@ public final class WarManager implements GuildModule {
     }
 
     private net.kyori.adventure.text.Component scoreLine(GuildWar war) {
+        if (war != null && war.parties().size() > 2) {
+            StringBuilder rank = new StringBuilder();
+            int i = 0;
+            for (GuildWar.Party party : war.ranking()) {
+                if (i++ > 0) {
+                    rank.append("  ");
+                }
+                rank.append('#').append(i).append(' ').append(party.name())
+                        .append(' ').append(party.score());
+            }
+            net.kyori.adventure.text.Component line = net.kyori.adventure.text.Component.text(rank.toString());
+            if (isKoth(war)) {
+                WarSession kothSession = session(war);
+                if (kothSession != null && !kothSession.kothCounts.isEmpty()) {
+                    StringBuilder k = new StringBuilder("  据点:");
+                    for (Map.Entry<String, Integer> e : kothSession.kothCounts.entrySet()) {
+                        k.append(' ').append(war.nameOfSide(e.getKey())).append('=').append(e.getValue());
+                    }
+                    line = line.append(net.kyori.adventure.text.Component.text(k.toString()));
+                }
+            }
+            return line;
+        }
         net.kyori.adventure.text.Component line = plugin.messages().component("war-score",
                 "guild_a", war.nameA(), "score_a", war.scoreA(),
                 "score_b", war.scoreB(), "guild_b", war.nameB());
@@ -4995,6 +5345,10 @@ public final class WarManager implements GuildModule {
             return;
         }
         double range = def.kothRadius * def.kothRadius;
+        if (war.parties().size() > 2) {
+            tickKothMulti(war, def, world, range);
+            return;
+        }
         int a = countOnPoint(war.rosterA(), world, def, range);
         int b = countOnPoint(war.rosterB(), world, def, range);
         WarSession kothSession = session(war);
@@ -5030,6 +5384,45 @@ public final class WarManager implements GuildModule {
             war.scoreB(war.scoreB() + points);
         }
         publishState(war);
+    }
+
+    private void tickKothMulti(GuildWar war, ArenaDef def, World world, double rangeSq) {
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        String owner = "";
+        int active = 0;
+        for (GuildWar.Party party : war.parties()) {
+            int count = countOnPoint(party.roster(), world, def, rangeSq);
+            counts.put(party.side(), count);
+            if (count > 0) {
+                active++;
+                owner = party.side();
+            }
+        }
+        if (active > 1) {
+            owner = "";
+        }
+        WarSession session = session(war);
+        String previous = session == null ? "" : session.kothOwner;
+        if (session != null) {
+            session.kothCounts.clear();
+            session.kothCounts.putAll(counts);
+        }
+        if (!owner.equals(previous)) {
+            if (!owner.isBlank()) {
+                broadcastWar(war, plugin.messages().component("war-koth-control",
+                        "guild", war.nameOfSide(owner), "name", modeOf(war).objectiveName));
+            } else if (active > 1) {
+                broadcastWar(war, plugin.messages().component("war-koth-contested",
+                        "name", modeOf(war).objectiveName));
+            }
+            if (session != null) {
+                session.kothOwner = owner;
+            }
+        }
+        if (!owner.isBlank() && modeOf(war).objectivePointsPerSecond > 0) {
+            war.addScore(owner, modeOf(war).objectivePointsPerSecond);
+            publishState(war);
+        }
     }
 
     private int countOnPoint(java.util.Set<UUID> roster, World world, ArenaDef def, double rangeSq) {
@@ -5093,6 +5486,8 @@ public final class WarManager implements GuildModule {
         World builtinWorld;
         ArenaWorld dynamicArena;
         long phaseUntil;
+        long acceptUntil;
+        boolean acceptClosed;
         long prepareStartedAt;
         long lastBroadcastSecond = -1;
         boolean settling;
@@ -5100,6 +5495,7 @@ public final class WarManager implements GuildModule {
         String kothOwner = "";
         int kothCountA;
         int kothCountB;
+        final java.util.Map<String, Integer> kothCounts = new java.util.LinkedHashMap<>();
         final java.util.Deque<Runnable> settlements = new java.util.concurrent.ConcurrentLinkedDeque<>();
         net.kyori.adventure.bossbar.BossBar bar;
 

@@ -14,6 +14,32 @@
 
 `/guildadmin war start season` 开启同一场多工会混战，不进入两两匹配队列。各子服汇总在线名单，按工会等级、最低人数和队伍上限筛选。击杀加分，同分按死亡次数升序排名；时间到或只剩一个存活工会结束，按名次发公共工会资金奖励。完整配置、跨服返程和验证边界见 [多工会赛季混战](season-melee.md)。
 
+## 匹配工会战：2～N 公会与确认入场
+
+`match` 模式不再两两立即开战，`war.auto-enter` 对 `match` 不生效（仅保留给其他模式）：
+
+1. 第 1 个公会进入队列。
+2. 第 2 个公会进入后开启 `match-gather-seconds` 秒招募窗口。
+3. 窗口内加入的公会全部纳入同一场。
+4. 窗口结束锁定参赛公会，给所有在线成员发送 `[接受]` / `[拒绝]` 可点击消息。
+5. `match-accept-seconds` 秒内点击接受才进入参战名单并传送；拒绝/超时留在原地。
+6. 发起队列的队长/官员会由系统自动加入，不需要再次确认。
+7. 接受窗口结束后进入准备倒计时，开战后禁止新玩家加入；已在名单内的玩家保留重连。
+8. 多公会按击杀积分排名：击杀降序、死亡升序、公会 ID 稳定排序；第 1 名胜方，其余负方。
+9. 出生点按公会数自动均分；场地没有足够点位时无法保证公平分组。
+
+配置：
+
+```yaml
+war:
+  match-gather-seconds: 10
+  match-accept-seconds: 10
+```
+
+拒绝后也可以使用 `/guild war reject`。
+
+> 多公会仅适用于 `match`；`season` 仍使用独立的多工会混战流程。
+
 ## 配置示例
 
 ```yaml
@@ -23,6 +49,8 @@ war:
   # 承办服在 arena.yml 的 server 设置，无需每服开关。
   queue-interval-seconds: 2
   match-timeout-seconds: 180
+  match-gather-seconds: 10
+  match-accept-seconds: 10
   default-mode: match
   broadcast-queue: true
   bossbar: true

@@ -41,13 +41,21 @@ public final class WebhookHook {
         if (!plugin.settings().main.webhookWarResult || war == null) {
             return;
         }
-        String winnerName = winner == null || winner.isBlank() ? "平局"
-                : (winner.equals(war.guildA()) ? war.nameA() : war.nameB());
+        String winnerName = winner == null || winner.isBlank() ? "平局" : war.nameOf(winner);
         StringBuilder sb = new StringBuilder();
-        sb.append("**工会战结束**\n")
-                .append(war.nameA()).append(" ").append(war.scoreA()).append(" : ")
-                .append(war.scoreB()).append(" ").append(war.nameB()).append("\n")
-                .append("结果：").append(winnerName)
+        sb.append("**工会战结束**\n");
+        if (war.parties().size() > 2) {
+            int rank = 1;
+            for (GuildWar.Party party : war.ranking()) {
+                if (rank > 1) sb.append("\n");
+                sb.append('#').append(rank++).append(' ').append(party.name())
+                        .append(' ').append(party.score());
+            }
+        } else {
+            sb.append(war.nameA()).append(" ").append(war.scoreA()).append(" : ")
+                    .append(war.scoreB()).append(" ").append(war.nameB());
+        }
+        sb.append("\n结果：").append(winnerName)
                 .append("｜承办服：").append(war.hostServer());
         if (mvp != null) {
             sb.append("\nMVP：").append(mvp.playerName())

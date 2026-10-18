@@ -1288,20 +1288,82 @@ public final class GuildRepository {
         return out;
     }
 
+    /** 2～N 公会战的额外阵营（A/B 仍写在 guild_wars）。 */
+    public void saveWarParties(GuildWar war) throws SQLException {
+        if (war == null) {
+            return;
+        }
+        String table = db.t("guild_war_parties");
+        String sql = db.isSqlite()
+                ? "INSERT INTO `" + table + "` (`war_id`,`guild_id`,`name`,`tag`,`score`,`deaths`,`winner`)"
+                + " VALUES (?,?,?,?,?,?,?) ON CONFLICT(`war_id`,`guild_id`) DO UPDATE SET"
+                + " `name`=excluded.`name`,`tag`=excluded.`tag`,`score`=excluded.`score`,"
+                + "`deaths`=excluded.`deaths`,`winner`=excluded.`winner`"
+                : "INSERT INTO `" + table + "` (`war_id`,`guild_id`,`name`,`tag`,`score`,`deaths`,`winner`)"
+                + " VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE"
+                + " `name`=VALUES(`name`),`tag`=VALUES(`tag`),`score`=VALUES(`score`),"
+                + "`deaths`=VALUES(`deaths`),`winner`=VALUES(`winner`)";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            String winner = war.winner();
+            for (GuildWar.Party party : war.parties()) {
+                ps.setString(1, war.id());
+                ps.setString(2, party.guildId());
+                ps.setString(3, party.name());
+                ps.setString(4, party.tag());
+                ps.setInt(5, party.score());
+                ps.setInt(6, party.deaths());
+                ps.setInt(7, winner != null && winner.equals(party.guildId()) ? 1 : 0);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    private void loadWarParties(GuildWar war) throws SQLException {
+        String sql = "SELECT `guild_id`,`name`,`tag`,`score`,`deaths` FROM `" + db.t("guild_war_parties")
+                + "` WHERE `war_id`=?";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, war.id());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String guildId = rs.getString("guild_id");
+                    GuildWar.Party party = war.partyOfGuild(guildId);
+                    if (party == null) {
+                        party = war.addParty(guildId, rs.getString("name"), rs.getString("tag"));
+                    }
+                    war.scoreOfSide(party.side(), rs.getInt("score"));
+                    for (int i = 0; i < rs.getInt("deaths"); i++) {
+                        war.addDeath(party.side());
+                    }
+                }
+            }
+        }
+    }
+
     public List<GuildWar> warHistory(String guildId, int limit) throws SQLException {
         List<GuildWar> out = new ArrayList<>();
-        String sql = "SELECT * FROM `" + db.t("guild_wars")
-                + "` WHERE (`guild_a`=? OR `guild_b`=?) AND `state`='ENDED' ORDER BY `ended_at` DESC LIMIT ?";
+        String sql = "SELECT * FROM `" + db.t("guild_wars") + "` w"
+                + " WHERE w.`state`='ENDED' AND (w.`guild_a`=? OR w.`guild_b`=?"
+                + " OR EXISTS (SELECT 1 FROM `" + db.t("guild_war_parties") + "` p"
+                + " WHERE p.`war_id`=w.`war_id` AND p.`guild_id`=?))"
+                + " ORDER BY w.`ended_at` DESC LIMIT ?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, guildId);
             ps.setString(2, guildId);
-            ps.setInt(3, Math.max(1, limit));
+            ps.setString(3, guildId);
+            ps.setInt(4, Math.max(1, limit));
             try (ResultSet rs = ps.executeQuery()) {
+                // 先只读取主表行，连接关闭后再读 party，SQLite 单连接池才不会自锁。
                 while (rs.next()) {
                     out.add(mapWar(rs));
                 }
             }
+        }
+        for (GuildWar war : out) {
+            loadWarParties(war);
         }
         return out;
     }
@@ -1317,6 +1379,13 @@ public final class GuildRepository {
     }
 
     public void purgeWarsBefore(long before) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_war_parties")
+                     + "` WHERE `war_id` IN (SELECT `war_id` FROM `" + db.t("guild_wars")
+                     + "` WHERE `state`='ENDED' AND `ended_at`<? AND `ended_at`>0)")) {
+            ps.setLong(1, before);
+            ps.executeUpdate();
+        }
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_wars")
                      + "` WHERE `state`='ENDED' AND `ended_at`<? AND `ended_at`>0")) {

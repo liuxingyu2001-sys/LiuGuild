@@ -472,3 +472,7 @@ zh_CN:
   admin-verify-result: "<gold>数据校验<dark_gray>»</dark_gray> <gray>发现问题 <white>{count}</white> 个。"
   mode-usage: "<red>用法：<white>/guildadmin mode <list|info|start> [模式]</white>"
   season-started: "<green>已开启赛季工会战模式 <white>{mode}</white>。"
+  war-accept-prompt: "<gold>[工会战]</gold> <white>本场已锁定，是否参战？</white> "
+  war-accept-button: "<green>[接受]</green>"
+  war-reject-button: "<red>[拒绝]</red>"
+  war-accept-rejected: "<gray>已拒绝本场工会战，你仍留在原地。"

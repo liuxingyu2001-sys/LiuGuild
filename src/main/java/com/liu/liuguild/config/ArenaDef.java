@@ -181,6 +181,22 @@ public final class ArenaDef {
         return spawns.get(names.get(start + Math.floorMod(memberIndex, count)));
     }
 
+    /**
+     * 多公会匹配：把全部命名出生点按公会数均分，partyIndex 从 0 开始。
+     * 例子：3 个公会、20 个点 → 6/7/7。
+     */
+    public Spawn partySpawn(int partyIndex, int partyCount, int memberIndex) {
+        List<String> names = spawnPointNames();
+        if (names.isEmpty() || partyCount < 1) {
+            return teamSpawn(partyIndex == 0 ? "A" : "B", memberIndex);
+        }
+        int count = Math.max(1, names.size() / Math.max(1, partyCount));
+        int start = Math.min(names.size() - 1, Math.max(0, partyIndex) * count);
+        int end = partyIndex >= partyCount - 1 ? names.size() : Math.min(names.size(), start + count);
+        int size = Math.max(1, end - start);
+        return spawns.get(names.get(start + Math.floorMod(memberIndex, size)));
+    }
+
     /** 全部非旁观的命名出生点（用于展示 / 管理）。 */
     public List<String> spawnPointNames() {
         List<String> cached = spawnNameCache;

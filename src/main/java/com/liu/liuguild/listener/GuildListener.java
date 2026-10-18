@@ -47,6 +47,7 @@ public final class GuildListener implements GuildModule, Listener {
         plugin.bus().presence(player.getUniqueId(), player.getName());
         plugin.syncDelayed(() -> {
             plugin.war().onPlayerJoinServer(player);
+            plugin.war().notifyAcceptWindow(player);
             plugin.war().recoverPendingEscrow(player);
             plugin.mail().notifyOnJoin(player);
             plugin.guildChat().refresh();

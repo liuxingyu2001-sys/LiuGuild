@@ -20,6 +20,10 @@ public final class WarSettings {
     public boolean enabled = true;
     public int queueIntervalSeconds = 2;
     public int matchTimeoutSeconds = 180;
+    /** 第 2 个公会入队后的招募窗口（秒）。 */
+    public int matchGatherSeconds = 10;
+    /** 锁定后的接受/拒绝窗口（秒）。 */
+    public int matchAcceptSeconds = 10;
     /** 默认模式（未指定模式时使用）。 */
     public String defaultMode = "match";
     /** 有玩家点击参与匹配时是否全服广播（模式可单独覆盖）。 */
@@ -58,6 +62,10 @@ public final class WarSettings {
         s.enabled = c.getBoolean("war.enabled", s.enabled);
         s.queueIntervalSeconds = Math.max(1, Math.min(60, c.getInt("war.queue-interval-seconds", s.queueIntervalSeconds)));
         s.matchTimeoutSeconds = Math.max(0, c.getInt("war.match-timeout-seconds", s.matchTimeoutSeconds));
+        s.matchGatherSeconds = Math.max(1, Math.min(60,
+                c.getInt("war.match-gather-seconds", s.matchGatherSeconds)));
+        s.matchAcceptSeconds = Math.max(1, Math.min(60,
+                c.getInt("war.match-accept-seconds", s.matchAcceptSeconds)));
         s.defaultMode = String.valueOf(c.getString("war.default-mode", s.defaultMode)).toLowerCase(Locale.ROOT);
         s.broadcastQueue = c.getBoolean("war.broadcast-queue", s.broadcastQueue);
         s.bossBarEnabled = c.getBoolean("war.bossbar", s.bossBarEnabled);

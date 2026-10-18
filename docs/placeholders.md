@@ -53,6 +53,8 @@
 | `%liuguild_war_winner%` | 胜者 |
 | `%liuguild_war_host%` | 承办服 |
 | `%liuguild_war_mode%` / `%liuguild_war_mode_display%` | 模式 key / 显示名 |
+| `%liuguild_war_parties%` | 本场公会数量（2～N） |
+| `%liuguild_war_rank%` | 本会当前击杀排名（1 起） |
 | `%liuguild_queued%` / `%liuguild_queued_mode%` | 是否在队列 / 队列模式 |
 | `%liuguild_war_queue_position%` | 当前匹配队列位置（1 起；不在队列为 0） |
 | `%liuguild_war_in_war%` / `%liuguild_war_fighting%` | 是否在工会战/赛季混战中（`true/false`） |

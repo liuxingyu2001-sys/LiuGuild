@@ -985,4 +985,29 @@ class GuildRepositoryTest {
         assertEquals(WarState.SETTLING, repo.loadWar(w.id()).state());
         assertFalse(repo.claimSettlement(w), "第二台子服或重复结算不能再次领取");
     }
+
+    @Test
+    void multiGuildWarHistoryIsVisibleToThirdGuild() throws Exception {
+        GuildWar w = new GuildWar(UUID.randomUUID().toString(),
+                "g-a", "g-b");
+        w.state(WarState.ENDED);
+        w.mode("match");
+        w.addParty("g-c", "三会", "GC");
+        w.rosterA().add(UUID.randomUUID());
+        w.rosterB().add(UUID.randomUUID());
+        w.party("C").roster().add(UUID.randomUUID());
+        w.addScore("A", 2);
+        w.addScore("B", 5);
+        w.addScore("C", 4);
+        w.winner("g-b");
+        w.endedAt(System.currentTimeMillis());
+        repo.insertWar(w);
+        repo.saveWarParties(w);
+
+        var history = repo.warHistory("g-c", 10);
+        assertEquals(1, history.size());
+        assertEquals(3, history.get(0).parties().size());
+        assertEquals(4, history.get(0).scoreOfSide("C"));
+        assertEquals("g-b", history.get(0).winner());
+    }
 }

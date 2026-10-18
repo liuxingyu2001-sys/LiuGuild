@@ -30,20 +30,15 @@ final class WarRewards {
             return List.of();
         }
         double mult = mode.scheduled() ? Math.max(1.0, mode.seasonPointsMultiplier) : 1.0;
-        boolean aWon = winnerId != null && winnerId.equals(war.guildA());
-        boolean bWon = winnerId != null && winnerId.equals(war.guildB());
         List<GuildRepository.WarReward> rows = new ArrayList<>();
-        for (UUID u : new ArrayList<>(war.rosterA())) {
-            rows.add(new GuildRepository.WarReward(war.id(), u, war.guildA(), aWon,
-                    mode.key, (aWon ? mode.winPlayerMoney : mode.losePlayerMoney) * mult,
-                    (int) Math.min(Integer.MAX_VALUE, Math.round((aWon ? mode.winPassXp : mode.losePassXp) * mult)),
-                    aWon ? mode.winTitleId : 0));
-        }
-        for (UUID u : new ArrayList<>(war.rosterB())) {
-            rows.add(new GuildRepository.WarReward(war.id(), u, war.guildB(), bWon,
-                    mode.key, (bWon ? mode.winPlayerMoney : mode.losePlayerMoney) * mult,
-                    (int) Math.min(Integer.MAX_VALUE, Math.round((bWon ? mode.winPassXp : mode.losePassXp) * mult)),
-                    bWon ? mode.winTitleId : 0));
+        for (GuildWar.Party party : war.parties()) {
+            boolean won = winnerId != null && winnerId.equals(party.guildId());
+            for (UUID u : new ArrayList<>(party.roster())) {
+                rows.add(new GuildRepository.WarReward(war.id(), u, party.guildId(), won,
+                        mode.key, (won ? mode.winPlayerMoney : mode.losePlayerMoney) * mult,
+                        (int) Math.min(Integer.MAX_VALUE, Math.round((won ? mode.winPassXp : mode.losePassXp) * mult)),
+                        won ? mode.winTitleId : 0));
+            }
         }
         return rows;
     }
@@ -201,9 +196,11 @@ final class WarRewards {
 
     /** 替换指令奖励里的占位符。 */
     private String applyPlaceholders(String cmd, Player player, Guild guild, WarMode mode, GuildWar war) {
-        boolean sideA = war != null && guild != null && war.guildA().equals(guild.id());
-        int mine = war == null ? 0 : (sideA ? war.scoreA() : war.scoreB());
-        int theirs = war == null ? 0 : (sideA ? war.scoreB() : war.scoreA());
+        String side = war == null || guild == null ? null : war.sideOfGuild(guild.id());
+        int mine = war == null || side == null ? 0 : war.scoreOfSide(side);
+        int theirs = war == null ? 0 : war.parties().stream()
+                .filter(party -> guild == null || !party.guildId().equals(guild.id()))
+                .mapToInt(GuildWar.Party::score).max().orElse(0);
         return cmd.replace("{player}", player.getName())
                 .replace("{uuid}", player.getUniqueId().toString())
                 .replace("{guild}", guild == null ? "" : guild.name())

@@ -365,7 +365,7 @@ gui:
         slot: 47
         material: COMPASS
         name: "<white>当前战况"
-        lore: ["<gray>状态：<white>{state}", "<gray>对手：<white>{enemy}", "<gray>比分：<white>{score} : {enemy_score}", "<gray>我的剩余生命：<white>{lives}", "<gray>场地：<white>{arena}", "<gray>承办服：<white>{host}", "", "<yellow>点击刷新"]
+        lore: ["<gray>状态：<white>{state}", "<gray>对手：<white>{enemy}", "<gray>比分：<white>{score} : {enemy_score}", "<gray>排名：<white>{ranking}", "<gray>我的剩余生命：<white>{lives}", "<gray>场地：<white>{arena}", "<gray>承办服：<white>{host}", "", "<yellow>点击刷新"]
       spectate:
         slot: 48
         material: ENDER_EYE

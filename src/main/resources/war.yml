@@ -13,6 +13,10 @@ war:
   queue-interval-seconds: 2
   # 发起匹配后等待对手的最长时间（秒），0 = 不超时
   match-timeout-seconds: 180
+  # 第 2 个公会入队后的招募窗口；窗口内加入的公会全部纳入同一场
+  match-gather-seconds: 10
+  # 锁定参赛公会后，玩家点击接受/拒绝的窗口
+  match-accept-seconds: 10
   # 默认模式（未指定时使用）
   default-mode: match
   # 有玩家点击参与匹配时是否全服广播（含跨服广播；模式可单独覆盖）
@@ -21,8 +25,8 @@ war:
   bossbar: true
   # 结算阶段每 tick 分帧发放奖励的人数（大名单时避免一次性阻塞主线程）。
   settle-batch-per-tick: 8
-  # 匹配成功后是否自动把双方在线成员强制传送进竞技场并参战（无需手动 /guild war join）。
-  # 关闭后才会在「匹配成功」消息里附带 [点击进入竞技场] 按钮。
+  # 自动入场仅用于非 match 模式；match 已改为接受/拒绝确认制，不再强制传送。
+  # 关闭后非 match 模式会在「匹配成功」消息里附带 [点击进入竞技场] 按钮。
   auto-enter: true
   # 双方都有人就绪后提前开战（不必等完整 prepare-seconds）。
   # 最短仍会冻结 fast-start-min-prepare-seconds 秒；剩余在线成员可在开战后

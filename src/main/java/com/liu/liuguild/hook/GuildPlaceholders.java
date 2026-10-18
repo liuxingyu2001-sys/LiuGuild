@@ -247,12 +247,21 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             return "";
         }
         GuildWar war = plugin.war().warOf(guild.id());
-        boolean home = war != null && war.guildA().equals(guild.id());
+        String side = war == null ? null : war.sideOfGuild(guild.id());
+        String enemies = war == null ? "" : war.parties().stream()
+                .filter(party -> !party.guildId().equals(guild.id()))
+                .map(GuildWar.Party::name).collect(java.util.stream.Collectors.joining(","));
+        int enemyScore = war == null ? 0 : war.parties().stream()
+                .filter(party -> !party.guildId().equals(guild.id()))
+                .mapToInt(GuildWar.Party::score).max().orElse(0);
         return switch (p) {
             case "state" -> war == null ? "" : war.state().display();
-            case "enemy" -> war == null ? "" : (home ? war.nameB() : war.nameA());
-            case "score" -> war == null ? "0" : String.valueOf(home ? war.scoreA() : war.scoreB());
-            case "enemy_score" -> war == null ? "0" : String.valueOf(home ? war.scoreB() : war.scoreA());
+            case "enemy" -> enemies;
+            case "score" -> war == null || side == null ? "0" : String.valueOf(war.scoreOfSide(side));
+            case "enemy_score" -> String.valueOf(enemyScore);
+            case "parties" -> war == null ? "0" : String.valueOf(war.parties().size());
+            case "rank" -> war == null || side == null ? "" : String.valueOf(
+                    war.ranking().stream().map(GuildWar.Party::side).toList().indexOf(side) + 1);
             case "time_left" -> war == null ? "0" : String.valueOf(plugin.war().secondsLeft(war));
             case "winner" -> war == null ? "" : war.winner();
             case "host" -> war == null ? "" : war.hostServer();

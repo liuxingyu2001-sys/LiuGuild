@@ -901,6 +901,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 plugin.war().leaveQueue(player, g);
             }
             case "join" -> plugin.war().join(player);
+            case "reject", "refuse" -> plugin.war().reject(player);
             case "rejoin" -> plugin.war().rejoin(player);
             case "spectate" -> plugin.war().spectate(player);
             case "stats", "statistics" -> {
@@ -942,11 +943,17 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                     }
                     plugin.messages().sendRaw(player, "war-history-header");
                     for (GuildWar w : list) {
-                        boolean home = w.guildA().equals(g.id());
+                        String side = w.sideOfGuild(g.id());
+                        if (side == null) {
+                            continue;
+                        }
+                        int opp = w.parties().stream()
+                                .filter(party -> !party.guildId().equals(g.id()))
+                                .mapToInt(GuildWar.Party::score).max().orElse(0);
                         plugin.messages().sendRaw(player, "war-history-line",
-                                "enemy", home ? w.nameB() : w.nameA(),
-                                "self", home ? w.scoreA() : w.scoreB(),
-                                "opp", home ? w.scoreB() : w.scoreA(),
+                                "enemy", w.enemyOf(g.id()),
+                                "self", w.scoreOfSide(side),
+                                "opp", opp,
                                 "result", w.winner() == null || w.winner().isBlank() ? "平局"
                                         : (w.winner().equals(g.id()) ? "胜利" : "失败"));
                     }
@@ -961,9 +968,15 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 if (w == null) {
                     plugin.messages().send(player, "war-not-in-war");
                 } else {
-                    boolean home = w.guildA().equals(g.id());
-                    plugin.messages().sendRaw(player, "war-score", "guild_a", w.nameA(), "guild_b", w.nameB(),
-                            "score_a", w.scoreA(), "score_b", w.scoreB());
+                    String side = w.sideOfGuild(g.id());
+                    String enemy = w.parties().stream()
+                            .filter(party -> !party.guildId().equals(g.id()))
+                            .map(GuildWar.Party::name).collect(java.util.stream.Collectors.joining(","));
+                    plugin.messages().sendRaw(player, "war-score", "guild_a", g.name(), "guild_b", enemy,
+                            "score_a", side == null ? 0 : w.scoreOfSide(side),
+                            "score_b", w.parties().stream()
+                                    .filter(party -> !party.guildId().equals(g.id()))
+                                    .mapToInt(GuildWar.Party::score).max().orElse(0));
                     if (w.state() == com.liu.liuguild.model.WarState.ACTIVE) {
                         player.sendMessage(Text.mm("<gray>剩余 " + plugin.war().secondsLeft(w) + " 秒"));
                     }
@@ -1005,7 +1018,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 return filter(new ArrayList<>(plugin.settings().icons.icons.keySet()), args[1]);
             }
             if (sub.equals("war")) {
-                return filter(List.of("queue", "leave", "join", "rejoin", "spectate", "status", "stats", "history"), args[1]);
+                return filter(List.of("queue", "leave", "join", "reject", "rejoin", "spectate", "status", "stats", "history"), args[1]);
             }
             if (sub.equals("mail")) {
                 return filter(List.of("read", "clear"), args[1]);

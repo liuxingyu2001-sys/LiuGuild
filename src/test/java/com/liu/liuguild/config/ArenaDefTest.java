@@ -173,4 +173,23 @@ class ArenaDefTest {
         assertEquals(5.0, a.kothRadius);
         assertFalse(parse("world: world").kothSet);
     }
+
+    @Test
+    void splitsSpawnPointsAcrossThreeParties() {
+        ArenaDef a = parse("""
+                world: arena
+                spawn-a: { x: 0, y: 64, z: 0 }
+                spawn-b: { x: 1, y: 64, z: 0 }
+                spawn-c: { x: 2, y: 64, z: 0 }
+                spawn-d: { x: 3, y: 64, z: 0 }
+                spawn-e: { x: 4, y: 64, z: 0 }
+                spawn-f: { x: 5, y: 64, z: 0 }
+                """);
+        ArenaDef.Spawn p0 = a.partySpawn(0, 3, 0);
+        ArenaDef.Spawn p1 = a.partySpawn(1, 3, 0);
+        ArenaDef.Spawn p2 = a.partySpawn(2, 3, 0);
+        assertEquals(0.0, p0.x());
+        assertEquals(2.0, p1.x());
+        assertEquals(4.0, p2.x());
+    }
 }
