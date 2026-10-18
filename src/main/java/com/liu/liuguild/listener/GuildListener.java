@@ -104,12 +104,7 @@ public final class GuildListener implements GuildModule, Listener {
             return false;
         }
         GuildWar war = plugin.war().warOf(ga.id());
-        if (war == null || war.state() != WarState.ACTIVE || !war.involves(gb.id())) {
-            return false;
-        }
-        boolean sameWar = (war.guildA().equals(ga.id()) && war.guildB().equals(gb.id()))
-                || (war.guildB().equals(ga.id()) && war.guildA().equals(gb.id()));
-        if (!sameWar) {
+        if (war == null || war.state() != WarState.ACTIVE || !war.hostile(ga.id(), gb.id())) {
             return false;
         }
         String world = war.arenaWorld();

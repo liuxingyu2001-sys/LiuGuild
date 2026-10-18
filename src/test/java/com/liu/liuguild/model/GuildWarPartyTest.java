@@ -74,4 +74,14 @@ class GuildWarPartyTest {
         assertEquals("g3", war.firstPlace());
         assertEquals(12, war.ranking().get(0).score());
     }
+
+    @Test
+    void thirdGuildCanFightBothLegacySides() {
+        GuildWar war = new GuildWar("w", "g1", "g2");
+        war.addParty("g3", "三会", "G3");
+        assertTrue(war.hostile("g1", "g3"));
+        assertTrue(war.hostile("g3", "g2"));
+        assertFalse(war.hostile("g1", "g1"));
+        assertFalse(war.hostile("g1", "outside"));
+    }
 }

@@ -468,6 +468,12 @@ public final class GuildWar {
         return partyOfGuild(guildId) != null;
     }
 
+    /** 同一场内的不同公会才能互相 PvP；不能再要求它们必须是 A/B。 */
+    public synchronized boolean hostile(String guildA, String guildB) {
+        return guildA != null && guildB != null && !guildA.equals(guildB)
+                && partyOfGuild(guildA) != null && partyOfGuild(guildB) != null;
+    }
+
     public String enemyOf(String guildId) {
         if (guildId == null) {
             return "";
