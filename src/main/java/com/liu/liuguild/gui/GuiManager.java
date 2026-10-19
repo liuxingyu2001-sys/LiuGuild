@@ -638,7 +638,7 @@ public final class GuiManager implements GuildModule, Listener {
                 return;
             }
             GuildTitle t = plugin.titles().equipped(player.getUniqueId());
-            plugin.messages().send(player, "title-equipped",
+            plugin.messages().sendRich(player, "title-equipped",
                     "display", t == null ? titleId : t.display());
         }
         openTitles(player, g);

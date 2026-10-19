@@ -520,9 +520,9 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                     return;
                 }
                 GuildTitle t = plugin.titles().equipped(player.getUniqueId());
-                plugin.messages().send(player, "title-equipped",
+                plugin.messages().sendRich(player, "title-equipped",
                         "display", t == null ? args[2] : t.display());
-                announce(g, "title-broadcast-equip", player, "display",
+                announceRich(g, "title-broadcast-equip", player, "display",
                         t == null ? args[2] : t.display());
             }
             case "clear", "unequip", "off" -> {
@@ -556,13 +556,13 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 "max", String.valueOf(plugin.settings().guild.fixedTitles.size()));
         for (GuildTitle t : all) {
             if (t.id().equals(equipped)) {
-                plugin.messages().sendRaw(player, "title-list-line-equipped",
+                plugin.messages().sendRawRich(player, "title-list-line-equipped",
                         "display", t.display(), "id", t.id());
             } else if (t.usableBy(rank)) {
-                plugin.messages().sendRaw(player, "title-list-line",
+                plugin.messages().sendRawRich(player, "title-list-line",
                         "display", t.display(), "id", t.id());
             } else {
-                plugin.messages().sendRaw(player, "title-list-line-req",
+                plugin.messages().sendRawRich(player, "title-list-line-req",
                         "display", t.display(), "id", t.id(), "rank", t.minRank().display());
             }
         }
@@ -575,6 +575,16 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             Player p = plugin.player(m.uuid());
             if (p != null && !p.getUniqueId().equals(actor.getUniqueId())) {
                 plugin.messages().send(p, key, kv);
+            }
+        }
+    }
+
+    /** 头衔等配置文本允许颜色格式的广播。 */
+    private void announceRich(Guild g, String key, Player actor, Object... kv) {
+        for (GuildMember m : g.memberMap().values()) {
+            Player p = plugin.player(m.uuid());
+            if (p != null && !p.getUniqueId().equals(actor.getUniqueId())) {
+                plugin.messages().sendRich(p, key, kv);
             }
         }
     }

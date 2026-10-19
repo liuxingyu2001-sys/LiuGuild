@@ -19,7 +19,8 @@ guild:
 ```
 
 - 最多45个预设；标识为1～16位小写字母、数字、下划线或连字符。
-- 显示文字最多16个可见字符，支持颜色。
+- 显示文字最多16个可见字符，支持 MiniMessage（`<aqua>`）和旧版颜色（`&a`）。
+- 头衔面板、成员列表、`/guild title list`、装备提示与 PAPI `%liuguild_title%` 都会解析颜色。
 - `min-rank` 是最低职位：MEMBER / OFFICER / LEADER。降职后不再显示不符合要求的头衔。
 - 旧配置缺少 `presets` 时使用上述三个默认预设；显式设置 `presets: {}` 可清空预设。
 - 修改后重载配置即可生效。`max`、`manage-rank` 和 `liuguild.title.manage` 已停用。

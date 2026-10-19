@@ -127,7 +127,7 @@ public final class GuiUtil {
     }
 
     /** 允许携带颜色格式的占位符；其余（玩家名/工会名等）按纯文本插入，避免注入。 */
-    private static final java.util.Set<String> RICH_KEYS = java.util.Set.of("notice", "description", "icon_name");
+    private static final java.util.Set<String> RICH_KEYS = java.util.Set.of("notice", "description", "icon_name", "title");
 
     /** 供 GUI 复用的标题渲染：同一模板只解析一次。 */
 

@@ -166,7 +166,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
                             com.liu.liuguild.util.TimeUtil.todayEpochDay(), member.lastCheckin())
                     ? "已签到" : "未签到");
             case "contributed" -> member == null ? "0" : plugin.economy().format(member.contributed());
-            case "title" -> plugin.titles() == null ? "" : plugin.titles().display(player.getUniqueId());
+            case "title" -> plugin.titles() == null ? "" : plugin.titles().displayLegacy(player.getUniqueId());
             case "title_id" -> {
                 if (plugin.titles() == null) {
                     yield "";

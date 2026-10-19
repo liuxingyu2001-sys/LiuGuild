@@ -7,6 +7,7 @@ import com.liu.liuguild.model.GuildRank;
 import com.liu.liuguild.model.GuildTitle;
 import com.liu.liuguild.module.GuildModule;
 import com.liu.liuguild.util.Text;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -191,6 +192,18 @@ public final class TitleService implements GuildModule {
     public String display(UUID player) {
         GuildTitle t = equipped(player);
         return t == null ? "" : t.display();
+    }
+
+    /**
+     * PAPI/聊天栏使用的旧版颜色文本（§ 代码）。
+     * 外部插件通常只认识旧版颜色，不认识 MiniMessage 标签。
+     */
+    public String displayLegacy(UUID player) {
+        GuildTitle t = equipped(player);
+        if (t == null) {
+            return "";
+        }
+        return LegacyComponentSerializer.legacySection().serialize(Text.mm(t.display()));
     }
 
         /** 玩家够格装备的头衔列表。 */

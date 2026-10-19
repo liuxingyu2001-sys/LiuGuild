@@ -131,6 +131,11 @@ public final class Messages {
         return Text.fmt(raw("prefix") + raw(key), kv);
     }
 
+    /** 带前缀的富文本组件：占位符值允许携带颜色格式。 */
+    public Component prefixedRich(String key, Object... kv) {
+        return Text.fmtRich(raw("prefix") + raw(key), kv);
+    }
+
     public void send(CommandSender to, String key, Object... kv) {
         if (to == null) {
             return;
@@ -143,6 +148,14 @@ public final class Messages {
             return;
         }
         to.sendMessage(component(key, kv));
+    }
+
+    /** 带前缀的富文本发送，用于头衔等由管理员配置的格式文本。 */
+    public void sendRich(CommandSender to, String key, Object... kv) {
+        if (to == null) {
+            return;
+        }
+        to.sendMessage(prefixedRich(key, kv));
     }
 
     /** 富文本版本：占位符值允许携带颜色格式（用于玩家自定义公告/简介）。 */
