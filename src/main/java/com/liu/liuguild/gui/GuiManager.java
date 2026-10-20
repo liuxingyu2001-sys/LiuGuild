@@ -587,7 +587,6 @@ public final class GuiManager implements GuildModule, Listener {
             boolean usable = t.usableBy(rank);
             String color = equipped ? "<green>" : (usable ? "<white>" : "<dark_gray>");
             List<String> lore = new ArrayList<>();
-            lore.add("<gray>标识：<white>" + t.id());
             lore.add("<gray>最低职位：<white>" + t.minRank().display());
             lore.add("");
             if (equipped) {
@@ -598,7 +597,7 @@ public final class GuiManager implements GuildModule, Listener {
                 lore.add("<red>你的职位不足以使用");
             }
             inv.setItem(slot, GuiUtil.build(player, "NAME_TAG", "NAME_TAG",
-                    color + t.display() + " <dark_gray>[" + t.id() + "]", lore, Map.of(), null));
+                    color + t.display(), lore, Map.of(), null));
             holder.actions.put(slot, "title_toggle:" + t.id());
             slot++;
             if (slot >= 45) {
@@ -607,8 +606,10 @@ public final class GuiManager implements GuildModule, Listener {
         }
 
         // 底排：返回 / 卸下
+        GuildTitle current = plugin.titles().equipped(player.getUniqueId());
+        String currentDisplay = current == null ? "无" : current.display();
         inv.setItem(50, GuiUtil.build(player, "BARRIER", "BARRIER", "<yellow>卸下当前头衔",
-                List.of("<gray>当前：<white>" + (equippedId == null ? "无" : equippedId)), Map.of(), null));
+                List.of("<gray>当前：<white>" + currentDisplay), Map.of(), null));
         holder.actions.put(50, "title:clear");
         inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
         holder.actions.put(49, "back:main");
@@ -634,12 +635,12 @@ public final class GuiManager implements GuildModule, Listener {
         } else {
             String err = plugin.titles().equip(g, me, titleId);
             if (err != null) {
-                plugin.messages().send(player, err, "id", titleId);
+                plugin.messages().send(player, err);
                 return;
             }
             GuildTitle t = plugin.titles().equipped(player.getUniqueId());
             plugin.messages().sendRich(player, "title-equipped",
-                    "display", t == null ? titleId : t.display());
+                    "display", t == null ? "" : t.display());
         }
         openTitles(player, g);
     }

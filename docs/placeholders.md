@@ -38,7 +38,7 @@
 | `%liuguild_kills%` / `%liuguild_deaths%` | 个人击杀 / 死亡 |
 | `%liuguild_contributed%` | 个人贡献 |
 | `%liuguild_title%` | 已装备的工会头衔显示文本（未装备为空） |
-| `%liuguild_title_id%` | 已装备的工会头衔标识（未装备为空） |
+| `%liuguild_title_id%` | 已装备的工会头衔内部 ID（供集成使用，玩家界面不展示） |
 | `%liuguild_checkin_streak%` | 连续签到天数 |
 | `%liuguild_checkin_state%` | `已签到` / `未签到` |
 

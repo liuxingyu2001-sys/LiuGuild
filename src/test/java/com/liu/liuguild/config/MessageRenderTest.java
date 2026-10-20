@@ -84,4 +84,17 @@ class MessageRenderTest {
         }
         return false;
     }
+
+    @Test
+    void titleMessagesDoNotExposeInternalIds() throws Exception {
+        YamlConfiguration cfg = new YamlConfiguration();
+        cfg.loadFromString(Files.readString(Path.of("src/main/resources/messages.yml")));
+        var sec = cfg.getConfigurationSection("zh_CN");
+        assertNotNull(sec);
+        for (String key : new String[]{"title-list-line", "title-list-line-req", "title-list-line-equipped"}) {
+            String raw = sec.getString(key);
+            assertNotNull(raw, key);
+            assertFalse(raw.contains("{id}"), key + " 不应显示内部头衔标识");
+        }
+    }
 }

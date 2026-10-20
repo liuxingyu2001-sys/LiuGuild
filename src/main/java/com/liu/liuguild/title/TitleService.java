@@ -150,6 +150,30 @@ public final class TitleService implements GuildModule {
         return plugin.settings().guild.titlesEnabled ? plugin.settings().guild.fixedTitles.get(titleId) : null;
     }
 
+    /**
+     * 玩家侧可用显示名称选择头衔，同时兼容旧的 id 输入。
+     * 显示文本会去掉颜色标签后做不区分大小写的匹配。
+     */
+    public GuildTitle resolve(String guildId, String input) {
+        if (guildId == null || input == null || input.isBlank()) {
+            return null;
+        }
+        GuildTitle byId = title(guildId, input.toLowerCase(java.util.Locale.ROOT));
+        if (byId != null) {
+            return byId;
+        }
+        String wanted = Text.clean(input);
+        if (wanted.isBlank()) {
+            return null;
+        }
+        for (GuildTitle t : titlesOf(guildId)) {
+            if (Text.clean(t.display()).equalsIgnoreCase(wanted)) {
+                return t;
+            }
+        }
+        return null;
+    }
+
     /** 玩家当前装备的头衔 id（未装备返回 null）。 */
     public String equippedId(UUID player) {
         return player == null ? null : equipped.get(player);

@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -35,6 +36,8 @@ public final class CrossServerBus {
     private final RedisBridge bridge;
     private final ServerTransfer transfer;
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
+    /** 本服已察觉到的切服玩家；避免 Redis 标记与 PlayerJoinEvent 的竞态。 */
+    private final Set<UUID> recentSwitches = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     private volatile boolean ready;
 
@@ -320,12 +323,78 @@ public final class CrossServerBus {
         }
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> bridge.withJedis(jedis -> {
             int ttl = bridge.heartbeatTtlSeconds();
+            // 代理切服时，新服可能先收到 Join、旧服后收到 Quit；先保留旧 presence 作为
+            // 切服证据，避免只依赖 Quit 标记而漏掉这种情况。
+            String previous = jedis.get(bridge.keyPresence(uuid));
+            if (isRecentLeaveFromOtherServer(previous, conf.serverId)) {
+                recentSwitches.add(uuid);
+                jedis.setex(bridge.keyRecentLeave(uuid), RECENT_LEAVE_TTL_SECONDS, previous);
+            }
             jedis.setex(bridge.keyPresence(uuid), ttl, conf.serverId);
             if (name != null) {
                 jedis.setex(bridge.keyName(name.toLowerCase(java.util.Locale.ROOT)), ttl, uuid.toString());
             }
             return null;
         }));
+    }
+
+    /** 退服标记的存活时间：代理切服通常在数秒内完成。 */
+    private static final int RECENT_LEAVE_TTL_SECONDS = 30;
+
+    /**
+     * 记录玩家刚离开本服。目标子服在玩家加入时据此判断这是一次代理切服，
+     * 而不是重新登录，从而避免每切一次服就弹一次邮件提醒。
+     */
+    public void markRecentLeave(UUID uuid) {
+        if (uuid == null) {
+            return;
+        }
+        recentSwitches.remove(uuid);
+        if (!bridge.isHealthyIgnoringDegrade()) {
+            return;
+        }
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> bridge.withJedis(jedis -> {
+            jedis.setex(bridge.keyRecentLeave(uuid), RECENT_LEAVE_TTL_SECONDS, conf.serverId);
+            return null;
+        }));
+    }
+
+    /**
+     * 如果该玩家最近从其他子服退出，消费标记并返回 true。
+     * <p>同一子服的正常重新登录不会被误判；标记带 TTL，不会长期残留。</p>
+     */
+    public boolean consumeRecentCrossServerLeave(UUID uuid) {
+        if (uuid == null) {
+            return false;
+        }
+        // 同进程的 presence 探测结果优先；它可能比旧的 Redis 标记更早/更晚到达。
+        if (recentSwitches.remove(uuid)) {
+            if (bridge.isHealthy()) {
+                bridge.withJedis(jedis -> {
+                    jedis.del(bridge.keyRecentLeave(uuid));
+                    return null;
+                });
+            }
+            return true;
+        }
+        if (!bridge.isHealthy()) {
+            return false;
+        }
+        return Boolean.TRUE.equals(bridge.withJedis(jedis -> {
+            String key = bridge.keyRecentLeave(uuid);
+            String from = jedis.get(key);
+            if (!isRecentLeaveFromOtherServer(from, conf.serverId)) {
+                return false;
+            }
+            jedis.del(key);
+            return true;
+        }));
+    }
+
+    /** 纯函数：退出记录是否来自另一个子服。 */
+    static boolean isRecentLeaveFromOtherServer(String fromServer, String currentServer) {
+        return fromServer != null && !fromServer.isBlank()
+                && currentServer != null && !fromServer.equals(currentServer);
     }
 
     public void clearPresence(UUID uuid, String name) {

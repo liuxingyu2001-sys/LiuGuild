@@ -525,16 +525,21 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                     plugin.messages().send(player, "not-in-guild");
                     return;
                 }
-                String err = plugin.titles().equip(g, m, args[2].toLowerCase(java.util.Locale.ROOT));
+                String input = String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length));
+                GuildTitle target = plugin.titles().resolve(g.id(), input);
+                if (target == null) {
+                    plugin.messages().send(player, "title-not-found");
+                    return;
+                }
+                String err = plugin.titles().equip(g, m, target.id());
                 if (err != null) {
-                    plugin.messages().send(player, err, "id", args[2]);
+                    plugin.messages().send(player, err);
                     return;
                 }
                 GuildTitle t = plugin.titles().equipped(player.getUniqueId());
-                plugin.messages().sendRich(player, "title-equipped",
-                        "display", t == null ? args[2] : t.display());
-                announceRich(g, "title-broadcast-equip", player, "display",
-                        t == null ? args[2] : t.display());
+                String display = t == null ? target.display() : t.display();
+                plugin.messages().sendRich(player, "title-equipped", "display", display);
+                announceRich(g, "title-broadcast-equip", player, "display", display);
             }
             case "clear", "unequip", "off" -> {
                 if (plugin.titles().equippedId(player.getUniqueId()) == null) {
@@ -568,13 +573,13 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         for (GuildTitle t : all) {
             if (t.id().equals(equipped)) {
                 plugin.messages().sendRawRich(player, "title-list-line-equipped",
-                        "display", t.display(), "id", t.id());
+                        "display", t.display());
             } else if (t.usableBy(rank)) {
                 plugin.messages().sendRawRich(player, "title-list-line",
-                        "display", t.display(), "id", t.id());
+                        "display", t.display());
             } else {
                 plugin.messages().sendRawRich(player, "title-list-line-req",
-                        "display", t.display(), "id", t.id(), "rank", t.minRank().display());
+                        "display", t.display(), "rank", t.minRank().display());
             }
         }
         plugin.messages().send(player, "title-list-hint");
@@ -1073,6 +1078,24 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             }
             if (sub.equals("top")) {
                 return filter(List.of("points", "bank", "level", "wins", "losses", "members"), args[1]);
+            }
+        }
+        if (args.length == 3) {
+            String sub = args[0].toLowerCase(Locale.ROOT);
+            if (List.of("title", "titles", "chenghao").contains(sub)
+                    && List.of("set", "equip").contains(args[1].toLowerCase(Locale.ROOT))) {
+                Guild g = plugin.guilds().guildOf(player.getUniqueId());
+                if (g == null || plugin.titles() == null) {
+                    return List.of();
+                }
+                List<String> names = new ArrayList<>();
+                for (GuildTitle t : plugin.titles().titlesOf(g.id())) {
+                    String name = Text.clean(t.display());
+                    if (!name.isBlank()) {
+                        names.add(name);
+                    }
+                }
+                return filter(names, args[2]);
             }
         }
         return List.of();

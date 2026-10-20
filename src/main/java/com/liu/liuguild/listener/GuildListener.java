@@ -62,6 +62,7 @@ public final class GuildListener implements GuildModule, Listener {
 
     @EventHandler(priority = EventPriority.LOW)
     public void onQuit(PlayerQuitEvent event) {
+        plugin.bus().markRecentLeave(event.getPlayer().getUniqueId());
         plugin.bus().clearPresence(event.getPlayer().getUniqueId(), event.getPlayer().getName());
         plugin.guildChat().forget(event.getPlayer());
         plugin.war().onPlayerQuit(event.getPlayer());

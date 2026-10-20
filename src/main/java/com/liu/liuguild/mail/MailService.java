@@ -106,6 +106,27 @@ public final class MailService {
             return;
         }
         UUID uuid = player.getUniqueId();
+        // 代理切服也会触发 PlayerJoinEvent；先等 presence / Quit 标记落库，再消费
+        // “刚离开其他子服”标记，避免同一封未读邮件每切一次服就提醒一次。
+        plugin.syncDelayed(() -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            plugin.async(() -> {
+                if (plugin.bus() != null && plugin.bus().consumeRecentCrossServerLeave(uuid)) {
+                    return;
+                }
+                plugin.sync(() -> {
+                    if (player.isOnline()) {
+                        notifyOnJoinNow(player);
+                    }
+                });
+            });
+        }, 10L);
+    }
+
+    private void notifyOnJoinNow(Player player) {
+        UUID uuid = player.getUniqueId();
         if (liuChatMail.available()) {
             liuChatMail.inbox(uuid, list -> {
                 int unread = 0;

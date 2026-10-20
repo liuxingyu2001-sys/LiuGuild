@@ -46,7 +46,7 @@
 | `/guild warehouse upgrade` | 用工会资金升级仓库容量 |
 | `/guild title` | 打开头衔面板（别名 `titles` / `chenghao`） |
 | `/guild title list` | 列出本会头衔 |
-| `/guild title set <标识>` | 装备头衔（仅限自己够格的） |
+| `/guild title set <头衔名称>` | 装备头衔（仅限自己够格的） |
 | `/guild title clear` | 卸下头衔 |
 | `/guild shop` | 打开本会商店（别名 `shangdian` / `store`） |
 | `/guild shop all` | ~~浏览全服工会商店~~（已移除：商店按工会隔离） |

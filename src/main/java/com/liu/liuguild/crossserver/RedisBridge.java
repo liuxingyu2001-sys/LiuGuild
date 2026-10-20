@@ -156,6 +156,11 @@ public final class RedisBridge {
         return prefix + "presence:" + player;
     }
 
+    /** 最近一次退出所在子服；仅用于判断“切服”而不是重新登录。 */
+    public String keyRecentLeave(java.util.UUID player) {
+        return prefix + "leave:" + player;
+    }
+
     public String keyName(String normalizedName) {
         return prefix + "name:" + normalizedName;
     }
