@@ -135,4 +135,34 @@ class TextTest {
         assertEquals("访问 /guilds 页面无效", Text.plain(c));
         assertFalse(hasClickEvent(c), "/guilds 不应被当作 /guild 指令");
     }
+
+    @Test
+    void explicitClickTagIsNotRewrittenByCommandLinker() {
+        Component c = Text.fmt("<gold>[工会邮件]</gold> <click:run_command:'/guild mail'>[查看邮件]</click>");
+        assertEquals("[工会邮件] [查看邮件]", Text.plain(c));
+        assertTrue(hasClickEvent(c));
+        assertFalse(Text.plain(c).contains("/guild"), "通知中不应再出现可见指令");
+    }
+
+    @Test
+    void mailStateIsAppendedAsRichComponent() {
+        Component line = Text.fmtRich("<gray>#1 <white>{title}</white> {state}",
+                "title", "工会战：胜利", "state", "");
+        Component full = line.append(Text.mm("<red>●"));
+        assertEquals("#1 工会战：胜利 ●", Text.plain(full));
+        assertFalse(Text.plain(full).contains("<red>"), "邮件状态不应显示颜色标签");
+        assertTrue(hasColor(full, NamedTextColor.RED));
+    }
+
+    private static boolean hasColor(Component c, TextColor color) {
+        if (color.equals(c.color())) {
+            return true;
+        }
+        for (Component child : c.children()) {
+            if (hasColor(child, color)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

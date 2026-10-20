@@ -10,8 +10,8 @@
 | `/guild join <名称>` | 加入开放加入的工会 |
 | `/guild leave` | 退出工会（会长需先转让/解散） |
 | `/guild invite <玩家>` | 邀请玩家（会长/官员） |
-| `/guild accept <工会>` | 接受邀请 |
-| `/guild deny <工会>` | 拒绝邀请 |
+| `/guild accept [工会]` | 接受邀请（省略工会时接受当前邀请） |
+| `/guild deny [工会]` | 拒绝邀请（省略工会时拒绝当前邀请） |
 | `/guild kick <玩家>` | 踢出成员（会长/官员） |
 | `/guild members` | 查看成员列表（打开成员 GUI） |
 | `/guild promote <玩家>` | 提升职位（左键同效） |

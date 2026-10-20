@@ -247,19 +247,30 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
     }
 
     private void accept(Player player, String[] args) {
-        if (args.length < 2) {
-            plugin.messages().send(player, "invite-none");
-            return;
+        String guildName = args.length >= 2 ? args[1] : null;
+        if (guildName == null) {
+            // 通知里的 [接受] 按钮不带参数，直接接受当前待处理邀请（每人最多一条）。
+            var pending = plugin.guilds().pendingInvites(player.getUniqueId());
+            if (pending.isEmpty()) {
+                plugin.messages().send(player, "invite-none");
+                return;
+            }
+            guildName = pending.get(0).guildName();
         }
-        plugin.guilds().accept(player, args[1]);
+        plugin.guilds().accept(player, guildName);
     }
 
     private void deny(Player player, String[] args) {
-        if (args.length < 2) {
-            plugin.messages().send(player, "invite-none");
-            return;
+        String guildName = args.length >= 2 ? args[1] : null;
+        if (guildName == null) {
+            var pending = plugin.guilds().pendingInvites(player.getUniqueId());
+            if (pending.isEmpty()) {
+                plugin.messages().send(player, "invite-none");
+                return;
+            }
+            guildName = pending.get(0).guildName();
         }
-        plugin.guilds().deny(player, args[1]);
+        plugin.guilds().deny(player, guildName);
     }
 
     private void kick(Player player, String[] args) {
@@ -690,7 +701,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                         continue;
                     }
                     plugin.mail().markReadAsync(uuid, entry.id());
-                    plugin.messages().sendRaw(player, "mail-body-header",
+                    plugin.messages().sendRawRich(player, "mail-body-header",
                             "title", entry.title(),
                             "time", com.liu.liuguild.util.TimeUtil.formatDateTime(entry.createdAt()));
                     player.sendMessage(Text.mm(entry.body()));
@@ -722,13 +733,13 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             int index = 0;
             for (com.liu.liuguild.db.MailEntry e : list) {
                 index++;
-                String state = e.readAt() == 0 ? plugin.messages().raw("mail-unread")
-                        : plugin.messages().raw("mail-read");
-                plugin.messages().sendRaw(player, "mail-line",
+                String stateKey = e.readAt() == 0 ? "mail-unread" : "mail-read";
+                Component line = Text.fmtRich(plugin.messages().raw("mail-line"),
                         "index", String.valueOf(index),
                         "title", e.title(),
                         "time", com.liu.liuguild.util.TimeUtil.formatDateTime(e.createdAt()),
-                        "state", state);
+                        "state", "");
+                player.sendMessage(line.append(plugin.messages().component(stateKey)));
             }
         });
     }
@@ -1008,11 +1019,17 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (!(sender instanceof Player player) || !player.hasPermission("liuguild.use")) {
+            return List.of();
+        }
         if (args.length == 1) {
-            return filter(SUBS, args[0]);
+            return filter(visibleSubs(player), args[0]);
         }
         if (args.length == 2) {
             String sub = args[0].toLowerCase(Locale.ROOT);
+            if (!allowedSub(player, sub)) {
+                return List.of();
+            }
             if (sub.equals("join")) {
                 List<String> names = new ArrayList<>();
                 plugin.guilds().all().forEach(g -> names.add(g.name()));
@@ -1059,6 +1076,26 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             }
         }
         return List.of();
+    }
+
+    /** 子命令本身是否需要权限；补全和显示都要遵循。 */
+    private static boolean allowedSub(CommandSender sender, String sub) {
+        return switch (sub == null ? "" : sub.toLowerCase(Locale.ROOT)) {
+            case "create" -> sender.hasPermission("liuguild.create");
+            case "war" -> sender.hasPermission("liuguild.war");
+            case "warehouse", "wh", "cangku" -> sender.hasPermission("liuguild.warehouse");
+            default -> true;
+        };
+    }
+
+    private static List<String> visibleSubs(CommandSender sender) {
+        List<String> out = new ArrayList<>();
+        for (String s : SUBS) {
+            if (allowedSub(sender, s)) {
+                out.add(s);
+            }
+        }
+        return out;
     }
 
     private static List<String> filter(List<String> options, String prefix) {

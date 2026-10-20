@@ -111,9 +111,6 @@ final class GuildCleanup {
                 if (plugin.applications() != null) {
                     plugin.applications().purgeAsync(nowMs - 90L * 24L * 3600L * 1000L);
                 }
-                if (plugin.applications() != null) {
-                    plugin.applications().purgeAsync(nowMs - 90L * 24L * 3600L * 1000L);
-                }
             } catch (Exception e) {
                 plugin.getLogger().warning("清理工会战历史失败: " + e.getMessage());
             }

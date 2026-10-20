@@ -35,92 +35,92 @@ gui:
           - ""
           - "<yellow>公告：<white>{notice}"
       members:
-        slot: 19
+        slot: 11
         material: PLAYER_HEAD
         name: "<white>成员列表"
         lore: ["<gray>查看并管理工会成员"]
       war:
-        slot: 37
+        slot: 20
         material: NETHERITE_SWORD
         name: "<white>工会战"
         lore: ["<gray>匹配 / 查看战况 / 历史战绩"]
       bank:
-        slot: 29
+        slot: 21
         material: GOLD_INGOT
         name: "<white>工会金币银行"
         lore: ["<gray>工会金币：<white>{bank}", "<gray>使用 Vault 金币，与工会资金独立", "<gray>左键存入 / 右键取出（需权限）"]
       home:
-        slot: 21
+        slot: 12
         material: COMPASS
         name: "<white>工会驻地"
         lore: ["<gray>可用槽位：<white>{home_slots}", "<gray>点击打开驻地列表", "<gray>在列表中传送 / 设置 / 删除"]
       checkin:
-        slot: 23
+        slot: 13
         material: CLOCK
         name: "<white>每日签到"
         lore: ["<gray>连续签到：<white>{checkin_streak} 天", "<gray>今日：<white>{checkin_state}", "<gray>消耗：<white>{checkin_cost}", "", "<yellow>点击签到"]
       settings:
-        slot: 43
+        slot: 33
         material: REDSTONE_TORCH
         name: "<white>工会设置"
         lore: ["<gray>图标 / 公告 / 简介 / 改名字 / 加入方式 / 成员 PvP"]
       list:
-        slot: 39
+        slot: 31
         material: WRITABLE_BOOK
         name: "<white>工会列表"
         lore: ["<gray>浏览全服工会"]
       top:
-        slot: 41
+        slot: 32
         material: GOLDEN_HELMET
         name: "<white>工会排行榜"
         lore: ["<gray>按资金 / 等级 / 战绩排名", "<gray>查看全服最强工会", "", "<yellow>点击查看"]
       warehouse_manage:
-        slot: 34
+        slot: 30
         material: ANVIL
         name: "<white>仓库管理"
         lore: ["<gray>购买使用时长 / 升级容量", "<gray>查看到期与保留策略", "", "<yellow>点击打开"]
       chat:
-        slot: 25
+        slot: 14
         material: BELL
         name: "<white>工会频道：<yellow>{chat_state}"
         lore: ["<gray>切换自己的工会聊天频道", "", "<yellow>点击切换"]
       warehouse:
-        slot: 33
+        slot: 29
         material: CHEST
         name: "<white>工会仓库"
         lore: ["<gray>跨服共享物品存储", "<gray>同一时间只能一人打开", "<gray>时长与容量用工会资金购买", "", "<yellow>点击打开"]
       titles:
-        slot: 22
+        slot: 15
         material: NAME_TAG
         name: "<white>工会头衔"
         lore: ["<gray>固定工会称号", "<gray>选一个装备在自己名字旁", "", "<yellow>点击查看"]
       shop:
-        slot: 31
+        slot: 23
         material: EMERALD
         name: "<white>工会商店"
         lore: ["<gray>上架物品供本会成员购买", "<gray>用个人工会资金支付，货款入工会点数", "<gray>仅出售，不收购物品", "", "<yellow>点击打开"]
       funds:
-        slot: 28
+        slot: 22
         material: EXPERIENCE_BOTTLE
         name: "<green>工会资金 · 捐献"
         lore: ["<gray>查询个人资金与公共资金", "<gray>将个人建设资金捐给工会", "<gray>资金不能兑换金币", "", "<yellow>点击查看"]
       buffs:
-        slot: 40
+        slot: 24
         material: BEACON
         name: "<aqua>工会增益"
         lore: ["<gray>公共资金购买全体成员限时祝福", "<gray>查看效果、费用与剩余时间", "", "<yellow>点击打开"]
       mail:
-        slot: 45
+        slot: 40
         material: PAPER
         name: "<white>工会邮件"
         lore: ["<gray>查看工会战结果与入会申请结果", "<gray>登录时也会提示未读", "", "<yellow>点击查看"]
       log:
-        slot: 46
+        slot: 41
         material: BOOK
         name: "<white>工会日志"
         lore: ["<gray>银行 / 商店 / 仓库 / 申请等操作记录", "<gray>仅会长和官员可见", "", "<yellow>点击查看"]
       apps:
-        slot: 47
+        slot: 39
         material: WRITABLE_BOOK
         name: "<white>入会申请"
         lore: ["<gray>查看待审批申请", "<gray>左键批准 / 右键拒绝", "<gray>仅会长和官员可见", "", "<yellow>点击查看"]

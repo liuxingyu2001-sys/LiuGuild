@@ -141,14 +141,42 @@ public final class Text {
 
     /**
      * 把模板里的指令提示变成可点击组件（附悬停说明）。
-     * 仅作用于模板自身文本；玩家输入占位符不会被解析，从而不会引入注入风险。
+     * 仅作用于模板自身的纯文本，跳过已经手写的 MiniMessage 标签
+     * （尤其是 {@code <click:run_command:'/guild mail'>}，避免嵌套标签损坏）。
+     * 玩家输入占位符不会被解析，从而不会引入注入风险。
      */
     static String linkCommands(String source) {
         if (source == null || source.indexOf('/') < 0) {
             return source;
         }
-        Matcher m = COMMAND_TOKEN.matcher(source);
-        StringBuilder sb = new StringBuilder();
+        StringBuilder out = new StringBuilder(source.length() + 32);
+        int cursor = 0;
+        while (cursor < source.length()) {
+            int open = source.indexOf('<', cursor);
+            if (open < 0) {
+                out.append(linkPlainCommands(source.substring(cursor)));
+                break;
+            }
+            out.append(linkPlainCommands(source.substring(cursor, open)));
+            int close = source.indexOf('>', open + 1);
+            if (close < 0) {
+                out.append(source, open, source.length());
+                break;
+            }
+            // 已经手写的 MiniMessage 标签（如 <click:run_command:'/guild mail'>）
+            // 内部不能再插入 click/hover，否则会生成嵌套/损坏的标签。
+            out.append(source, open, close + 1);
+            cursor = close + 1;
+        }
+        return out.toString();
+    }
+
+    private static String linkPlainCommands(String text) {
+        if (text == null || text.indexOf('/') < 0) {
+            return text == null ? "" : text;
+        }
+        Matcher m = COMMAND_TOKEN.matcher(text);
+        StringBuilder sb = new StringBuilder(text.length() + 32);
         while (m.find()) {
             String cmd = m.group();
             String tag = "<click:suggest_command:'" + cmd + "'><hover:show_text:'点击补全该指令'>"

@@ -41,7 +41,7 @@ class MessageKeyTest {
             "player", "sender", "actor", "victim", "killer", "tp", "p", "to", "target", "viewer");
 
     private static final Pattern CALL_HEAD = Pattern.compile(
-            "messages\\(\\)\\.\\s*(?:send|sendRaw|sendRawRich|component|prefixed)\\(\\s*");
+            "messages\\(\\)\\.\\s*(?:send|sendRaw|sendRawRich|sendRich|component|prefixed|prefixedRich)\\(\\s*");
 
     /** 只接受字面量形式的 key（单个字符串，或三元里的两个字符串）。 */
     private static final Pattern LITERAL_KEY = Pattern.compile(

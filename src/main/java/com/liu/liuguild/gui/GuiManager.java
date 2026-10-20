@@ -852,7 +852,8 @@ public final class GuiManager implements GuildModule, Listener {
                 lore.add("");
                 lore.add("<yellow>左键查看正文");
                 inv.setItem(index, GuiUtil.build(player, unread ? "PAPER" : "MAP",
-                        unread ? "PAPER" : "MAP", "<white>" + entry.title(), lore, Map.of(), null));
+                        unread ? "PAPER" : "MAP", "<white>{title}", lore,
+                        Map.of("title", entry.title()), null));
                 holder.actions.put(index, "mail_read:" + entry.id());
             }
             if (list.isEmpty()) {
@@ -1758,7 +1759,7 @@ public final class GuiManager implements GuildModule, Listener {
                 for (var entry : list) {
                     if (!entry.id().equals(id)) continue;
                     plugin.mail().markReadAsync(player.getUniqueId(), entry.id());
-                    plugin.messages().sendRaw(player, "mail-body-header",
+                    plugin.messages().sendRawRich(player, "mail-body-header",
                             "title", entry.title(),
                             "time", com.liu.liuguild.util.TimeUtil.formatDateTime(entry.createdAt()));
                     player.sendMessage(Text.mm(entry.body()));

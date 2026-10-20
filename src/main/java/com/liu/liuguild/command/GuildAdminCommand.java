@@ -1306,6 +1306,10 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     + (conf.cleanupMaxMembers > 0 ? "，成员数≤&f" + conf.cleanupMaxMembers : "")));
             sender.sendMessage(cn("&7模式：" + (dry ? "&e试运行（未删除）" : "&c已执行删除")
                     + " &7命中：&f" + targets.size()));
+            if (targets.isEmpty()) {
+                sender.sendMessage(cn("&a没有符合条件的不活跃工会。"));
+                return;
+            }
             int shown = 0;
             for (Guild g : targets) {
                 if (shown++ >= 15) {
@@ -1313,8 +1317,9 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     break;
                 }
                 long days = (System.currentTimeMillis() - g.lastActiveAt()) / 86_400_000L;
+                String active = g.lastActiveAt() <= 0 ? "从未记录" : days + " 天前";
                 sender.sendMessage(cn("&7- &f" + g.name() + " &8[" + g.tag() + "] &7成员=&f" + g.memberCount()
-                        + " &7最后活跃=&f" + days + " 天前"));
+                        + " &7最后活跃=&f" + active));
             }
             if (dry && !targets.isEmpty()) {
                 sender.sendMessage(cn("&7确认删除请执行：&f/guildadmin cleanup confirm"));
@@ -1352,6 +1357,10 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             return startsWith(permittedSubs(sender), args[0]);
         }
+        // 手动输入了无权限的子命令时，也不能继续补全它的参数。
+        if (!allowedSub(sender, args[0])) {
+            return List.of();
+        }
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("purge")) {
                 List<String> choices = new ArrayList<>();
@@ -1365,7 +1374,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 case "kit" -> startsWith(List.of("list", "save", "delete", "info"), args[1]);
                 case "mode" -> startsWith(List.of("list", "info", "start"), args[1]);
                 case "war" -> startsWith(List.of("list", "queue", "start", "stop", "tp", "score"), args[1]);
-                case "reload", "status", "guilds", "cleanup" -> List.of();
+                case "cleanup" -> startsWith(List.of("dry", "confirm"), args[1]);
+                case "reload", "status", "guilds" -> List.of();
                 case "verify" -> startsWith(List.of("fix"), args[1]);
                 case "player", "broadcast" -> onlinePlayerNames(args[1]);
                 default -> guildNames(args[1]);
@@ -1455,12 +1465,16 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         return startsWith(out, prefix);
     }
 
+    private boolean allowedSub(CommandSender sender, String sub) {
+        String key = sub == null ? "" : sub.toLowerCase(Locale.ROOT);
+        String req = SUB_PERMISSIONS.getOrDefault(key, "liuguild.admin");
+        return key.equals("help") || sender.hasPermission("liuguild.admin") || sender.hasPermission(req);
+    }
+
     private List<String> permittedSubs(CommandSender sender) {
         List<String> out = new ArrayList<>();
-        boolean parent = sender.hasPermission("liuguild.admin");
         for (String s : SUBS) {
-            String req = SUB_PERMISSIONS.getOrDefault(s, "liuguild.admin");
-            if (parent || sender.hasPermission(req) || s.equals("help")) {
+            if (allowedSub(sender, s)) {
                 out.add(s);
             }
         }
