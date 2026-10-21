@@ -6,7 +6,7 @@
 
     <groupId>com.liu</groupId>
     <artifactId>LiuGuild</artifactId>
-    <version>0.5.5</version>
+    <version>0.5.6</version>
     <packaging>jar</packaging>
 
     <name>LiuGuild</name>

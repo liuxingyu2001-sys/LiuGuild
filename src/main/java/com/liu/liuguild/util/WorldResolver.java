@@ -1,6 +1,7 @@
 package com.liu.liuguild.util;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.World;
 
 import java.io.File;
@@ -148,6 +149,45 @@ public final class WorldResolver {
                 && (new File(dir, "level.dat").isFile()
                 || new File(dir, "region").isDirectory()
                 || new File(dir, "entities").isDirectory());
+    }
+
+    /**
+     * 动态创建、随时会被删除的临时世界名。
+     *
+     * <p>liudungeon 的副本实例使用 {@code ld_<模板>_<32位十六进制>}，
+     * 外部竞技场使用 {@code ldext_}；这些世界只存在于一次副本/比赛期间，
+     * 不能作为玩家的持久返程点。</p>
+     */
+    public static boolean isTransientWorld(String configured) {
+        if (configured == null || configured.isBlank()) {
+            return true;
+        }
+        return isTransientWorldName(keyName(configured.trim()));
+    }
+
+    /**
+     * 纯函数判断，便于单测；调用方应先去掉命名空间前缀。
+     */
+    public static boolean isTransientWorldName(String name) {
+        if (name == null || name.isBlank()) {
+            return true;
+        }
+        String lower = name.trim().toLowerCase(Locale.ROOT);
+        return lower.startsWith("ld_") || lower.startsWith("ldext_");
+    }
+
+    /**
+     * 兜底落点：跳过临时世界后第一个已加载世界的出生点。
+     *
+     * <p>只在主线程调用（会读取 Bukkit 世界列表）；没有可用世界时返回 null。</p>
+     */
+    public static Location defaultSpawn() {
+        for (World world : Bukkit.getWorlds()) {
+            if (!isTransientWorld(world.getName())) {
+                return world.getSpawnLocation();
+            }
+        }
+        return null;
     }
 
     /** 去掉命名空间前缀（{@code minecraft:jjc} → {@code jjc}）。 */

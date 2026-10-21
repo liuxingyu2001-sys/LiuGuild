@@ -661,6 +661,48 @@ public final class CrossServerBus {
         publish("WAR_STATE", m);
     }
 
+    /**
+     * 写入「工会战掉线重连」标记。
+     * <p>标记只能由承办服在玩家掉线时写入，其他子服在玩家上线时消费后自动送回承办服；
+     * TTL 与 {@code reconnect-seconds} 对齐，避免宽限过期后仍反复传送。</p>
+     */
+    public boolean markWarReconnect(UUID uuid, String warId, int reconnectSeconds) {
+        if (uuid == null || warId == null || warId.isBlank() || reconnectSeconds <= 0) {
+            return false;
+        }
+        Boolean ok = bridge.withJedis(jedis -> {
+            jedis.setex(bridge.keyWarReconnect(uuid), reconnectSeconds + 10L, warId);
+            return Boolean.TRUE;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
+    /** 消费掉线重连标记；返回 warId，未命中返回 null。 */
+    public String consumeWarReconnect(UUID uuid) {
+        if (uuid == null) {
+            return null;
+        }
+        return bridge.withJedis(jedis -> {
+            String key = bridge.keyWarReconnect(uuid);
+            String value = jedis.get(key);
+            if (value != null) {
+                jedis.del(key);
+            }
+            return value;
+        });
+    }
+
+    /** 清理重连标记（同服自动重连成功后调用）。 */
+    public void clearWarReconnect(UUID uuid) {
+        if (uuid == null) {
+            return;
+        }
+        bridge.withJedis(jedis -> {
+            jedis.del(bridge.keyWarReconnect(uuid));
+            return null;
+        });
+    }
+
     public boolean setPendingWar(UUID uuid, String warId) {
         return setPendingWar(uuid, warId, null, null, 0, 0, 0, 0, 0);
     }

@@ -2,6 +2,7 @@ package com.liu.liuguild.model;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -83,5 +84,24 @@ class GuildWarPartyTest {
         assertTrue(war.hostile("g3", "g2"));
         assertFalse(war.hostile("g1", "g1"));
         assertFalse(war.hostile("g1", "outside"));
+    }
+
+    @Test
+    void alivePartiesIgnoreEmptyAndEliminatedParties() {
+        GuildWar war = new GuildWar("w", "g1", "g2");
+        GuildWar.Party c = war.addParty("g3", "三会", "G3");
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        UUID cc = UUID.randomUUID();
+        war.rosterA().add(a);
+        war.rosterB().add(b);
+        c.roster().add(cc);
+
+        assertEquals(3, war.aliveParties(Set.of()).size());
+        assertEquals(2, war.aliveParties(Set.of(b)).size());
+
+        war.removePlayer(cc);
+        assertEquals(1, war.aliveParties(Set.of(b)).size());
+        assertEquals(0, war.aliveParties(Set.of(a, b)).size());
     }
 }

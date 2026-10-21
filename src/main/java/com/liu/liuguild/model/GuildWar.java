@@ -171,6 +171,20 @@ public final class GuildWar {
         return rank.isEmpty() ? "" : rank.get(0).guildId;
     }
 
+    /**
+     * 仍有未被淘汰成员的公会阵营。roster 为空（整队退出/被移除）也算该方已无存活者，
+     * 供工会战掉线宽限到期时判定是否应结束比赛。
+     */
+    public synchronized List<Party> aliveParties(Set<UUID> eliminated) {
+        List<Party> out = new ArrayList<>();
+        for (Party p : parties.values()) {
+            if (!p.roster.isEmpty() && !p.roster.stream().allMatch(eliminated::contains)) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
     public synchronized java.util.Set<UUID> allPlayers() {
         java.util.LinkedHashSet<UUID> all = new java.util.LinkedHashSet<>();
         for (Party p : parties.values()) {

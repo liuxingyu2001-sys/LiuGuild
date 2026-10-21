@@ -112,28 +112,67 @@ public final class WarListener implements GuildModule, Listener {
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onInteract(org.bukkit.event.player.PlayerInteractEvent event) {
-        if (plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        if (plugin.war().isFrozen(uuid) || plugin.war().isWarRestricted(uuid)) {
+            // 固定套件不能被摆成盔甲架/展示框后留在地图里。
+            org.bukkit.Material item = event.getMaterial();
+            if (item == org.bukkit.Material.ARMOR_STAND
+                    || item == org.bukkit.Material.ITEM_FRAME
+                    || item == org.bukkit.Material.GLOW_ITEM_FRAME) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+        if (plugin.war().isFrozen(uuid)) {
             event.setCancelled(true);
         }
     }
 
+    /** 战中/旁观期间禁止丢弃套件，掉线重连/复活后不能再捡回第二套。 */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onDrop(org.bukkit.event.player.PlayerDropItemEvent event) {
-        if (plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        if (plugin.war().isFrozen(uuid) || plugin.war().isWarRestricted(uuid)) {
             event.setCancelled(true);
         }
     }
 
+    /** 战中/旁观期间禁止捡拾，避免把地上遗留的套件带出或以多套装备继续战斗。 */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onPickup(org.bukkit.event.entity.EntityPickupItemEvent event) {
+        if (event.getEntity() instanceof Player player
+                && (plugin.war().isFrozen(player.getUniqueId()) || plugin.war().isWarRestricted(player.getUniqueId()))) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** 战中/旁观期间禁止破坏/放置方块，防止把套件方块留在持久化竞技场。 */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onBreak(org.bukkit.event.block.BlockBreakEvent event) {
-        if (plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        if (plugin.war().isFrozen(uuid) || plugin.war().isWarRestricted(uuid)) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPlace(org.bukkit.event.block.BlockPlaceEvent event) {
-        if (plugin.war().isFrozen(event.getPlayer().getUniqueId())) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        if (plugin.war().isFrozen(uuid) || plugin.war().isWarRestricted(uuid)) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** 禁止把套件塞进盔甲架/展示框（含已放置的实体）。 */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onInteractEntity(org.bukkit.event.player.PlayerInteractEntityEvent event) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        if (!plugin.war().isWarRestricted(uuid)) {
+            return;
+        }
+        org.bukkit.entity.Entity entity = event.getRightClicked();
+        if (entity instanceof org.bukkit.entity.ArmorStand
+                || entity instanceof org.bukkit.entity.ItemFrame) {
             event.setCancelled(true);
         }
     }
@@ -230,6 +269,66 @@ public final class WarListener implements GuildModule, Listener {
         }
         event.setCancelled(true);
         plugin.messages().send(player, "war-command-blocked");
+    }
+
+    /**
+     * 战斗中禁止把物品放进/拿出玩家 2x2 合成栏（以及异常打开的工作台）。
+     * 合成栏不属于 41 格装备快照；若套件留在里面，归还快照后关闭界面会被原版退回背包，
+     * 形成“合成栏复制装备”。此拦截与 KitService 的清理共同兜底。
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWarCraftClick(org.bukkit.event.inventory.InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)
+                || player.hasPermission("liuguild.admin")
+                || !plugin.war().isWarRestricted(player.getUniqueId())) {
+            return;
+        }
+        org.bukkit.inventory.InventoryView view = event.getView();
+        if (!isCraftingView(view)) {
+            return;
+        }
+        int raw = event.getRawSlot();
+        int topSize = view.getTopInventory().getSize();
+        if (raw >= 0 && raw < topSize) {
+            event.setCancelled(true);
+            return;
+        }
+        if (event.getAction() == org.bukkit.event.inventory.InventoryAction.MOVE_TO_OTHER_INVENTORY) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWarCraftDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)
+                || player.hasPermission("liuguild.admin")
+                || !plugin.war().isWarRestricted(player.getUniqueId())) {
+            return;
+        }
+        org.bukkit.inventory.InventoryView view = event.getView();
+        if (!isCraftingView(view)) {
+            return;
+        }
+        int topSize = view.getTopInventory().getSize();
+        for (int raw : event.getRawSlots()) {
+            if (raw >= 0 && raw < topSize) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+    }
+
+    private static boolean isCraftingView(org.bukkit.inventory.InventoryView view) {
+        if (view == null) {
+            return false;
+        }
+        org.bukkit.inventory.Inventory top = view.getTopInventory();
+        if (top == null) {
+            return false;
+        }
+        org.bukkit.event.inventory.InventoryType type = top.getType();
+        return type == org.bukkit.event.inventory.InventoryType.CRAFTING
+                || type == org.bukkit.event.inventory.InventoryType.WORKBENCH;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

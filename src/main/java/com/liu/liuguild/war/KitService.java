@@ -10,6 +10,9 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -180,6 +183,70 @@ public final class KitService {
         return encoded;
     }
 
+    /**
+     * 关闭玩家当前打开的任意界面，让合成栏/铁砧/工作台等临时槽位中的物品按原版规则
+     * 退回背包（或回到容器）。采集快照和归还快照前都应先调用，否则这些槽位不在 41 格
+     * 快照里，套件会借界面关闭时“退回背包”而被复制。
+     */
+    public void closeTransientInventory(Player player) {
+        if (player == null) {
+            return;
+        }
+        try {
+            player.closeInventory();
+        } catch (RuntimeException ignored) {
+            // 退服临界状态下可能无法关闭；后续 clearCraftingGrid 仍会清 2x2 合成栏。
+        }
+    }
+
+    /**
+     * 把玩家自己的 2x2 合成栏物品还回背包。
+     *
+     * <p>采集快照前调用：合成栏不在 41 格快照里，如果玩家入场时合成栏正好有物品，
+     * 先关闭界面让原版把它们退回背包，随后采集才能保存下来。</p>
+     */
+    public void flushCraftingGrid(Player player) {
+        if (player == null) {
+            return;
+        }
+        try {
+            InventoryView view = player.getOpenInventory();
+            Inventory top = view == null ? null : view.getTopInventory();
+            if (top != null && top.getType() == InventoryType.CRAFTING) {
+                // 只关玩家 2x2 合成界面，不碰箱子/商店等外部容器。
+                player.closeInventory();
+            }
+        } catch (RuntimeException ignored) {
+            // 退服/传送临界状态下关闭界面可能失败，继续清理即可。
+        }
+    }
+
+    /**
+     * 清空玩家自带的 2x2 合成栏（含工作台界面）。
+     *
+     * <p>统一装备只能存在于 41 格快照覆盖的槽位里。若允许把套件放进合成栏，
+     * 归还快照时不会覆盖合成栏，关闭界面后原版会把套件退回背包，形成复制。
+     * 因此发装备/还原前必须清掉，并在 {@code WarListener} 中拦截战中放入合成栏。</p>
+     */
+    public void clearCraftingGrid(Player player) {
+        if (player == null) {
+            return;
+        }
+        try {
+            InventoryView view = player.getOpenInventory();
+            Inventory top = view == null ? null : view.getTopInventory();
+            if (top == null) {
+                return;
+            }
+            InventoryType type = top.getType();
+            if (type == InventoryType.CRAFTING || type == InventoryType.WORKBENCH) {
+                top.clear();
+            }
+        } catch (RuntimeException ignored) {
+            // 退服临界状态下可能没有可访问的 InventoryView；忽略，快照仍会覆盖 41 格。
+        }
+    }
+
     /** 还原状态（主线程）。若 skipTeleport=true，则不覆盖当前坐标（交由 finishTeleport 处理）。 */
     public void restore(Player player, Snapshot snap) {
         restore(player, snap, false);
@@ -190,6 +257,13 @@ public final class KitService {
         if (player == null || snap == null) {
             return;
         }
+        // 光标和 2x2 合成栏都不属于 41 格快照；不清理会把套件遗留在界面里，
+        // 关闭界面后原版退回背包即可复制。入场前已 flush 原合成栏物品，这里可安全清空。
+        // 先清合成栏/光标，再关界面；避免套件被 closeInventory 退回背包或掉在地上。
+        clearCraftingGrid(player);
+        player.setItemOnCursor(null);
+        closeTransientInventory(player);
+        clearCraftingGrid(player);
         player.getInventory().setStorageContents(deepCopy(snap.contents()));
         player.getInventory().setArmorContents(deepCopy(snap.armor()));
         player.getInventory().setItemInOffHand(snap.offhand() == null ? null : snap.offhand().clone());
@@ -258,6 +332,11 @@ public final class KitService {
         }
         // 公平模式必须清空背包：否则未填满的槽位会残留玩家自带物品，形成不公平。
         if (c.clearInventory || mode.fairEquipment) {
+            // 合成栏/铁砧/工作台等临时槽位不受 PlayerInventory.clear() 覆盖，必须先清掉再关界面。
+            clearCraftingGrid(player);
+            player.setItemOnCursor(null);
+            closeTransientInventory(player);
+            clearCraftingGrid(player);
             player.getInventory().clear();
             player.getInventory().setArmorContents(new ItemStack[4]);
             player.getInventory().setItemInOffHand(null);

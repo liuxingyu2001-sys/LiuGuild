@@ -195,6 +195,11 @@ public final class RedisBridge {
         return prefix + "war:spectate:" + player;
     }
 
+    /** 掉线重连标记：承办服写入，任意子服在玩家上线时消费。 */
+    public String keyWarReconnect(java.util.UUID player) {
+        return prefix + "war:reconnect:" + player;
+    }
+
     /** 赛后跨服返程目的地的临时标记（世界 + 坐标）。 */
     public String keyWarReturn(java.util.UUID player) {
         return prefix + "war:return:" + player;

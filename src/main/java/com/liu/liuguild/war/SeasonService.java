@@ -25,6 +25,8 @@ public final class SeasonService implements GuildModule, Listener {
     private final Set<UUID> capturing = new HashSet<>(), restoring = new HashSet<>(), waiting = new HashSet<>();
     private final Map<UUID, Long> arrivals = new HashMap<>();
     private final Map<UUID, Long> transferCooldown = new HashMap<>();
+    /** 返程失败提示限流（UUID → 上次提示时间），避免 5 秒轮询把聊天刷爆。 */
+    private final Map<UUID, Long> returnNoticeAt = new HashMap<>();
     private volatile SeasonRepository.Event current;
     private WarMode mode;
     private ArenaDef arena;
@@ -243,7 +245,16 @@ public final class SeasonService implements GuildModule, Listener {
             // 最低人数在承办服汇总后检查，支持成员分散在多个子服。
             for(Player p:players) {
                 Location loc=p.getLocation();
-                registrations.add(new SeasonRepository.Entry(event.id(),p.getUniqueId(),guild.id(),plugin.serverId(),loc.getWorld().getName(),loc.getX(),loc.getY(),loc.getZ(),loc.getYaw(),loc.getPitch(),"REGISTERED"));
+                boolean transientWorld=loc.getWorld()==null || WorldResolver.isTransientWorld(loc.getWorld().getName());
+                // 身在副本/临时世界：那是"用完即删"的世界，记成返程点赛后必然失效。
+                // 改记主城出生点；连主城都没有就跳过，别造一条注定失败的记录。
+                if(transientWorld) {
+                    Location spawn=WorldResolver.defaultSpawn();
+                    if(spawn==null) continue;
+                    loc=spawn;
+                }
+                registrations.add(new SeasonRepository.Entry(event.id(),p.getUniqueId(),guild.id(),plugin.serverId(),
+                        loc.getWorld().getName(),loc.getX(),loc.getY(),loc.getZ(),loc.getYaw(),loc.getPitch(),"REGISTERED"));
                 p.sendMessage("§6[工会赛季] §e已报名混战，正在等待参赛名单汇总。");
             }
         }
@@ -476,7 +487,9 @@ public final class SeasonService implements GuildModule, Listener {
         submit(() -> {
             try {
                 var latest=repo.entry(entry.event(),entry.player());
-                if(latest==null || "RETURNED".equals(latest.state()) || !latest.source().equals(entry.source()) || !latest.world().equals(entry.world())) return;
+                if(latest==null || "RETURNED".equals(latest.state())
+                        || !Objects.equals(latest.source(),entry.source())
+                        || !Objects.equals(latest.world(),entry.world())) return;
                 if(plugin.repo().loadWarEscrow(entry.player())!=null) { plugin.sync(() -> {
                     plugin.war().recoverPendingEscrow(p);
                     // 恢复模块异步完成后才继续返程，恢复原始无敌状态由赛季清理兜底。
@@ -487,14 +500,60 @@ public final class SeasonService implements GuildModule, Listener {
                     if(!plugin.war().isHostServer(entry.source())) {
                         transferCooldown.remove(entry.player()); transfer(p,entry.source()); return;
                     }
-                    World target=WorldResolver.resolve(entry.world());
-                    if(target==null) { p.sendMessage("§c赛季返程世界未加载："+entry.world()+"，保留返程记录。"); return; }
-                    if(plugin.war().warTeleport(p,new Location(target,entry.x(),entry.y(),entry.z(),entry.yaw(),entry.pitch()))) {
+                    // 原世界还在 → 精确回原坐标；世界已被删（副本实例/临时竞技场）→ 退回主城出生点。
+                    // 旧实现只发一句"保留返程记录"就 return，记录永远不清：每 5 秒刷屏、每次登录重来。
+                    Location dest=returnDestination(latest);
+                    if(dest==null) { noticeReturnFailed(p,latest.world()); return; }
+                    boolean fallback=returnNeedsFallback(latest);
+                    boolean ok;
+                    try { ok=plugin.war().warTeleport(p,dest); }
+                    catch (Throwable t) { plugin.getLogger().warning("赛季返程传送异常: "+t.getMessage()); ok=false; }
+                    if(ok) {
+                        if(fallback) noticeReturnFallback(p,latest.world());
                         submit(() -> { try { repo.entryState(entry.event(),entry.player(),"RETURNED"); } catch(Exception e) { failure(e); } });
+                    } else {
+                        noticeReturnFailed(p,latest.world());
                     }
                 });
             } catch(Exception e) { failure(e); }
         });
+    }
+
+    /** 返程落点：世界有效就用原坐标，失效就回主城出生点（绝不把旧坐标套到别的主世界）。 */
+    private Location returnDestination(SeasonRepository.Entry entry) {
+        // 临时世界即使还没被卸载也不能作为返程点：它随时可能在本轮结束后删除。
+        World target=returnNeedsFallback(entry) ? null : WorldResolver.resolve(entry.world());
+        if(target!=null) return new Location(target,entry.x(),entry.y(),entry.z(),entry.yaw(),entry.pitch());
+        Location fallback=WorldResolver.defaultSpawn();
+        if(fallback==null) return null;
+        plugin.getLogger().warning("赛季返程目标世界已失效（"+entry.world()+"），"+entry.player()+" 改送回 "
+                +fallback.getWorld().getName()+" 出生点。");
+        return fallback;
+    }
+
+    /** 记录里的世界已失效/是临时世界，必须改用主城出生点。 */
+    private boolean returnNeedsFallback(SeasonRepository.Entry entry) {
+        return WorldResolver.isTransientWorld(entry.world()) || WorldResolver.resolve(entry.world())==null;
+    }
+
+    /** 成功改送回主城出生点的一次性提示；与失败提示共用 60 秒限流。 */
+    private void noticeReturnFallback(Player p,String world) {
+        if(p==null || !p.isOnline()) return;
+        long now=System.currentTimeMillis();
+        Long last=returnNoticeAt.get(p.getUniqueId());
+        if(last!=null && now-last<60_000L) return;
+        returnNoticeAt.put(p.getUniqueId(),now);
+        p.sendMessage("§e赛季返程目标世界 §f"+world+" §e已不存在，已将你送回主城出生点。");
+    }
+
+    /** 同一条失败提示 60 秒最多一次；成功兜底返程后记录会被标成 RETURNED，循环自然停止。 */
+    private void noticeReturnFailed(Player p,String world) {
+        if(p==null || !p.isOnline()) return;
+        long now=System.currentTimeMillis();
+        Long last=returnNoticeAt.get(p.getUniqueId());
+        if(last!=null && now-last<60_000L) return;
+        returnNoticeAt.put(p.getUniqueId(),now);
+        p.sendMessage("§c赛季返程失败：目标世界 §f"+world+" §c已不存在，暂时无法送回主城出生点；请联系管理。");
     }
     @EventHandler(priority=EventPriority.HIGHEST,ignoreCancelled=true)
     public void damage(EntityDamageEvent event) {
@@ -558,8 +617,10 @@ public final class SeasonService implements GuildModule, Listener {
     @EventHandler public void join(PlayerJoinEvent event) { arrivals.put(event.getPlayer().getUniqueId(),System.currentTimeMillis()); }
     @EventHandler(priority=EventPriority.HIGHEST)
     public void quit(PlayerQuitEvent event) {
-        arrivals.remove(event.getPlayer().getUniqueId());
-        var entry=participants.get(event.getPlayer().getUniqueId());
+        UUID quitting=event.getPlayer().getUniqueId();
+        arrivals.remove(quitting);
+        returnNoticeAt.remove(quitting);
+        var entry=participants.get(quitting);
         if(entry==null) return;
         if(battle!=null) battle.eliminate(entry.player(),System.currentTimeMillis());
         restore(event.getPlayer(),entry,true);

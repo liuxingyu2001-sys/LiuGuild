@@ -8,7 +8,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** 世界目录识别：兼容 Paper 1.21.11+ / Leaf 26.x 的 dimensions 布局。 */
 class WorldResolverTest {
@@ -51,5 +53,17 @@ class WorldResolverTest {
         assertEquals("jjc", WorldResolver.keyName("minecraft:jjc"));
         assertEquals("jjc", WorldResolver.keyName("jjc"));
         assertEquals("", WorldResolver.keyName(null));
+    }
+
+    @Test
+    void detectsTransientDungeonAndArenaWorlds() {
+        assertTrue(WorldResolver.isTransientWorld("ld_dungeoncolosseum_25754e940a53485d9bbddd0a2546aa4e"));
+        assertTrue(WorldResolver.isTransientWorld("ldext_arena_123"));
+        assertTrue(WorldResolver.isTransientWorld("minecraft:ld_world_abc"));
+        assertTrue(WorldResolver.isTransientWorld(null));
+        assertTrue(WorldResolver.isTransientWorld(" "));
+        assertFalse(WorldResolver.isTransientWorld("world"));
+        assertFalse(WorldResolver.isTransientWorld("jjc"));
+        assertFalse(WorldResolver.isTransientWorld("guild_arena_static"));
     }
 }

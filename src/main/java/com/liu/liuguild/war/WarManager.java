@@ -83,6 +83,8 @@ public final class WarManager implements GuildModule {
     private final Set<UUID> spectators = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Integer> livesRemaining = new ConcurrentHashMap<>();
     private final Set<UUID> eliminated = ConcurrentHashMap.newKeySet();
+    /** 已掉线但仍保留在 roster 中、等待 reconnect-seconds 宽限的参赛者。 */
+    private final Set<UUID> offline = ConcurrentHashMap.newKeySet();
     /** 准备阶段被锁定（冻结）的参赛者；开战时解除。 */
     private final Set<UUID> frozen = ConcurrentHashMap.newKeySet();
     /** 工会战内部合法发起的传送白名单，免于 WarListener 的传送拦截。 */
@@ -2671,9 +2673,35 @@ public final class WarManager implements GuildModule {
             return null;
         }
         Location loc = player.getLocation();
+        if (loc.getWorld() == null || WorldResolver.isTransientWorld(loc.getWorld().getName())) {
+            // 副本实例世界会后删：记它等于让赛后返程必失败。改为记录主城出生点。
+            Location spawn = WorldResolver.defaultSpawn();
+            if (spawn == null) {
+                return null;
+            }
+            loc = spawn;
+        }
         return new WarOrigin(war.id(), player.getUniqueId(), localServerName(),
-                loc.getWorld() == null ? "" : loc.getWorld().getName(),
-                loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch());
+                loc.getWorld().getName(), loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch());
+    }
+
+    /**
+     * 重连时保留承办服内存里的原始出发地，避免玩家从大厅重登后被记成大厅坐标。
+     * 首次入场仍使用调用方带来的出发地。
+     */
+    private WarOrigin rememberOrigin(UUID uuid, GuildWar war, WarOrigin candidate) {
+        if (uuid == null || war == null) {
+            return candidate;
+        }
+        WarOrigin saved = originOf.get(uuid);
+        if (saved != null && war.id().equals(saved.warId())) {
+            return saved;
+        }
+        if (candidate != null) {
+            originOf.put(uuid, candidate);
+            saveOriginAsync(candidate);
+        }
+        return candidate;
     }
 
     private void saveOriginAsync(WarOrigin origin) {
@@ -2717,8 +2745,9 @@ public final class WarManager implements GuildModule {
                 || origin.sourceServer() == null || origin.sourceServer().isBlank()
                 || origin.sourceServer().equalsIgnoreCase(localServerName());
         if (local) {
-            teleportToOriginLocal(player, origin);
-            deleteOriginAsync(uuid);
+            if (teleportToOriginLocal(player, origin)) {
+                deleteOriginAsync(uuid);
+            }
             return;
         }
         if (!plugin.bus().isReady() || !plugin.bus().transfer().available()) {
@@ -2740,21 +2769,47 @@ public final class WarManager implements GuildModule {
         });
     }
 
-    /** 在本地把玩家送到出发坐标（世界不可用时退回默认世界出生点）。 */
-    private void teleportToOriginLocal(Player player, WarOrigin origin) {
-        World world = origin.world() == null || origin.world().isBlank()
-                ? (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0))
-                : WorldResolver.resolve(origin.world());
-        if (world == null) {
-            world = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0);
+    /** 在本地把玩家送到出发坐标；世界已删或为临时世界时只回主城出生点。 */
+    private boolean teleportToOriginLocal(Player player, WarOrigin origin) {
+        Location target = originDestination(origin);
+        if (target == null || target.getWorld() == null) {
+            return false;
         }
-        if (world == null) {
-            return;
+        return warTeleport(player, target);
+    }
+
+    /**
+     * 解析出发地落点。世界有效且不是临时世界才用原坐标；
+     * 世界已删/临时世界只回主城出生点，绝不把旧坐标套到别的主世界。
+     */
+    private Location originDestination(WarOrigin origin) {
+        if (origin == null) {
+            return null;
         }
-        Location target = origin.world() == null || origin.world().isBlank()
-                ? world.getSpawnLocation()
-                : new Location(world, origin.x(), origin.y(), origin.z(), origin.yaw(), origin.pitch());
-        warTeleport(player, target);
+        boolean invalidName = origin.world() == null || origin.world().isBlank()
+                || WorldResolver.isTransientWorld(origin.world());
+        World world = invalidName ? null : WorldResolver.resolve(origin.world());
+        if (world == null) {
+            Location fallback = WorldResolver.defaultSpawn();
+            if (fallback != null) {
+                plugin.getLogger().warning("工会战返程世界已失效（" + origin.world() + "），改送回 "
+                        + fallback.getWorld().getName() + " 出生点。");
+            }
+            return fallback;
+        }
+        return new Location(world, origin.x(), origin.y(), origin.z(), origin.yaw(), origin.pitch());
+    }
+
+    /** 本地返程兜底：目标世界已卸载/临时化时退回主城出生点，保留原坐标只用于有效世界。 */
+    private Location safeReturnLocation(Location candidate) {
+        if (candidate == null || candidate.getWorld() == null) {
+            return WorldResolver.defaultSpawn();
+        }
+        String worldName = candidate.getWorld().getName();
+        if (WorldResolver.isTransientWorld(worldName) || WorldResolver.resolve(worldName) == null) {
+            return WorldResolver.defaultSpawn();
+        }
+        return candidate;
     }
 
     // =====================================================================
@@ -3040,6 +3095,7 @@ public final class WarManager implements GuildModule {
     private void warTickInternal() {
         long now = System.currentTimeMillis();
         pruneStaleMirrors(now);
+        expireReconnects(now);
         // 分帧发放：结算期与启动补偿共用同一队列，每 tick 最多处理一批。
         drainSettlements(Math.max(1, conf().settleBatchPerTick));
         if (sessions.isEmpty()) {
@@ -3253,6 +3309,7 @@ public final class WarManager implements GuildModule {
         statOfflineMillis.clear();
         reconnectUntil.clear();
         reconnectLives.clear();
+        offline.clear();
         kothOwner = "";
         kothCountA = 0;
         kothCountB = 0;
@@ -3287,6 +3344,7 @@ public final class WarManager implements GuildModule {
             statOfflineMillis.remove(id);
             reconnectUntil.remove(id);
             reconnectLives.remove(id);
+            offline.remove(id);
             playerWars.remove(id, war);
             statWar.remove(id, war);
         }
@@ -3738,8 +3796,13 @@ public final class WarManager implements GuildModule {
                             && returnWar.get(stray.getUniqueId()) != war) {
                         continue;
                     }
-                    Location dest = returnLoc.get(stray.getUniqueId());
-                    warTeleport(stray, dest != null && dest.getWorld() != null ? dest : fallback.getSpawnLocation());
+                    Location dest = safeReturnLocation(returnLoc.get(stray.getUniqueId()));
+                    if (dest == null || dest.getWorld() == null) {
+                        dest = safeReturnLocation(fallback.getSpawnLocation());
+                    }
+                    if (dest != null && dest.getWorld() != null) {
+                        warTeleport(stray, dest);
+                    }
                 }
             }
         }
@@ -3771,6 +3834,9 @@ public final class WarManager implements GuildModule {
             eliminated.remove(id);
             handledLethal.remove(id);
             frozen.remove(id);
+            offline.remove(id);
+            reconnectUntil.remove(id);
+            reconnectLives.remove(id);
             playerWars.remove(id, war);
             spectatorWar.remove(id);
         }
@@ -3957,11 +4023,8 @@ public final class WarManager implements GuildModule {
                     return;
                 }
                 if (warId != null && war != null && war.id().equals(warId)) {
-                    if (origin != null) {
-                        originOf.put(uuid, origin);
-                        saveOriginAsync(origin);
-                    }
-                    joinLocal(player, war, origin);
+                    WarOrigin effectiveOrigin = rememberOrigin(uuid, war, origin);
+                    joinLocal(player, war, effectiveOrigin);
                     return;
                 }
                 if (warId != null) {
@@ -3988,11 +4051,8 @@ public final class WarManager implements GuildModule {
         }
         GuildWar war = session(warId) == null ? null : session(warId).war;
         if (war != null) {
-            if (origin != null) {
-                originOf.put(player.getUniqueId(), origin);
-                saveOriginAsync(origin);
-            }
-            joinLocal(player, war, origin);
+            WarOrigin effectiveOrigin = rememberOrigin(player.getUniqueId(), war, origin);
+            joinLocal(player, war, effectiveOrigin);
             return;
         }
         if (attempt >= 5) {
@@ -4069,7 +4129,10 @@ public final class WarManager implements GuildModule {
             WarOrigin origin = new WarOrigin("", player.getUniqueId(), localServerName(), parts[0],
                     Double.parseDouble(parts[1]), Double.parseDouble(parts[2]), Double.parseDouble(parts[3]),
                     Float.parseFloat(parts[4]), Float.parseFloat(parts[5]));
-            teleportToOriginLocal(player, origin);
+            if (!teleportToOriginLocal(player, origin)) {
+                plugin.getLogger().warning("赛后返程无可用落点，保留记录等待重试: " + player.getName());
+                return;
+            }
             returning.add(player.getUniqueId());
             plugin.syncDelayed(() -> returning.remove(player.getUniqueId()), 200L);
             deleteOriginAsync(player.getUniqueId());
@@ -4115,9 +4178,12 @@ public final class WarManager implements GuildModule {
                 || spectators.contains(player.getUniqueId())) {
             return;
         }
-        if (origin == null) {
+        WarOrigin savedOrigin = originOf.get(player.getUniqueId());
+        if (savedOrigin != null && war.id().equals(savedOrigin.warId())) {
+            origin = savedOrigin;
+        } else if (origin == null) {
             // 先到的跨服玩家可能因场地未就绪被推迟，后续 autoEnter 重试时从内存补回出发地。
-            origin = originOf.get(player.getUniqueId());
+            origin = savedOrigin;
         }
         long joinNow = System.currentTimeMillis();
         WarSession joiningSession = session(war);
@@ -4160,12 +4226,29 @@ public final class WarManager implements GuildModule {
         }
         Set<UUID> roster = war.rosterOfSide(s);
         WarMode mode = modeOf(war);
-        if (roster.contains(player.getUniqueId())) {
+        boolean offlinePending = offline.contains(player.getUniqueId()) && roster.contains(player.getUniqueId());
+        boolean rejoining = offlinePending && isReconnectAllowed(war, player.getUniqueId(), joinNow);
+        if (roster.contains(player.getUniqueId()) && !rejoining) {
+            if (offlinePending) {
+                // 宽限已过但 tick 还没来得及清理：当场按淘汰处理，不能让玩家重新入场。
+                expireReconnect(player.getUniqueId());
+                plugin.messages().send(player, "war-join-locked");
+                if (origin != null && war.state() == WarState.ACTIVE) {
+                    returnToOrigin(player, origin);
+                }
+            } else if (eliminated.contains(player.getUniqueId())) {
+                // 跨服重登可能晚于宽限到期并已被标记淘汰，不能把人留在承办服。
+                plugin.messages().send(player, "war-join-locked");
+                WarOrigin saved = originOf.get(player.getUniqueId());
+                if (saved != null && war.state() == WarState.ACTIVE) {
+                    returnToOrigin(player, saved);
+                }
+            }
             return; // 已在名单：幂等返回，避免重复提示“已满”
         }
         // 匹配模式改为确认制后，接受者全部参战；旧模式仍保留 team-size 上限。
         boolean unlimited = "match".equalsIgnoreCase(war.mode());
-        if (!unlimited && roster.size() >= mode.teamSize) {
+        if (!rejoining && !unlimited && roster.size() >= mode.teamSize) {
             boolean spectated = false;
             if (mode.allowSpectators) {
                 spectated = spectateLocal(player, war);
@@ -4187,11 +4270,14 @@ public final class WarManager implements GuildModule {
         }
         roster.add(player.getUniqueId());
         sideOf.put(player.getUniqueId(), s);
+        // 掉线可能发生在死亡观战倒计时中；重连后不能残留 handledLethal，否则下一次致命伤害会被吞掉。
+        handledLethal.remove(player.getUniqueId());
         bindPlayer(war, player.getUniqueId());
         statJoinedAt.putIfAbsent(player.getUniqueId(), System.currentTimeMillis());
         statSide.put(player.getUniqueId(), s);
         statWar.put(player.getUniqueId(), war);
-        if (isReconnectAllowed(war, player.getUniqueId(), joinNow)) {
+        if (rejoining) {
+            offline.remove(player.getUniqueId());
             Integer lives = reconnectLives.remove(player.getUniqueId());
             if (lives != null) {
                 livesRemaining.put(player.getUniqueId(), lives);
@@ -4208,10 +4294,13 @@ public final class WarManager implements GuildModule {
             originOf.put(player.getUniqueId(), origin);
             saveOriginAsync(origin);
         }
-        returnLoc.put(player.getUniqueId(), player.getLocation().clone());
+        returnLoc.putIfAbsent(player.getUniqueId(), player.getLocation().clone());
         livesRemaining.putIfAbsent(player.getUniqueId(), mode.livesPerPlayer);
-        // 入场前先关闭所有打开的菜单/仓库，防止战中操作外部容器
+        // 入场前先关闭所有打开的菜单/仓库，防止战中操作外部容器；
+        // 同时把 2x2 合成栏中的原有物品退回背包，确保它们进入快照而不是被清掉。
         plugin.gui().closeMenu(player);
+        plugin.kits().closeTransientInventory(player);
+        plugin.kits().flushCraftingGrid(player);
         captureSnapshot(player, war, () -> {
             if (!player.isOnline() || session(war) == null || !roster.contains(player.getUniqueId())) {
                 return;
@@ -4235,6 +4324,83 @@ public final class WarManager implements GuildModule {
         });
     }
 
+    /**
+     * 玩家上线时自动尝试回到进行中的工会战。
+     *
+     * <p>同服掉线看本地 reconnectUntil；跨服重登依赖承办服写入的
+     * {@code war:reconnect:<uuid>} 标记，玩家落到任意子服都会被送回承办服。
+     * 没有标记的普通登录不会强制传送，避免把未参赛的工会成员拉进战场。</p>
+     */
+    public void autoRejoin(Player player) {
+        if (player == null || !player.isOnline() || plugin.guilds() == null
+                || isInWar(player.getUniqueId()) || localSnap.containsKey(player.getUniqueId())
+                || spectators.contains(player.getUniqueId())) {
+            return;
+        }
+        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+        if (guild == null) {
+            return;
+        }
+        GuildWar war = warOf(guild.id());
+        if (war == null || war.state() != WarState.ACTIVE) {
+            return;
+        }
+        UUID uuid = player.getUniqueId();
+        long now = System.currentTimeMillis();
+        if (isReconnectAllowed(war, uuid, now)) {
+            clearWarReconnectAsync(uuid);
+            if (isHostServer(war.hostServer())) {
+                joinLocal(player, war);
+            } else {
+                transferToWar(player, war);
+            }
+            return;
+        }
+        if (plugin.bus() == null || !plugin.bus().isReady()) {
+            return;
+        }
+        plugin.async(() -> {
+            String warId = plugin.bus().consumeWarReconnect(uuid);
+            if (warId == null || warId.isBlank()) {
+                return;
+            }
+            plugin.sync(() -> {
+                if (!player.isOnline()) {
+                    return;
+                }
+                Guild currentGuild = plugin.guilds().guildOf(uuid);
+                if (currentGuild == null) {
+                    return;
+                }
+                GuildWar currentWar = warOf(currentGuild.id());
+                if (currentWar == null || !currentWar.id().equals(warId)
+                        || currentWar.state() != WarState.ACTIVE) {
+                    return;
+                }
+                if (isHostServer(currentWar.hostServer())) {
+                    if (isReconnectAllowed(currentWar, uuid, System.currentTimeMillis())) {
+                        joinLocal(player, currentWar);
+                    } else {
+                        plugin.messages().send(player, "war-join-locked");
+                        WarOrigin saved = originOf.get(uuid);
+                        if (saved != null) {
+                            returnToOrigin(player, saved);
+                        }
+                    }
+                } else {
+                    transferToWar(player, currentWar);
+                }
+            });
+        });
+    }
+
+    private void clearWarReconnectAsync(UUID uuid) {
+        if (uuid == null || plugin.bus() == null || !plugin.bus().isReady()) {
+            return;
+        }
+        plugin.async(() -> plugin.bus().clearWarReconnect(uuid));
+    }
+
     /** 开战后掉线重连；远程玩家先转送到承办服，由承办服校验宽限。 */
     public void rejoin(Player player) {
         Guild guild = plugin.guilds().guildOf(player.getUniqueId());
@@ -4254,6 +4420,10 @@ public final class WarManager implements GuildModule {
         if (isHostServer(war.hostServer())) {
             if (!isReconnectAllowed(war, player.getUniqueId(), System.currentTimeMillis())) {
                 plugin.messages().send(player, "war-join-locked");
+                WarOrigin saved = originOf.get(player.getUniqueId());
+                if (saved != null) {
+                    returnToOrigin(player, saved);
+                }
                 return;
             }
             joinLocal(player, war);
@@ -4340,6 +4510,8 @@ public final class WarManager implements GuildModule {
         Location target = def.spawnSpectator.toLocation(world);
         // 旁观者同样需要快照：旁观会改写游戏模式与坐标，崩溃/掉线时必须能兜底还原，
         // 否则玩家会永久卡在旁观模式（此前无快照直接还原，SPECTATOR 不会恢复）。
+        plugin.kits().closeTransientInventory(player);
+        plugin.kits().flushCraftingGrid(player);
         captureSnapshot(player, war, () -> {
             if (!player.isOnline() || session(war) == null || !spectators.contains(player.getUniqueId())) {
                 return;
@@ -4474,18 +4646,13 @@ public final class WarManager implements GuildModule {
                     origin.x(), origin.y(), origin.z(), origin.yaw(), origin.pitch());
             return;
         }
-        Location destination = origin != null
-                ? new Location(Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0),
-                        origin.x(), origin.y(), origin.z(), origin.yaw(), origin.pitch())
-                : returnLoc.get(uuid);
+        Location destination;
         if (origin != null) {
-            // 同服：直接坐标；世界名有效时优先解析
-            World w = origin.world() == null || origin.world().isBlank()
-                    ? (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0))
-                    : WorldResolver.resolve(origin.world());
-            if (w != null) {
-                destination = new Location(w, origin.x(), origin.y(), origin.z(), origin.yaw(), origin.pitch());
-            }
+            // 同服：世界有效才用原坐标；副本实例已删时只回主城出生点。
+            destination = originDestination(origin);
+        } else {
+            // 没有出发地记录时也不能把旧竞技场/副本坐标直接套到主世界。
+            destination = safeReturnLocation(returnLoc.get(uuid));
         }
         if (destination == null || destination.getWorld() == null) {
             return;
@@ -4768,6 +4935,15 @@ public final class WarManager implements GuildModule {
      */
     private void restoreSnapshot(UUID uuid, Player player, boolean quitting, Runnable afterRestore) {
         capturing.remove(uuid);
+        // 合成栏/光标不在 41 格快照内，SparrowSync 分支也不会覆盖它们；
+        // 所有还原入口先清掉，避免套件留在界面里被原版退回背包。
+        if (player != null) {
+            // 先清掉套件，再关界面；closeInventory 不能把套件退回背包。
+            plugin.kits().clearCraftingGrid(player);
+            player.setItemOnCursor(null);
+            plugin.kits().closeTransientInventory(player);
+            plugin.kits().clearCraftingGrid(player);
+        }
         UUID sparrowId = sparrowSnap.remove(uuid);
         KitService.Snapshot snap = localSnap.remove(uuid);
 
@@ -4810,6 +4986,10 @@ public final class WarManager implements GuildModule {
                         // SparrowSync 默认 skip-online-restore-data 跳过 health 与 location，
                         // 用本地快照补齐血量，位置交由后续 finishTeleport 统一处理
                         com.liu.liuguild.util.ApiCompat.setHealthSafely(p, snap.health());
+                    }
+                    if (p != null) {
+                        plugin.kits().clearCraftingGrid(p);
+                        p.setItemOnCursor(null);
                     }
                     deleteEscrowAsync(uuid);
                     if (afterRestore != null) {
@@ -4881,6 +5061,10 @@ public final class WarManager implements GuildModule {
                                     plugin.getLogger().warning("工会战托管快照不可用，保留记录等待修复: " + uuid);
                                     return;
                                 }
+                            } else {
+                                // Sparrow 恢复成功也不会经过 KitService.restore，合成栏/光标要单独清。
+                                plugin.kits().clearCraftingGrid(player);
+                                player.setItemOnCursor(null);
                             }
                             deleteEscrowAsync(uuid);
                             maybeReturnAfterRecovery(player, uuid);
@@ -4966,6 +5150,9 @@ public final class WarManager implements GuildModule {
         String side = sideOf.remove(uuid);
         livesRemaining.remove(uuid);
         eliminated.remove(uuid);
+        reconnectUntil.remove(uuid);
+        reconnectLives.remove(uuid);
+        offline.remove(uuid);
         statLeftAt.putIfAbsent(uuid, System.currentTimeMillis());
         returnWar.put(uuid, war);
         ArenaDef leavingArena = arenaDef(war);
@@ -5027,15 +5214,25 @@ public final class WarManager implements GuildModule {
         returnArena.remove(uuid);
         long quitAt = System.currentTimeMillis();
         statLeftAt.putIfAbsent(uuid, quitAt);
-        if (war != null && war.state() == WarState.ACTIVE && side != null
-                && !eliminated.contains(uuid) && conf().reconnectSeconds > 0) {
-            reconnectUntil.put(uuid, quitAt + conf().reconnectSeconds * 1000L);
+        int reconnectSeconds = conf().reconnectSeconds;
+        boolean reconnecting = war != null && war.state() == WarState.ACTIVE && side != null
+                && !eliminated.contains(uuid) && reconnectSeconds > 0;
+        if (reconnecting) {
+            // 宽限内保留 roster/出发地，tick 只把真正超时的人淘汰；
+            // 这样整队掉线时不会提前结束，也不会一直拖到比赛时长结束。
+            reconnectUntil.put(uuid, quitAt + reconnectSeconds * 1000L);
             reconnectLives.put(uuid, livesRemaining.getOrDefault(uuid, 1));
-        }
-        refreshLuckPerms(player);
-        if (war != null) {
+            offline.add(uuid);
+            final String warId = war.id();
+            plugin.async(() -> {
+                if (plugin.bus() != null && plugin.bus().isReady()) {
+                    plugin.bus().markWarReconnect(uuid, warId, reconnectSeconds);
+                }
+            });
+        } else if (war != null) {
             war.removePlayer(uuid);
         }
+        refreshLuckPerms(player);
         if (side != null || sparrowSnap.containsKey(uuid) || localSnap.containsKey(uuid)) {
             restoreSnapshot(uuid, player, true, null);
             if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
@@ -5043,11 +5240,14 @@ public final class WarManager implements GuildModule {
             }
             spectators.remove(uuid);
             livesRemaining.remove(uuid);
-            eliminated.remove(uuid);
-            returnLoc.remove(uuid);
-            originOf.remove(uuid);
-            if (war != null && war.state() == WarState.ACTIVE && side != null) {
-                checkElimination(war, side);
+            if (!reconnecting) {
+                eliminated.remove(uuid);
+                offline.remove(uuid);
+                returnLoc.remove(uuid);
+                originOf.remove(uuid);
+                if (war != null && war.state() == WarState.ACTIVE && side != null) {
+                    checkElimination(war, side);
+                }
             }
         }
     }
@@ -5184,29 +5384,58 @@ public final class WarManager implements GuildModule {
         return true;
     }
 
-    private void checkElimination(GuildWar war, String side) {
-        Set<UUID> team = war.rosterOfSide(side);
-        if (team.isEmpty() || !team.stream().allMatch(eliminated::contains)) {
+    /**
+     * 掉线宽限到期：把仍留在 roster 里的掉线者标记为淘汰，再按存活方判定是否结束。
+     * 这样一方全部掉线时不会一直拖到 duration-seconds，也不会把短暂掉线误判为淘汰。
+     */
+    private void expireReconnects(long now) {
+        if (reconnectUntil.isEmpty()) {
             return;
         }
-        GuildWar.Party remaining = war.parties().stream()
-                .filter(p -> !p.roster().isEmpty()
-                        && !p.roster().stream().allMatch(eliminated::contains))
-                .findFirst().orElse(null);
-        if (remaining == null) {
-            // 全部淘汰：按当前击杀分排名结算
-            forcedWinner = "";
-            endWar(war);
-            return;
-        }
-        int aliveParties = 0;
-        for (GuildWar.Party p : war.parties()) {
-            if (!p.roster().isEmpty() && !p.roster().stream().allMatch(eliminated::contains)) {
-                aliveParties++;
+        for (UUID uuid : new ArrayList<>(reconnectUntil.keySet())) {
+            Long until = reconnectUntil.get(uuid);
+            if (until == null || until > now) {
+                continue;
             }
+            expireReconnect(uuid);
         }
-        if (aliveParties <= 1) {
-            forcedWinner = remaining.guildId();
+    }
+
+    private void expireReconnect(UUID uuid) {
+        GuildWar war = statWar.get(uuid);
+        String side = statSide.get(uuid);
+        reconnectUntil.remove(uuid);
+        reconnectLives.remove(uuid);
+        offline.remove(uuid);
+        if (war == null || war.state() != WarState.ACTIVE) {
+            return;
+        }
+        if (eliminated.add(uuid)) {
+            plugin.getLogger().info("工会战掉线宽限到期，标记淘汰: " + uuid);
+        }
+        if (side == null) {
+            side = war.sideOf(uuid);
+        }
+        if (side != null) {
+            checkElimination(war, side);
+        }
+    }
+
+    /**
+     * 判定某方是否已无存活者。roster 为空也算“没有存活者”：掉线未到宽限时 roster
+     * 会保留，只有真正移除/淘汰后才会为空，所以这里不能提前 return。
+     */
+    private void checkElimination(GuildWar war, String side) {
+        if (war == null || war.state() != WarState.ACTIVE) {
+            return;
+        }
+        Set<UUID> team = war.rosterOfSide(side);
+        if (!team.isEmpty() && !team.stream().allMatch(eliminated::contains)) {
+            return;
+        }
+        java.util.List<GuildWar.Party> alive = war.aliveParties(eliminated);
+        if (alive.size() <= 1) {
+            forcedWinner = alive.isEmpty() ? "" : alive.get(0).guildId();
             endWar(war);
         }
     }

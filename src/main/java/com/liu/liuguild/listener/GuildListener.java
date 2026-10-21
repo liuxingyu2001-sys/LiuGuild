@@ -48,7 +48,11 @@ public final class GuildListener implements GuildModule, Listener {
         plugin.syncDelayed(() -> {
             plugin.war().onPlayerJoinServer(player);
             plugin.war().notifyAcceptWindow(player);
-            plugin.war().recoverPendingEscrow(player);
+            // 先给自动重连留出 Redis/传送时间，再处理托管恢复，避免把重连玩家送回出发地。
+            // 10 tick 先试本地重连；30 tick 再补一次，覆盖跨服镜像/Redis 标记稍晚到达。
+            plugin.syncDelayed(() -> plugin.war().autoRejoin(player), 10L);
+            plugin.syncDelayed(() -> plugin.war().autoRejoin(player), 30L);
+            plugin.syncDelayed(() -> plugin.war().recoverPendingEscrow(player), 50L);
             plugin.mail().notifyOnJoin(player);
             plugin.guildChat().refresh();
             // 记录工会活跃时间（节流：距上次活跃超过 1 小时才写库）
