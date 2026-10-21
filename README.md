@@ -16,9 +16,34 @@
 - 💾 **存储**：SQLite 开箱即用；MySQL 自动建库建表；Redis 跨服（缺失自动降级单服）。
 - 📥 **数据导入**：一键导入旧版 PlayerGuild 的 MySQL dump（含自定义图标）。
 
-## 前置（全部软依赖，缺失自动降级）
+## 前置
 
-`liudungeon` · `LiuChat` · `liupass` · `CraftEngine` · `Sparrow Sync` · `LuckyPeaches` · `PlayerTitle` · `NotBounties` · `mcMMO` · `HuskHomes` · `Vault` · `PlaceholderAPI`
+- **硬依赖**：`LiuLib 1.0.5+`（物品规格解析 / ItemCodec，见下方「物品规格」）。
+- 以下均为软依赖，缺失时对应功能自动降级：
+  `liudungeon` · `LiuChat` · `liupass` · `CraftEngine` · `Sparrow Sync` · `LuckyPeaches` · `PlayerTitle` · `NotBounties` · `mcMMO` · `HuskHomes` · `Vault` · `PlaceholderAPI`
+
+## 物品规格（LiuLib）
+
+所有「配置字符串 → 物品」的入口都会优先交给 LiuLib 的完整物品规格解析，原有材质名 /
+`CE:` 写法保留为兜底，**老配置不需要改**：
+
+- `DIAMOND` / `minecraft:diamond` / `DIAMOND:3` / `DIAMOND*3`
+- `ce:namespace:id` / `craftengine:namespace:id`（CraftEngine 自定义物品，兼容原有 `CE:` 写法）
+- `base64:...` / `nbt:...` / `bytes:...` / `item:base64:...`
+  （Paper 二进制序列化，名称 / lore / 附魔 / PDC / CraftEngine 全保真；
+  用 `/liulib item` 可把手中物品打成 Base64）
+- `lib:<物品库ID>`：需要安装 **liuitemlib**（软依赖，`plugin.yml` 已声明；没装时该写法解析失败并走兜底）
+
+已接入的配置位置：
+
+| 配置文件 | 键 |
+|---|---|
+| `gui.yml` | `gui.filler.material`、`gui.<菜单>.buttons.<按钮>.material`、`gui.<菜单>.entry.material`、`gui.<菜单>.back.material` |
+| `icons.yml` | `icons.<id>.item`（工会图标） |
+| `kit.yml` | `kits.<套装>.armor.*`（头盔 / 胸甲 / 护腿 / 靴子）、`kits.<套装>.items` |
+
+`fallback-material` / `fallback` 仍按普通材质名解析，作为自定义物品拿不到时的视觉兜底；
+玩家头颅、工会自定义图标数据、商店 / 仓库里的实际物品堆不走配置解析，不受影响。
 
 ## 构建记录
 

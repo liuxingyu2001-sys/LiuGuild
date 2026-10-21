@@ -461,9 +461,19 @@ public final class KitService {
         return ce == null ? new ItemStack(fallback) : ce;
     }
 
-    /** 解析 "SPEC:amount"，SPEC 可为 CE:namespace:id 或 Material。 */
+    /**
+     * 解析 "SPEC[:amount]"，SPEC 可为 Material / {@code CE:namespace:id}，
+     * 或 LiuLib 完整物品规格（{@code base64:...} / {@code nbt:...} / {@code lib:...} /
+     * {@code ce:...} / {@code DIAMOND*3}）。LiuLib 规格自带数量，优先使用。
+     */
     private ItemStack parseItem(String spec) {
-        String key = spec.trim();
+        String raw = spec.trim();
+        // 首选 LiuLib 完整物品规格；失败再走原来的材质 / CE 兜底
+        ItemStack custom = com.liu.liuguild.util.LiuLibItems.build(raw);
+        if (custom != null && !custom.getType().isAir()) {
+            return custom;
+        }
+        String key = raw;
         int amount = 1;
         int idx = key.lastIndexOf(':');
         // 仅当冒号后是纯数字时才当作数量（避免误切 CE:namespace:id）

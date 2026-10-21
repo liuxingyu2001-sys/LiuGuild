@@ -7,7 +7,12 @@ description: 工会插件 —— 工会管理 / 跨服工会战 / 竞技场 / �
 website: 'https://github.com/liuxingyu2001'
 folia-supported: false
 
+# 硬依赖：LiuLib 提供物品规格解析（base64 / nbt / lib: / ce:）与 ItemCodec 完整物品反序列化
+depend:
+  - LiuLib
+
 # 软依赖：缺少任意一个都不影响主流程启动，仅对应功能降级
+# liuitemlib 提供 lib:<物品库ID> 解析；装上后 GUI / 图标 / 套装可直接引用物品库
 softdepend:
   - PlayerPoints
   - liudungeon
@@ -26,6 +31,7 @@ softdepend:
   - packetevents
   - LiuShop
   - CustomNameplates
+  - liuitemlib
 
 # 依赖库交给 Paper 自己下载并挂到本插件类加载器，不打进 jar。
 # 版本刻意与服务器 libraries/ 里已有坐标保持一致，避免重复下载与版本冲突。

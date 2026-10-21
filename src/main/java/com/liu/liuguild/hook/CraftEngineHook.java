@@ -82,7 +82,9 @@ public final class CraftEngineHook {
     /**
      * 解析物品描述：
      * <ul>
-     *   <li>{@code CE:namespace:id} → CraftEngine 自定义物品</li>
+     *   <li>优先交给 LiuLib 完整物品规格（{@code base64:...} / {@code nbt:...} /
+     *       {@code lib:...} / {@code ce:...} / {@code DIAMOND*3}）</li>
+     *   <li>{@code CE:namespace:id} → CraftEngine 自定义物品（老写法兜底）</li>
      *   <li>其它 → 原生 Material（大小写不敏感，非法则回退 fallback）</li>
      * </ul>
      */
@@ -91,6 +93,11 @@ public final class CraftEngineHook {
             return new ItemStack(fallback);
         }
         String s = spec.trim();
+        // 首选 LiuLib 完整物品规格；失败再走原来的 CE / 材质名兜底
+        ItemStack custom = com.liu.liuguild.util.LiuLibItems.build(s);
+        if (custom != null && !custom.getType().isAir()) {
+            return custom;
+        }
         if (s.regionMatches(true, 0, "CE:", 0, 3)) {
             ItemStack ce = byId(s.substring(3));
             return ce != null ? ce : new ItemStack(fallback);
