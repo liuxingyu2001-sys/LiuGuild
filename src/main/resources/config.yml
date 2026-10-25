@@ -31,12 +31,12 @@ settings:
 # 可选插件钩子（未安装对应插件时自动跳过，不影响启动）。
 hooks:
   mcmmo:
-    # mcMMO 兼容总开关，默认开启。
-    enabled: true
-    # 工会战期间静默屏蔽 mcMMO 技能/能力（对参赛者生效，保证公平竞技）。
-    suppress-abilities-in-war: true
-    # 工会战期间静默屏蔽 mcMMO 技能经验（默认关闭）。
-    suppress-xp-in-war: false
+    # 工会战期间完全屏蔽 mcMMO：技能/能力不激活，聊天与动作栏等全部提示取消。
+    block-in-war: true
+  pets:
+    # 工会战期间屏蔽 mcPets/LiuPets 与 MyPet：禁止召唤、骑乘、宠物技能，并移除已有宠物。
+    # 未安装对应宠物插件时自动跳过；参赛者、旁观者和赛季战斗玩家均生效。
+    block-in-war: true
   # webhook / QQ 机器人属于每服独立配置，请在 server.yml 配置，不要放共享 config.yml。
 
   liupass:

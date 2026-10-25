@@ -55,7 +55,7 @@ server-id: "survival-1"
 overrides:
   config.yml:
     debug: false
-    hooks.mcmmo.enabled: true
+    hooks.mcmmo.block-in-war: true
   cross-server.yml:
     transfer.enabled: true
 ```

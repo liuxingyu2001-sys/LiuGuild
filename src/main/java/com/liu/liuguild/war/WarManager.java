@@ -3038,6 +3038,14 @@ public final class WarManager implements GuildModule {
                 showWarBar(u, bar);
             }
         }
+        if (plugin.warPets() != null) {
+            for (UUID u : war.allPlayers()) {
+                Player p = plugin.player(u);
+                if (p != null) {
+                    plugin.warPets().enforce(p);
+                }
+            }
+        }
         Bukkit.getPluginManager().callEvent(new GuildWarStartEvent(war));
         broadcastWar(war, plugin.messages().component("war-started", "guild_a", war.nameA(), "guild_b", war.nameB()));
         if (isKoth(war)) {
@@ -3096,6 +3104,9 @@ public final class WarManager implements GuildModule {
         long now = System.currentTimeMillis();
         pruneStaleMirrors(now);
         expireReconnects(now);
+        if (plugin.warPets() != null) {
+            plugin.warPets().enforceWarPlayers();
+        }
         // 分帧发放：结算期与启动补偿共用同一队列，每 tick 最多处理一批。
         drainSettlements(Math.max(1, conf().settleBatchPerTick));
         if (sessions.isEmpty()) {
@@ -4301,6 +4312,9 @@ public final class WarManager implements GuildModule {
         plugin.gui().closeMenu(player);
         plugin.kits().closeTransientInventory(player);
         plugin.kits().flushCraftingGrid(player);
+        if (plugin.warPets() != null) {
+            plugin.warPets().enforce(player);
+        }
         captureSnapshot(player, war, () -> {
             if (!player.isOnline() || session(war) == null || !roster.contains(player.getUniqueId())) {
                 return;
@@ -4512,6 +4526,9 @@ public final class WarManager implements GuildModule {
         // 否则玩家会永久卡在旁观模式（此前无快照直接还原，SPECTATOR 不会恢复）。
         plugin.kits().closeTransientInventory(player);
         plugin.kits().flushCraftingGrid(player);
+        if (plugin.warPets() != null) {
+            plugin.warPets().enforce(player);
+        }
         captureSnapshot(player, war, () -> {
             if (!player.isOnline() || session(war) == null || !spectators.contains(player.getUniqueId())) {
                 return;

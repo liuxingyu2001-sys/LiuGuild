@@ -11,22 +11,22 @@ import org.bukkit.plugin.Plugin;
 import java.lang.reflect.Method;
 
 /**
- * mcMMO 软依赖：工会战期间静默屏蔽技能/能力，保证公平竞技。
+ * mcMMO 软依赖：工会战期间完全屏蔽技能/能力与全部提示，保证公平竞技。
  *
  * <p>仅通过 mcMMO 公开事件生效，不修改 mcMMO 本身：</p>
  * <ul>
  *   <li>{@code McMMOPlayerAbilityActivateEvent}（可取消）→ 取消能力激活；</li>
- *   <li>{@code McMMOPlayerPreXpGainEvent}（不可取消）→ 将经验改为 0。</li>
+ *   <li>{@code McMMOPlayerNotificationEvent}（可取消）→ 取消聊天/动作栏等全部提示。</li>
  * </ul>
  *
- * <p>默认开启屏蔽技能，可在 config.yml 的 {@code hooks.mcmmo} 下开关。</p>
+ * <p>只有一个开关：{@code hooks.mcmmo.block-in-war}，默认开启。</p>
  */
 public final class McMmoHook implements Listener {
 
     private final LiuGuild plugin;
     private boolean available;
     private Class<? extends Event> abilityEvent;
-    private Class<? extends Event> preXpEvent;
+    private Class<? extends Event> notificationEvent;
 
     public McMmoHook(LiuGuild plugin) {
         this.plugin = plugin;
@@ -38,24 +38,25 @@ public final class McMmoHook implements Listener {
         if (dependency == null || !dependency.isEnabled()) {
             return;
         }
-        if (!plugin.settings().main.mcmmoEnabled) {
+        if (!plugin.settings().main.mcmmoBlockInWar) {
             return;
         }
-        abilityEvent = eventClass("com.gmail.nossr50.events.skills.abilities.McMMOPlayerAbilityActivateEvent");
-        preXpEvent = eventClass("com.gmail.nossr50.events.experience.McMMOPlayerPreXpGainEvent");
-        if (abilityEvent == null && preXpEvent == null) {
+        abilityEvent = eventClass(dependency,
+                "com.gmail.nossr50.events.skills.abilities.McMMOPlayerAbilityActivateEvent");
+        notificationEvent = eventClass(dependency,
+                "com.gmail.nossr50.events.skills.McMMOPlayerNotificationEvent");
+        if (abilityEvent == null && notificationEvent == null) {
             plugin.getLogger().warning("检测到 mcMMO，但未找到预期的技能事件；mcMMO 屏蔽未启用。");
             return;
         }
         available = true;
-        if (abilityEvent != null && plugin.settings().main.mcmmoSuppressAbilities) {
+        if (abilityEvent != null) {
             registerEvent(abilityEvent, this::suppressAbility);
         }
-        if (preXpEvent != null && plugin.settings().main.mcmmoSuppressXp) {
-            registerEvent(preXpEvent, this::suppressXp);
+        if (notificationEvent != null) {
+            registerEvent(notificationEvent, this::suppressNotification);
         }
-        plugin.getLogger().info("mcMMO 兼容已启用：工会战期间静默屏蔽技能="
-                + plugin.settings().main.mcmmoSuppressAbilities + "，经验=" + plugin.settings().main.mcmmoSuppressXp);
+        plugin.getLogger().info("mcMMO 兼容已启用：工会战期间完全屏蔽技能与全部提示");
     }
 
     public boolean available() {
@@ -80,20 +81,21 @@ public final class McMmoHook implements Listener {
         }
     }
 
-    private void suppressXp(Event event) {
+    /** 屏蔽 mcMMO 的全部聊天/动作栏提示，避免战斗中暴露技能触发信息。 */
+    private void suppressNotification(Event event) {
         Player player = playerOf(event);
         if (player == null || !inWar(player)) {
             return;
         }
         try {
-            Method setXp = event.getClass().getMethod("setXpGained", int.class);
-            setXp.invoke(event, 0);
+            Method cancel = event.getClass().getMethod("setCancelled", boolean.class);
+            cancel.invoke(event, true);
         } catch (ReflectiveOperationException ignored) {
         }
     }
 
     private boolean inWar(Player player) {
-        return plugin.war() != null && plugin.war().isInWar(player.getUniqueId());
+        return plugin.war() != null && plugin.war().isWarRestricted(player.getUniqueId());
     }
 
     private Player playerOf(Event event) {
@@ -107,13 +109,13 @@ public final class McMmoHook implements Listener {
     }
 
     @SuppressWarnings("unchecked")
-    private Class<? extends Event> eventClass(String name) {
+    private Class<? extends Event> eventClass(Plugin dependency, String name) {
         try {
-            Class<?> type = Class.forName(name);
+            Class<?> type = Class.forName(name, false, dependency.getClass().getClassLoader());
             if (Event.class.isAssignableFrom(type)) {
                 return (Class<? extends Event>) type;
             }
-        } catch (ClassNotFoundException ignored) {
+        } catch (ClassNotFoundException | LinkageError ignored) {
         }
         return null;
     }

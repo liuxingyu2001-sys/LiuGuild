@@ -27,12 +27,12 @@ public final class MainSettings {
     public boolean transferEnabled = true;
     public int heartbeatSeconds = 5;
     // ---- 可选插件钩子 ----
-    /** mcMMO 兼容总开关。 */
-    public boolean mcmmoEnabled = true;
-    /** 工会战期间静默屏蔽 mcMMO 技能/能力。 */
-    public boolean mcmmoSuppressAbilities = true;
-    /** 工会战期间静默屏蔽 mcMMO 技能经验。 */
-    public boolean mcmmoSuppressXp = false;
+    /** 工会战期间完全屏蔽 mcMMO：技能/能力与全部提示。 */
+    public boolean mcmmoBlockInWar = true;
+
+    // ---- 宠物（工会战屏蔽） ----
+    /** 工会战期间屏蔽 mcPets/LiuPets 与 MyPet 的召唤、骑乘、技能和已有宠物。 */
+    public boolean petsBlockInWar = true;
 
     // ---- liupass（战令） ----
     /** 是否向 Liupass 上报工会玩法任务进度（需 Liupass 1.6.3+ 扩展任务类型）。 */
@@ -98,9 +98,8 @@ public final class MainSettings {
         s.debug = c.getBoolean("settings.debug", s.debug);
         // server-id 只从每服的 server.yml 读取（见 ConfigManager#applyServerOverride）。
         // 跨服段只从 cross-server.yml 读取，config.yml 里的同名键不再生效。
-        s.mcmmoEnabled = c.getBoolean("hooks.mcmmo.enabled", s.mcmmoEnabled);
-        s.mcmmoSuppressAbilities = c.getBoolean("hooks.mcmmo.suppress-abilities-in-war", s.mcmmoSuppressAbilities);
-        s.mcmmoSuppressXp = c.getBoolean("hooks.mcmmo.suppress-xp-in-war", s.mcmmoSuppressXp);
+        s.mcmmoBlockInWar = c.getBoolean("hooks.mcmmo.block-in-war", s.mcmmoBlockInWar);
+        s.petsBlockInWar = c.getBoolean("hooks.pets.block-in-war", s.petsBlockInWar);
         s.passEnabled = c.getBoolean("hooks.liupass.enabled", s.passEnabled);
         s.passJoin = c.getBoolean("hooks.liupass.join", s.passJoin);
         s.passCreate = c.getBoolean("hooks.liupass.create", s.passCreate);

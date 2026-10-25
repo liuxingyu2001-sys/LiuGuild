@@ -20,7 +20,7 @@
 
 - **硬依赖**：`LiuLib 1.0.5+`（物品规格解析 / ItemCodec，见下方「物品规格」）。
 - 以下均为软依赖，缺失时对应功能自动降级：
-  `liudungeon` · `LiuChat` · `liupass` · `CraftEngine` · `Sparrow Sync` · `LuckyPeaches` · `PlayerTitle` · `NotBounties` · `mcMMO` · `HuskHomes` · `Vault` · `PlaceholderAPI`
+  `liudungeon` · `LiuChat` · `liupass` · `CraftEngine` · `Sparrow Sync` · `LuckyPeaches` · `PlayerTitle` · `NotBounties` · `mcMMO` · `LiuPets/MCPets` · `MyPet` · `HuskHomes` · `Vault` · `PlaceholderAPI`
 
 ## 物品规格（LiuLib）
 

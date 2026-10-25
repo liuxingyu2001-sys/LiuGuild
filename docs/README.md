@@ -30,7 +30,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [api.md](api.md) | 开放 API 与 Bukkit 事件 |
 | [placeholders.md](placeholders.md) | PlaceholderAPI 变量 |
 | [craftengine.md](craftengine.md) | CraftEngine 物品/图标集成 |
-| [hooks.md](hooks.md) | 软依赖钩子（liudungeon / LiuChat / liupass / Sparrow Sync / LuckyPeaches / PlayerTitle / NotBounties / mcMMO） |
+| [hooks.md](hooks.md) | 软依赖钩子（liudungeon / LiuChat / liupass / Sparrow Sync / LuckyPeaches / PlayerTitle / NotBounties / mcMMO / 宠物） |
 | [gui-coverage.md](gui-coverage.md) | 玩家功能 GUI 覆盖清单 |
 | [known-issues.md](known-issues.md) | 已知问题与待实测项 |
 | [nameplates.md](nameplates.md) | CustomNameplates 工会战头顶铭牌 |

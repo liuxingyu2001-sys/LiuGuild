@@ -31,17 +31,27 @@
 - 所有子服需要同时更新 LiuChat 与 LiuGuild。
 - 工会战战斗消息只发给本场参赛者与承办服旁观者，不再借 LiuChat 做全服/跨服公告。
 
+## 宠物（工会战屏蔽）
+
+对应 mcPets / LiuPets 与 [MyPet](https://github.com/MyPetORG/MyPet)，均通过软依赖反射接入，不修改宠物插件本体。
+
+- 参赛者、旁观者和赛季战斗玩家在战斗期间不能召唤、骑乘宠物或触发宠物技能；
+- 入场时立即移除已有宠物，战斗 tick 每秒兜底清理，登录/激活事件再次兜底；
+- mcPets/LiuPets 取消 `PetSpawnEvent`、`PetCastSkillEvent`、`PetOwnerInteractEvent`、`EntityMountPetEvent`，并对 `PetSpawnedEvent` 做延迟移除；
+- MyPet 取消 `MyPetCallEvent`，在 `MyPetActivatedEvent` / `MyPetPlayerJoinEvent` 后延迟移除，并通过 `MyPetManager#getMyPet` + `MyPet#removePet` 清理已激活宠物；
+- 配置在 `config.yml`：
+  - `hooks.pets.block-in-war`（默认 `true`）；
+- 未安装对应宠物插件时完全跳过；宠物菜单/召唤指令本身也已被工会战指令与容器拦截覆盖。
+
 ## mcMMO（技能静默屏蔽）
 
 对应 mcMMO 2.2.x，仅使用其公开事件，不修改 mcMMO 本体。
 
-- 工会战期间对**参赛者**静默屏蔽 mcMMO 技能/能力：取消 `McMMOPlayerAbilityActivateEvent`。
-- 可选屏蔽技能经验：将 `McMMOPlayerPreXpGainEvent` 的经验置 0（默认关闭）。
-- 配置在 `config.yml` 的 `hooks.mcmmo`：
-  - `enabled`（默认 `true`）总开关；
-  - `suppress-abilities-in-war`（默认 `true`）；
-  - `suppress-xp-in-war`（默认 `false`）。
-- 旁观者与未参赛玩家不受影响；未安装 mcMMO 时完全跳过。
+- 工会战期间对参赛者、旁观者和赛季战斗玩家完全屏蔽 mcMMO：
+  - 取消 `McMMOPlayerAbilityActivateEvent`，技能/能力不能激活；
+  - 取消 `McMMOPlayerNotificationEvent`，聊天、动作栏、升级/技能解锁/冷却等提示全部不再显示。
+- 只有一个开关：`config.yml` 的 `hooks.mcmmo.block-in-war`（默认 `true`）。
+- 未处于工会战/赛季战斗的玩家不受影响；未安装 mcMMO 时完全跳过。
 
 ## HuskHomes（工会驻地传送）
 

@@ -13,7 +13,7 @@ language: ""
 # 可选：仅在本服覆盖某个模块的设置，不写回共享目录。
 # overrides:
 #   config.yml:
-#     hooks.mcmmo.enabled: true
+#     hooks.mcmmo.block-in-war: true
 #   cross-server.yml:
 #     transfer.enabled: true
 

@@ -92,6 +92,7 @@ public final class LiuGuild extends JavaPlugin {
     private com.liu.liuguild.hook.LiuShopHook liuShop;
     private NotBountiesHook notBounties;
     private com.liu.liuguild.hook.McMmoHook mcmmo;
+    private com.liu.liuguild.hook.WarPetHook warPets;
     private com.liu.liuguild.hook.GuildHomeHook guildHome;
     private com.liu.liuguild.hook.SparrowUiHook sparrowUi;
     private com.liu.liuguild.hook.LuckPermsHook luckPerms;
@@ -155,6 +156,7 @@ public final class LiuGuild extends JavaPlugin {
         luckyPeaches = safe(LuckyPeachesHook::new);
         notBounties = safe(() -> new NotBountiesHook(this));
         mcmmo = safe(() -> new com.liu.liuguild.hook.McMmoHook(this));
+        warPets = safe(() -> new com.liu.liuguild.hook.WarPetHook(this));
         guildHome = safe(() -> new com.liu.liuguild.hook.GuildHomeHook(this));
         sparrowUi = safe(() -> new com.liu.liuguild.hook.SparrowUiHook(this));
         if (sparrowUi != null) sparrowUi.init();
@@ -205,6 +207,7 @@ public final class LiuGuild extends JavaPlugin {
 
         new com.liu.liuguild.listener.GuildTaskListener(this).start();
         if (mcmmo != null) mcmmo.register();
+        if (warPets != null) warPets.register();
         guildChat = new GuildChatHook(this);
         guildChat.start();
         if (mail != null) {
@@ -524,6 +527,10 @@ public final class LiuGuild extends JavaPlugin {
         return mcmmo;
     }
 
+    public com.liu.liuguild.hook.WarPetHook warPets() {
+        return warPets;
+    }
+
     public com.liu.liuguild.hook.GuildHomeHook guildHome() {
         return guildHome;
     }
@@ -747,8 +754,8 @@ public final class LiuGuild extends JavaPlugin {
         if (s.guild.homeEnabled && !(guildHome != null && guildHome.available())) {
             configWarnings.add("guild.home.enabled=true 但未检测到 HuskHomes，驻地功能不可用。");
         }
-        if (s.main.mcmmoEnabled && !(mcmmo != null && mcmmo.available())) {
-            configWarnings.add("hooks.mcmmo.enabled=true 但未检测到 mcMMO。");
+        if (s.main.mcmmoBlockInWar && !(mcmmo != null && mcmmo.available())) {
+            configWarnings.add("hooks.mcmmo.block-in-war=true 但未检测到 mcMMO。");
         }
         if ("sparrow".equalsIgnoreCase(s.gui.engine) && !(sparrowUi != null && sparrowUi.enabled())) {
             configWarnings.add("gui.engine=sparrow 但 Sparrow UI 不可用，已回退到内置 GUI。");
@@ -824,6 +831,7 @@ public final class LiuGuild extends JavaPlugin {
                 + hook("NotBounties", notBounties != null && notBounties.available())
                 + hook("HuskHomes", guildHome != null && guildHome.available())
                 + hook("mcMMO", mcmmo != null && mcmmo.available())
+                + hook("Pet", warPets != null && warPets.available())
                 + hook("SparrowUI", sparrowUi != null && sparrowUi.enabled())
                 + hook("PacketEvents", packetEvents != null && packetEvents.available()));
         if (pass != null && pass.available()) {

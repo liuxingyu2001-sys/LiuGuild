@@ -112,9 +112,9 @@ heartbeat-seconds: 5
 ```yaml
 hooks:
   mcmmo:
-    enabled: true                    # mcMMO 兼容总开关（默认开启）
-    suppress-abilities-in-war: true  # 工会战期间静默屏蔽技能
-    suppress-xp-in-war: false        # 工会战期间静默屏蔽技能经验
+    block-in-war: true               # 工会战期间完全屏蔽 mcMMO 技能与全部提示
+  pets:
+    block-in-war: true               # 工会战期间屏蔽 mcPets/LiuPets 与 MyPet
   liupass:
     enabled: true                    # 向 liupass 上报工会玩法任务进度（需 Liupass 1.6.3+）
     join: true                       # liuguild:join

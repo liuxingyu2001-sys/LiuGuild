@@ -45,6 +45,20 @@ class MainSettingsTest {
     }
 
     @Test
+    void warPetAndMcMmoDefaults() {
+        MainSettings defaults = MainSettings.parse(new YamlConfiguration());
+        assertTrue(defaults.petsBlockInWar);
+        assertTrue(defaults.mcmmoBlockInWar);
+
+        YamlConfiguration c = new YamlConfiguration();
+        c.set("hooks.pets.block-in-war", false);
+        c.set("hooks.mcmmo.block-in-war", false);
+        MainSettings s = MainSettings.parse(c);
+        assertFalse(s.petsBlockInWar);
+        assertFalse(s.mcmmoBlockInWar);
+    }
+
+    @Test
     void qqBotDefaultsAndOverrides() {
         MainSettings defaults = MainSettings.parse(new YamlConfiguration());
         assertFalse(defaults.qqBotEnabled);

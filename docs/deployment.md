@@ -51,7 +51,8 @@
 - [ ] 使用 liudungeon 模板：模板名存在且 liudungeon 已装；或改用 `temporary-world.builtin: true` 自建世界。
 - [ ] `kit.yml` 每个模式对应套装已用 `/guildadmin kit save <key>` 保存或配置好列表。
 - [ ] `guild.home.enabled` 与 HuskHomes 安装情况一致。
-- [ ] `hooks.mcmmo.enabled` 与 mcMMO 安装情况一致。
+- [ ] `hooks.mcmmo.block-in-war` 与 mcMMO 安装情况一致。
+- [ ] `hooks.pets.block-in-war` 与 mcPets/LiuPets、MyPet 安装情况一致。
 - [ ] 经济相关（`create-cost`、银行）需要 Vault + 经济插件。
 - [ ] `gui.engine`：默认 `auto`；如遇渲染问题改 `legacy`。
 

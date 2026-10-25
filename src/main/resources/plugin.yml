@@ -24,6 +24,9 @@ softdepend:
   - PlayerTitle
   - NotBounties
   - mcMMO
+  - LiuPets
+  - MCPets
+  - MyPet
   - HuskHomes
   - Vault
   - PlaceholderAPI

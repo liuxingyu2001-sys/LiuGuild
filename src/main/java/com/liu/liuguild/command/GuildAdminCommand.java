@@ -1201,8 +1201,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         if (s.guild.homeEnabled && !(plugin.guildHome() != null && plugin.guildHome().available())) {
             bad.add("guild.home.enabled=true 但 HuskHomes 不可用");
         }
-        if (s.main.mcmmoEnabled && !(plugin.mcmmo() != null && plugin.mcmmo().available())) {
-            bad.add("hooks.mcmmo.enabled=true 但未检测到 mcMMO");
+        if (s.main.mcmmoBlockInWar && !(plugin.mcmmo() != null && plugin.mcmmo().available())) {
+            bad.add("hooks.mcmmo.block-in-war=true 但未检测到 mcMMO");
         }
         if (s.war.enabled) {
             if (s.war.modes.isEmpty()) {
