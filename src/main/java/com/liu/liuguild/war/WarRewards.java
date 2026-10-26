@@ -56,13 +56,8 @@ final class WarRewards {
         long granted = plugin.guilds().grantWarFunds(guild, nominal, mode.dailyGuildFundsCap);
         // 平局不计入胜/负，避免双方损失数被平局虚增；胜负记录只在有明确胜者时更新。
         if (!draw) {
-            if (won) {
-                guild.wins(guild.wins() + 1);
-            } else {
-                guild.losses(guild.losses() + 1);
-            }
+            plugin.guilds().recordWarResult(guild, won);
         }
-        plugin.guilds().saveGuild(guild);
         return granted;
     }
 

@@ -27,6 +27,9 @@ class WarKitCraftingGuardTest {
         String applyBody = kit.substring(apply, kit.indexOf("/** 应用直接保存的装备快照。 */", apply));
         assertTrue(restoreBody.contains("clearCraftingGrid(player)"));
         assertTrue(applyBody.contains("clearCraftingGrid(player)"));
+        // 发套装后必须把 held slot 对齐到有物品的快捷栏，避免“拿到剑但仍按空手”。
+        assertTrue(kit.contains("selectFirstHotbarSlot(player)"));
+        assertTrue(kit.contains("setHeldItemSlot(slot)"));
     }
 
     @Test

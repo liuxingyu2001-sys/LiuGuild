@@ -384,6 +384,7 @@ public final class KitService {
                 }
             }
         }
+        selectFirstHotbarSlot(player);
         fullState(player, mode);
     }
 
@@ -406,7 +407,24 @@ public final class KitService {
         player.getInventory().setStorageContents(contents);
         player.getInventory().setArmorContents(armor);
         player.getInventory().setItemInOffHand(data[40] == null ? null : data[40].clone());
+        selectFirstHotbarSlot(player);
         fullState(player, mode);
+    }
+
+    /**
+     * 发完套装后把客户端/服务端 held slot 对齐到第一个有物品的快捷栏槽位。
+     * 否则玩家入场前停在空手槽，套装虽已发放，开战后仍会按空手结算，直到手动切槽。
+     */
+    private static void selectFirstHotbarSlot(Player player) {
+        int slot = 0;
+        for (int i = 0; i < 9; i++) {
+            ItemStack item = player.getInventory().getItem(i);
+            if (item != null && !item.getType().isAir()) {
+                slot = i;
+                break;
+            }
+        }
+        player.getInventory().setHeldItemSlot(slot);
     }
 
     /** 药水效果 + 回满状态。 */

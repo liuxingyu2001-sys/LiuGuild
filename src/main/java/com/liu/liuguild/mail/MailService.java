@@ -59,7 +59,14 @@ public final class MailService {
             for (MailEntry entry : copy) {
                 liuChatMail.send(entry, ok -> {
                     if (!ok) {
-                        plugin.getLogger().warning("工会邮件未写入 LiuChat: " + entry.recipient());
+                        plugin.getLogger().warning("工会邮件未写入 LiuChat，回退内置邮件表: " + entry.recipient());
+                        plugin.async(() -> {
+                            try {
+                                repo.insertMany(List.of(entry));
+                            } catch (Exception e) {
+                                plugin.getLogger().warning("回退写入内置邮件失败: " + e.getMessage());
+                            }
+                        });
                     }
                 });
             }
@@ -128,7 +135,7 @@ public final class MailService {
     private void notifyOnJoinNow(Player player) {
         UUID uuid = player.getUniqueId();
         if (liuChatMail.available()) {
-            liuChatMail.inbox(uuid, list -> {
+            liuChatMail.inbox(uuid, list -> plugin.sync(() -> {
                 int unread = 0;
                 for (MailEntry entry : list) {
                     if (entry.readAt() == 0) {
@@ -138,7 +145,7 @@ public final class MailService {
                 if (unread > 0 && player.isOnline()) {
                     plugin.messages().send(player, "mail-login-summary", "count", String.valueOf(unread));
                 }
-            });
+            }));
             return;
         }
         plugin.async(() -> {
@@ -161,7 +168,8 @@ public final class MailService {
 
     public void inboxAsync(UUID recipient, int limit, Consumer<List<MailEntry>> callback) {
         if (liuChatMail.available()) {
-            liuChatMail.inbox(recipient, list -> callback.accept(list.stream().limit(limit).toList()));
+            liuChatMail.inbox(recipient, list ->
+                    plugin.sync(() -> callback.accept(list.stream().limit(limit).toList())));
             return;
         }
         plugin.async(() -> {

@@ -90,20 +90,15 @@ public final class GuildTaskListener implements Listener {
             return;
         }
         String mode = event.war().mode();
-        for (UUID uuid : event.war().rosterA()) {
-            boolean win = event.war().guildA().equals(event.winnerGuildId());
-            emit(PassRouting.war(uuid, win, mode, main()));
-            legacy(uuid, "WAR_PLAY", 1);
-            if (win) {
-                legacy(uuid, "WAR_WIN", 1);
-            }
-        }
-        for (UUID uuid : event.war().rosterB()) {
-            boolean win = event.war().guildB().equals(event.winnerGuildId());
-            emit(PassRouting.war(uuid, win, mode, main()));
-            legacy(uuid, "WAR_PLAY", 1);
-            if (win) {
-                legacy(uuid, "WAR_WIN", 1);
+        String winnerId = event.winnerGuildId();
+        for (com.liu.liuguild.model.GuildWar.Party party : event.war().parties()) {
+            boolean win = party.guildId().equals(winnerId);
+            for (UUID uuid : party.roster()) {
+                emit(PassRouting.war(uuid, win, mode, main()));
+                legacy(uuid, "WAR_PLAY", 1);
+                if (win) {
+                    legacy(uuid, "WAR_WIN", 1);
+                }
             }
         }
     }

@@ -46,15 +46,12 @@ public final class WarPetHook implements Listener {
         this.plugin = plugin;
     }
 
-    /** 初始化并登记事件；两个宠物插件均缺失或功能关闭时静默跳过。 */
+    /** 初始化并登记事件；两个宠物插件均缺失时静默跳过。开关在事件里实时读取。 */
     public void register() {
-        if (!plugin.settings().main.petsBlockInWar) {
-            return;
-        }
         registerMcPets();
         registerMyPet();
         if (mcPets || myPet) {
-            plugin.getLogger().info("工会战宠物屏蔽已启用：mcPets=" + mcPets + "，MyPet=" + myPet);
+            plugin.getLogger().info("工会战宠物屏蔽已注册：mcPets=" + mcPets + "，MyPet=" + myPet);
         }
     }
 
@@ -73,7 +70,7 @@ public final class WarPetHook implements Listener {
 
     /** 每秒由工会战 tick 调用，清掉战斗中仍存活的宠物，防止插件绕过召唤事件。 */
     public void enforceWarPlayers() {
-        if (!available() || plugin.war() == null) {
+        if (!available() || plugin.war() == null || !plugin.settings().main.petsBlockInWar) {
             return;
         }
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -225,7 +222,7 @@ public final class WarPetHook implements Listener {
     }
 
     private boolean restricted(UUID uuid) {
-        if (uuid == null || plugin.war() == null) {
+        if (uuid == null || plugin.war() == null || !plugin.settings().main.petsBlockInWar) {
             return false;
         }
         Player player = Bukkit.getPlayer(uuid);

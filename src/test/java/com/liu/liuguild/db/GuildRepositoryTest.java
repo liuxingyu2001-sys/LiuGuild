@@ -1010,4 +1010,103 @@ class GuildRepositoryTest {
         assertEquals(4, history.get(0).scoreOfSide("C"));
         assertEquals("g-b", history.get(0).winner());
     }
+
+    @Test
+    void escrowInsertNeverOverwritesAnUnrecoveredSnapshot() throws Exception {
+        UUID player = UUID.randomUUID();
+        long now = System.currentTimeMillis();
+        var first = new com.liu.liuguild.war.KitService.PersistedEscrow(
+                player, "s1", "war-1", null, "first", "world", 1, 2, 3, 0, 0,
+                "SURVIVAL", 20, 20, 0, 0, now);
+        var second = new com.liu.liuguild.war.KitService.PersistedEscrow(
+                player, "s2", "war-2", null, "second", "world", 4, 5, 6, 0, 0,
+                "SURVIVAL", 20, 20, 0, 0, now + 1);
+
+        assertTrue(repo.saveWarEscrow(first));
+        assertFalse(repo.saveWarEscrow(second), "存在未恢复快照时不能覆盖");
+        assertEquals("first", repo.loadWarEscrow(player).itemsData());
+
+        // 异步清理必须带“本次入场”的 war_id/created_at，不能误删之后重新写入的新快照。
+        repo.deleteWarEscrow(player, "war-2", now);
+        assertEquals("first", repo.loadWarEscrow(player).itemsData());
+        repo.deleteWarEscrow(player, "war-1", now);
+        assertNull(repo.loadWarEscrow(player));
+    }
+
+    @Test
+    void wholeRowSaveCannotOverwriteLeaderOrWarRecord() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Atomic", "ATM");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+
+        // 模拟另一子服刚完成转让/战果。
+        UUID newLeader = UUID.randomUUID();
+        assertTrue(repo.setLeader(g.id(), newLeader, "NewLeader"));
+        assertTrue(repo.addWarResult(g.id(), true));
+
+        // 本服旧快照整行保存不得把 leader/wins 写回旧值。
+        g.leaderName("StaleLeader");
+        g.wins(0);
+        // 原子写入已推进 updated_at，旧快照可能被乐观锁拒绝；拒绝也符合预期。
+        repo.saveGuild(g, g.updatedAt());
+        Guild loaded = repo.loadGuild(g.id());
+        assertEquals(newLeader, loaded.leaderUuid());
+        assertEquals("NewLeader", loaded.leaderName());
+        assertEquals(1, loaded.wins());
+    }
+
+    @Test
+    void transferLeaderUpdatesGuildAndBothMemberRanksAtomically() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Transfer", "TRF");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+        UUID target = UUID.randomUUID();
+        assertTrue(repo.insertMemberAndIncrement(new GuildMember(target, "Target", g.id(),
+                GuildRank.MEMBER, System.currentTimeMillis(), 0, 0, 0), 100));
+
+        assertTrue(repo.transferLeader(g.id(), leader.uuid(), target, "Target"));
+        Guild loaded = repo.loadGuild(g.id());
+        assertEquals(target, loaded.leaderUuid());
+        assertEquals("Target", loaded.leaderName());
+        var ranks = repo.loadMembers(g.id()).stream()
+                .collect(java.util.stream.Collectors.toMap(GuildMember::uuid, GuildMember::rank));
+        assertEquals(GuildRank.OFFICER, ranks.get(leader.uuid()));
+        assertEquals(GuildRank.LEADER, ranks.get(target));
+
+        // 已卸任的旧会长不能再发起一次转让（并发转让必须只有一方成功）。
+        assertFalse(repo.transferLeader(g.id(), leader.uuid(), target, "Target"));
+        ranks = repo.loadMembers(g.id()).stream()
+                .collect(java.util.stream.Collectors.toMap(GuildMember::uuid, GuildMember::rank));
+        assertEquals(GuildRank.OFFICER, ranks.get(leader.uuid()));
+        assertEquals(GuildRank.LEADER, ranks.get(target));
+
+        // 目标不在工会时整个事务回滚，不能留下半套会长数据。
+        UUID missing = UUID.randomUUID();
+        assertFalse(repo.transferLeader(g.id(), target, missing, "Missing"));
+        assertEquals(target, repo.loadGuild(g.id()).leaderUuid());
+    }
+
+    @Test
+    void memberRemovalGenerationDoesNotDeleteARejoin() throws Exception {
+        Guild g = guild(UUID.randomUUID().toString(), "Rejoin", "RJN");
+        GuildMember leader = new GuildMember(g.leaderUuid(), "Leader", g.id(), GuildRank.LEADER,
+                System.currentTimeMillis(), 0, 0, 0);
+        repo.insertGuildWithLeader(g, leader);
+        UUID member = UUID.randomUUID();
+        long firstJoin = System.currentTimeMillis();
+        assertTrue(repo.insertMemberAndIncrement(new GuildMember(member, "M", g.id(), GuildRank.MEMBER,
+                firstJoin, 0, 0, 0), 100));
+
+        long rejoin = firstJoin + 1000;
+        try (var c = db.source().getConnection(); var ps = c.prepareStatement(
+                "UPDATE `" + db.t("guild_members") + "` SET `joined_at`=? WHERE `player_uuid`=?")) {
+            ps.setLong(1, rejoin);
+            ps.setString(2, member.toString());
+            ps.executeUpdate();
+        }
+        assertFalse(repo.removeMember(member, g.id(), firstJoin), "旧退会删除不能命中重入会记录");
+        assertTrue(repo.loadMembers(g.id()).stream().anyMatch(m -> m.uuid().equals(member)));
+    }
 }

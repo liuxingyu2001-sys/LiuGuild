@@ -40,6 +40,9 @@ public final class CrossServerBus {
     private final Set<UUID> recentSwitches = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     private volatile boolean ready;
+    private org.bukkit.scheduler.BukkitTask connectTask;
+    private boolean connectWarned;
+    private volatile boolean stopped;
 
     public CrossServerBus(Plugin plugin, MainSettings conf, RedisBridge bridge, ServerTransfer transfer) {
         this.plugin = plugin;
@@ -82,20 +85,37 @@ public final class CrossServerBus {
             plugin.getLogger().info("跨服功能：未启用（cross-server.enabled=false），仅本服模式。");
             return;
         }
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            if (!bridge.connect()) {
-                plugin.getLogger().warning("跨服不可用，已退回仅本服模式。原因: " + bridge.lastError()
-                        + "（不影响单服工会功能；配好 cross-server.redis 后重启即可启用）");
+        // Redis 可能在服务器启动完成前才起来：不能只尝试一次就永久退回单服。
+        connectTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+            if (stopped) {
                 return;
             }
+            // 降级后所有业务命令会直接短路，必须靠这里的探针恢复，否则永远停在“仅本服”。
+            if (bridge.isDegraded()) {
+                bridge.withJedisProbe(jedis -> jedis.ping());
+                return;
+            }
+            // 连接池还在时交给订阅线程自动重连；只有池不存在/已关闭才重新 connect。
+            if (bridge.isHealthyIgnoringDegrade()) {
+                return;
+            }
+            if (!bridge.connect()) {
+                if (!connectWarned) {
+                    connectWarned = true;
+                    plugin.getLogger().warning("跨服暂不可用，已退回仅本服模式，每 30 秒自动重试。原因: "
+                            + bridge.lastError() + "（不影响单服工会功能）");
+                }
+                return;
+            }
+            connectWarned = false;
             // ready 只在订阅真正建立后置位：否则发起服 publish 成功却收不到自己的回声，
             // WAR_MATCHED / SEASON_OPEN 这类靠回声生效的消息会丢。
-            bridge.subscribe(this::handleIncoming, () -> ready = true);
+            bridge.subscribe(this::handleIncoming, () -> ready = true, () -> ready = false);
             bridge.refreshHeartbeat();
             plugin.getLogger().info("跨服已就绪：server-id=" + conf.serverId
                     + "，Redis " + conf.redisHost + ":" + conf.redisPort
                     + "，频道 " + conf.redisChannel);
-        });
+        }, 0L, 20L * 30L);
     }
 
     private void handleIncoming(String type, String payload) {
@@ -138,7 +158,8 @@ public final class CrossServerBus {
     /**
      * 全局一次性任务抢锁（多服共享配置时的“单写者”保证）。
      * <p>用 Redis {@code SET key NX EX ttl} 原子抢占，只有一台子服会得到 true；
-     * Redis 不可用时退化为本地执行（返回 true），由调用方按单服语义处理。</p>
+     * 单服模式（未启用跨服）Redis 不可用时本地执行并返回 true；多服模式 Redis
+     * 不可用时返回 false（宁可本周期不执行，也不让所有子服重复执行全局任务）。</p>
      *
      * @param key        业务键（内部自动加 prefix）
      * @param ttlSeconds 锁存活时间，需 ≥ 任务周期，防止崩溃后死锁
@@ -146,7 +167,9 @@ public final class CrossServerBus {
      */
     public boolean acquireOnce(String key, long ttlSeconds) {
         if (!bridge.isHealthy()) {
-            return true;
+            // 多服模式且 Redis 不可用时不能“各服都执行”，否则全局清理任务会重复。
+            // 单服模式（未启用跨服）才允许本地直接执行。
+            return !conf.crossServerEnabled;
         }
         Boolean ok = bridge.withJedis(jedis -> "OK".equals(jedis.set(
                 bridge.prefix() + "lock:" + key, conf.serverId,
@@ -282,7 +305,12 @@ public final class CrossServerBus {
     }
 
     public void shutdown() {
+        stopped = true;
         ready = false;
+        if (connectTask != null) {
+            connectTask.cancel();
+            connectTask = null;
+        }
         bridge.removeHeartbeat();
         bridge.close();
     }
@@ -725,6 +753,18 @@ public final class CrossServerBus {
         String value = pendingWarValue(warId, sourceServer, world, x, y, z, yaw, pitch);
         Boolean ok = bridge.withJedis(jedis -> {
             jedis.setex(bridge.keyWarPending(uuid), 180, value);
+            return Boolean.TRUE;
+        });
+        return Boolean.TRUE.equals(ok);
+    }
+
+    /** 清除待入场标记（代理传送失败/超时，避免玩家普通进服时被误拉进工会战）。 */
+    public boolean deletePendingWar(UUID uuid) {
+        if (uuid == null) {
+            return false;
+        }
+        Boolean ok = bridge.withJedis(jedis -> {
+            jedis.del(bridge.keyWarPending(uuid));
             return Boolean.TRUE;
         });
         return Boolean.TRUE.equals(ok);

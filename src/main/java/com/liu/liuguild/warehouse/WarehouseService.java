@@ -199,15 +199,34 @@ public final class WarehouseService implements GuildModule, Listener {
         lock.releaseAll();
     }
 
+    /** 仓库配置指纹：只有 warehouse.yml 的容量/价格/权限真正变化时才需要打断在途操作。 */
+    private String lastWarehouseSignature;
+
     @Override
     public void reload() {
-        // 新配置立即生效，关闭旧展示和聊天输入会话，忙碌操作按原有回滚路径结束。
+        String signature = warehouseSignature();
+        boolean changed = lastWarehouseSignature != null && !signature.equals(lastWarehouseSignature);
+        lastWarehouseSignature = signature;
+        if (!changed) {
+            // 任一其它 YAML（如 gui.yml/war.yml）保存也会触发 modules.reloadAll；
+            // 不能因此把全服正在存取仓库的玩家踢出去，也不能打断在途事务。
+            return;
+        }
+        // 容器/价格/权限真正变化：旧展示立即失效，在途存取按回滚路径结束。
         lifecycle++;
         for (UUID player : new java.util.ArrayList<>(open.keySet())) kick(player);
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.getOpenInventory().getTopInventory().getHolder() instanceof MenuHolder)
-                player.closeInventory();
-        }
+    }
+
+    private String warehouseSignature() {
+        var c = plugin.settings().warehouse;
+        StringBuilder b = new StringBuilder(128);
+        b.append(c.enabled).append('|').append(c.baseSlots).append('|').append(c.requireRent)
+                .append('|').append(c.manageRank).append('|').append(c.maxDays).append('|')
+                .append(c.rentOptions).append('|').append(c.rentPrice.amount())
+                .append('|').append(c.rentPrice.currency());
+        c.levels.forEach((n, level) -> b.append('|').append(n).append(':').append(level.slots())
+                .append(':').append(level.price().amount()).append(':').append(level.price().currency()));
+        return b.toString();
     }
 
     public WarehouseLock lock() {
@@ -664,13 +683,20 @@ public final class WarehouseService implements GuildModule, Listener {
     private void purchase(Player player, Guild g, boolean upgrade, int days,
                           com.liu.liuguild.config.WarehouseSettings.Price price) {
         var c = plugin.settings().warehouse;
-        if (player == null || g == null || !c.enabled || !canManage(g, player)) return;
+        if (player == null || g == null || !c.enabled) return;
+        if (!canManage(g, player)) {
+            plugin.messages().send(player, "wh-no-permission");
+            return;
+        }
         if (!upgrade && (!c.requireRent || g.warehouseExpiresAt() == Long.MAX_VALUE)) {
             plugin.messages().send(player, "wh-rent-not-needed"); return;
         }
         if (price == null || (price.currency() == com.liu.liuguild.config.WarehouseSettings.Currency.PLAYER_POINTS
                 && price.amount() > Integer.MAX_VALUE)) return;
-        if (!purchasing.add(player.getUniqueId())) return;
+        if (!purchasing.add(player.getUniqueId())) {
+            plugin.messages().send(player, "wh-purchase-busy");
+            return;
+        }
         if (!externalPrice(player, price, false)) {
             purchasing.remove(player.getUniqueId());
             player.sendMessage(Text.mm("<red>购买失败：" + price.currency().display + "不足或经济接口不可用。")); return;

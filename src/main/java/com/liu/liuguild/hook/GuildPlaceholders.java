@@ -9,9 +9,9 @@ import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
 import org.jetbrains.annotations.NotNull;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * PlaceholderAPI 扩展（标识符 {@code liuguild}）。
@@ -125,10 +125,16 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
                 return "";
             }
             GuildWar arenaWar = plugin.war().warOf(guild.id());
-            return arenaWar == null ? "" : plugin.war().arenaOf(arenaWar).id;
+            var arena = arenaWar == null ? null : plugin.war().arenaOf(arenaWar);
+            return arena == null ? "" : arena.id;
+        }
+        if (p.equals("queued") || p.equals("queued_mode")) {
+            return handleWar(guild, p);
         }
         if (p.startsWith("war_")) {
-            return handleWar(guild, p);
+            // handleWar 的分支名不带 war_ 前缀；之前把完整参数传进去导致
+            // %liuguild_war_state% 等全部落到 default 返回空串。
+            return handleWar(guild, p.substring(4));
         }
 
         // 玩家自身
@@ -204,6 +210,24 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         };
     }
 
+    /** 排行榜缓存：每个指标 1 秒内复用一次全量排序，避免计分板每 tick 重复排序。 */
+    private static final long TOP_CACHE_MILLIS = 1000L;
+    private final Map<String, TopCache> topCache = new ConcurrentHashMap<>();
+
+    private record TopCache(List<GuildAPI.GuildView> guilds, long fetchedAt) {
+    }
+
+    private List<GuildAPI.GuildView> topFor(String metric) {
+        long now = System.currentTimeMillis();
+        TopCache cached = topCache.get(metric);
+        if (cached != null && now - cached.fetchedAt() < TOP_CACHE_MILLIS) {
+            return cached.guilds();
+        }
+        List<GuildAPI.GuildView> fresh = List.copyOf(GuildAPI.top(metric, 1000));
+        topCache.put(metric, new TopCache(fresh, now));
+        return fresh;
+    }
+
     private String handleTop(String p) {
         // top_<n>_<field>
         String[] parts = p.split("_", 3);
@@ -222,7 +246,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "bank", "level", "wins", "members", "losses" -> field;
             default -> "points";
         };
-        List<GuildAPI.GuildView> top = GuildAPI.top(metric, Math.max(1, n));
+        List<GuildAPI.GuildView> top = topFor(metric);
         if (top.size() < n) {
             return "";
         }
@@ -246,6 +270,8 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         if (plugin.war() == null || guild == null) {
             return "";
         }
+        // queued/queued_mode 在未开战但排队时也必须返回真实值，因此不能把
+        // war == null 当成整体前置条件。
         GuildWar war = plugin.war().warOf(guild.id());
         String side = war == null ? null : war.sideOfGuild(guild.id());
         String enemies = war == null ? "" : war.parties().stream()

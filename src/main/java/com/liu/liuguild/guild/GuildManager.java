@@ -56,6 +56,8 @@ public final class GuildManager {
     private final GuildRanking ranking;
     /** 本地写版本；异步全量重载发现版本变化时丢弃旧快照重试，避免覆盖刚发生的变更。 */
     private final java.util.concurrent.atomic.AtomicLong mutationVersion = new java.util.concurrent.atomic.AtomicLong();
+    /** 正在写库的会长转让；防止并发双击把旧会长降级两次/覆盖新转让。 */
+    private final Set<String> transfers = ConcurrentHashMap.newKeySet();
 
     public GuildManager(LiuGuild plugin) {
         this.plugin = plugin;
@@ -363,10 +365,53 @@ public final class GuildManager {
         } catch (Exception e) {
             plugin.getLogger().warning("关服前刷写工会数据失败: " + e.getMessage());
         }
+        // 刷写之后再补删除：顺序反过来会被 flushAll 的成员 upsert 重新写回。
+        flushPendingMemberRemovals();
     }
 
-    /** 待执行的解散删除（解散先删内存、异步删库；关服时必须补跑）。 */
+    /** 待执行的成员删除；异步失败后自动重试，关服窗口内未完成时也由 saveAllSync 补跑。 */
+    private final Map<UUID, MemberRemoval> pendingMemberRemovals = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicBoolean memberRemovalRetryScheduled =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    private record MemberRemoval(String guildId, long joinedAt) {
+    }
+
+    private void flushPendingMemberRemovals() {
+        for (Map.Entry<UUID, MemberRemoval> e : new ArrayList<>(pendingMemberRemovals.entrySet())) {
+            MemberRemoval pending = e.getValue();
+            try {
+                plugin.repo().removeMember(e.getKey(), pending.guildId(), pending.joinedAt());
+                pendingMemberRemovals.remove(e.getKey(), pending);
+                plugin.broadcastMemberChange(e.getKey(), pending.guildId());
+                plugin.broadcastGuildChange(pending.guildId());
+            } catch (Exception ex) {
+                plugin.getLogger().warning("补删成员关系失败（稍后重试） " + e.getKey() + ": " + ex.getMessage());
+            }
+        }
+    }
+
+    /** 退会/踢人写库失败后每 30 秒补删一次；重入会由 joined_at 守卫保护。 */
+    private void scheduleMemberRemovalRetry() {
+        if (!memberRemovalRetryScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        plugin.syncDelayed(() -> plugin.async(() -> {
+            try {
+                flushPendingMemberRemovals();
+            } finally {
+                memberRemovalRetryScheduled.set(false);
+                if (!pendingMemberRemovals.isEmpty()) {
+                    scheduleMemberRemovalRetry();
+                }
+            }
+        }), 20L * 30L);
+    }
+
+    /** 待执行的解散删除（解散先删内存、异步删库；失败后自动重试，关服时也必须补跑）。 */
     private final Set<String> pendingDisbands = ConcurrentHashMap.newKeySet();
+    private final java.util.concurrent.atomic.AtomicBoolean disbandRetryScheduled =
+            new java.util.concurrent.atomic.AtomicBoolean();
 
     private void flushPendingDisbands() {
         for (String id : new ArrayList<>(pendingDisbands)) {
@@ -374,9 +419,26 @@ public final class GuildManager {
                 plugin.repo().deleteGuild(id, plugin.settings().warehouse.disbandRetentionDays);
                 pendingDisbands.remove(id);
             } catch (Exception e) {
-                plugin.getLogger().warning("关服前删除已解散工会失败 " + id + ": " + e.getMessage());
+                plugin.getLogger().warning("删除已解散工会失败（稍后重试） " + id + ": " + e.getMessage());
             }
         }
+    }
+
+    /** 解散写库失败不能只等关服：每 30 秒重试一次，避免数据库恢复前工会“复活”。 */
+    private void scheduleDisbandRetry() {
+        if (!disbandRetryScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        plugin.syncDelayed(() -> plugin.async(() -> {
+            try {
+                flushPendingDisbands();
+            } finally {
+                disbandRetryScheduled.set(false);
+                if (!pendingDisbands.isEmpty()) {
+                    scheduleDisbandRetry();
+                }
+            }
+        }), 20L * 30L);
     }
 
     /**
@@ -460,6 +522,17 @@ public final class GuildManager {
         cleanupService.autoCleanup();
     }
 
+    /** 与“清理不活跃工会”开关无关的历史数据保留任务；多服下用 Redis 保证每周期只跑一台。 */
+    public void purgeHistoryAsync() {
+        plugin.async(() -> {
+            if (plugin.bus() != null
+                    && !plugin.bus().acquireOnce("history-retention", 6L * 3600L)) {
+                return;
+            }
+            cleanupService.purgeHistory();
+        });
+    }
+
     public void disband(Guild g, boolean broadcast) {
         disband(g, broadcast, GuildDisbandEvent.Cause.PLAYER);
     }
@@ -482,8 +555,9 @@ public final class GuildManager {
                 pendingDisbands.remove(g.id());
                 plugin.broadcastGuildChange(g.id());
             } catch (Exception e) {
-                // 保留在 pendingDisbands：关服前 saveAllSync 会重试，避免重启后工会复活。
-                plugin.getLogger().warning("解散工会写库失败（将在关服前重试）: " + e.getMessage());
+                // 保留在 pendingDisbands：后台自动重试，关服前 saveAllSync 还会再兜底一次。
+                plugin.getLogger().warning("解散工会写库失败（将自动重试）: " + e.getMessage());
+                scheduleDisbandRetry();
             }
         });
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
@@ -679,6 +753,14 @@ public final class GuildManager {
     private void removeMember(Guild g, UUID uuid) {
         mutationVersion.incrementAndGet();
         refreshLuckPerms(plugin.player(uuid));
+        GuildMember removed = g.member(uuid);
+        if (removed == null) {
+            // 并发退会/踢人已经处理过：此时再按“当前时间”删库会误伤刚重入会的新行。
+            return;
+        }
+        long joinedAt = removed.joinedAt();
+        MemberRemoval pendingRemoval = new MemberRemoval(g.id(), joinedAt);
+        pendingMemberRemovals.put(uuid, pendingRemoval);
         g.removeMember(uuid);
         memberIndex.remove(uuid);
         if (plugin.guildChat() != null) plugin.guildChat().refresh();
@@ -696,14 +778,18 @@ public final class GuildManager {
         }
         plugin.async(() -> {
             try {
-                if (!plugin.repo().removeMember(uuid, g.id())) {
+                if (!plugin.repo().removeMember(uuid, g.id(), joinedAt)) {
                     plugin.getLogger().info("成员关系已变更，跳过旧退会写入: " + uuid);
+                    pendingMemberRemovals.remove(uuid, pendingRemoval);
                     return;
                 }
+                pendingMemberRemovals.remove(uuid, pendingRemoval);
                 plugin.broadcastMemberChange(uuid, g.id());
                 plugin.broadcastGuildChange(g.id());
             } catch (Exception e) {
-                plugin.getLogger().warning("移除成员写库失败: " + e.getMessage());
+                // 保留待删除记录并在后台重试，关服 saveAllSync 再补一次；不要留下幽灵成员。
+                plugin.getLogger().warning("移除成员写库失败（已排队重试）: " + e.getMessage());
+                scheduleMemberRemovalRetry();
             }
         });
     }
@@ -777,17 +863,46 @@ public final class GuildManager {
             plugin.messages().send(actor, "target-not-in-guild");
             return false;
         }
-        actorM.rank(GuildRank.OFFICER);
-        targetM.rank(GuildRank.LEADER);
-        g.leaderUuid(targetId);
-        g.leaderName(targetName);
-        saveMember(actorM);
-        saveMember(targetM);
-        saveGuild(g);
-        refreshLuckPerms(actor);
-        refreshLuckPerms(plugin.player(targetId));
-        plugin.messages().send(actor, "transfer-success", "player", targetName);
-        notifyMember(targetId, plugin.messages().component("transfer-notify", "guild", g.name()));
+        if (!transfers.add(g.id())) {
+            plugin.messages().send(actor, "operation-busy");
+            return false;
+        }
+        UUID oldLeaderId = actor.getUniqueId();
+        plugin.async(() -> {
+            boolean ok;
+            try {
+                // 工会 leader 列与两名成员 rank 同一事务：不会出现“新会长没权限”的分裂状态。
+                ok = plugin.repo().transferLeader(g.id(), oldLeaderId, targetId, targetName);
+            } catch (Exception e) {
+                plugin.getLogger().warning("会长转让写库失败: " + e.getMessage());
+                ok = false;
+            }
+            boolean success = ok;
+            plugin.sync(() -> {
+                transfers.remove(g.id());
+                if (!success) {
+                    plugin.messages().send(actor, "transfer-failed");
+                    return;
+                }
+                // 写库成功后再改内存，避免主线程先显示成功、后台却写失败。
+                GuildMember currentActor = g.member(oldLeaderId);
+                GuildMember currentTarget = g.member(targetId);
+                if (currentActor == null || currentTarget == null) {
+                    plugin.getLogger().warning("会长转让完成但内存成员已变化，请检查工会 " + g.id());
+                    plugin.broadcastGuildChange(g.id());
+                    return;
+                }
+                currentActor.rank(GuildRank.OFFICER);
+                currentTarget.rank(GuildRank.LEADER);
+                g.leaderUuid(targetId);
+                g.leaderName(targetName);
+                refreshLuckPerms(plugin.player(oldLeaderId));
+                refreshLuckPerms(plugin.player(targetId));
+                plugin.messages().send(actor, "transfer-success", "player", targetName);
+                notifyMember(targetId, plugin.messages().component("transfer-notify", "guild", g.name()));
+                plugin.broadcastGuildChange(g.id());
+            });
+        });
         return true;
     }
 
@@ -807,9 +922,15 @@ public final class GuildManager {
     }
 
     public void saveGuild(Guild g) {
+        saveGuild(g, null);
+    }
+
+    /** 带写库结果回调的保存；回调在主线程执行，参数为是否真正写入成功。 */
+    public void saveGuild(Guild g, java.util.function.Consumer<Boolean> done) {
         mutationVersion.incrementAndGet();
         g.touchActive();
         plugin.async(() -> {
+            boolean ok = false;
             // 同一实例的保存串行化：后一次必须基于前一次成功后的 updated_at。
             synchronized (g) {
                 try {
@@ -818,10 +939,38 @@ public final class GuildManager {
                         reloadGuild(g.id());
                     } else {
                         plugin.broadcastGuildChange(g.id());
+                        ok = true;
                     }
                 } catch (Exception e) {
                     plugin.getLogger().warning("保存工会失败: " + e.getMessage());
                 }
+            }
+            if (done != null) {
+                final boolean saved = ok;
+                plugin.sync(() -> done.accept(saved));
+            }
+        });
+    }
+
+    /** 原子记录工会战胜/负；内存先更新给菜单即时反馈，数据库只做增量。 */
+    public void recordWarResult(Guild g, boolean win) {
+        if (g == null) {
+            return;
+        }
+        if (win) {
+            g.wins(g.wins() + 1);
+        } else {
+            g.losses(g.losses() + 1);
+        }
+        plugin.async(() -> {
+            try {
+                if (!plugin.repo().addWarResult(g.id(), win)) {
+                    plugin.getLogger().warning("记录工会战结果失败（工会不存在）: " + g.id());
+                    return;
+                }
+                plugin.broadcastGuildChange(g.id());
+            } catch (Exception e) {
+                plugin.getLogger().warning("记录工会战结果失败: " + e.getMessage());
             }
         });
     }
@@ -1006,9 +1155,14 @@ public final class GuildManager {
     }
 
     /** 设置公告；长度为 0 时清空。超长返回 false 并提示。 */
-    public boolean setNotice(Player actor, Guild g, String value) {        String v = value == null ? "" : value;
+    public boolean setNotice(Player actor, Guild g, String value) {
+        String v = value == null ? "" : value;
         if (v.length() > TEXT_FIELD_MAX) {
             plugin.messages().send(actor, "input-too-long", "max", TEXT_FIELD_MAX);
+            return false;
+        }
+        if (!Text.isValidMini(v)) {
+            plugin.messages().send(actor, "input-format-invalid");
             return false;
         }
         g.notice(v);
@@ -1022,6 +1176,10 @@ public final class GuildManager {
         String v = value == null ? "" : value;
         if (v.length() > TEXT_FIELD_MAX) {
             plugin.messages().send(actor, "input-too-long", "max", TEXT_FIELD_MAX);
+            return false;
+        }
+        if (!Text.isValidMini(v)) {
+            plugin.messages().send(actor, "input-format-invalid");
             return false;
         }
         g.description(v);
@@ -1062,13 +1220,24 @@ public final class GuildManager {
         double cost = conf().iconChangeCost;
         if (cost > 0) {
             if (!plugin.economy().has(actor, cost) || !plugin.economy().withdraw(actor, cost)) {
-                plugin.messages().send(actor, "create-cost-missing", "cost", plugin.economy().format(cost));
+                plugin.messages().send(actor, "set-icon-cost-missing", "cost", plugin.economy().format(cost));
                 return false;
             }
         }
+        String oldIcon = g.icon();
         g.icon(iconId);
-        saveGuild(g);
-        plugin.messages().send(actor, "set-icon", "icon", def.display);
+        saveGuild(g, saved -> {
+            if (saved) {
+                plugin.messages().send(actor, "set-icon", "icon", def.display);
+                return;
+            }
+            // 落库失败必须恢复旧图标并退款，否则玩家付了钱却什么都没得到。
+            g.icon(oldIcon);
+            if (cost > 0 && plugin.economy().available() && !plugin.economy().deposit(actor, cost)) {
+                plugin.getLogger().severe("工会图标回滚退款失败: 玩家=" + actor.getUniqueId() + " guild=" + g.id());
+            }
+            plugin.messages().send(actor, "set-icon-failed");
+        });
         return true;
     }
 
@@ -1507,37 +1676,67 @@ public final class GuildManager {
 
     /** 管理员强制设置等级（不触发升级事件）。 */
     public void setLevel(Guild g, int level) {
+        setLevel(g, level, null);
+    }
+
+    /** 设置等级；数据库失败时回滚内存等级，避免界面显示一个从未落库的值。 */
+    public void setLevel(Guild g, int level, java.util.function.Consumer<Boolean> done) {
         if (g == null) {
+            if (done != null) done.accept(false);
             return;
         }
         int max = conf().maxLevel;
         int target = Math.max(1, Math.min(max, level));
+        int old = g.level();
         g.level(target);
         plugin.async(() -> {
+            boolean ok;
             try {
                 plugin.repo().setLevel(g.id(), target);
                 plugin.broadcastGuildChange(g.id());
+                ok = true;
             } catch (Exception e) {
                 plugin.getLogger().warning("设置工会等级失败: " + e.getMessage());
+                ok = false;
             }
+            final boolean saved = ok;
+            plugin.sync(() -> {
+                if (!saved) {
+                    Guild cached = guild(g.id());
+                    if (cached != null && cached.level() == target) cached.level(old);
+                }
+                if (done != null) done.accept(saved);
+            });
         });
     }
 
     /** 管理员强制设置点数（不重算等级）。 */
     public void setPoints(Guild g, long points) {
+        setPoints(g, points, null);
+    }
+
+    /** 设置点数；回调只在主线程执行，用于管理命令在数据库失败时给出明确反馈。 */
+    public void setPoints(Guild g, long points, java.util.function.Consumer<Boolean> done) {
         if (g == null) {
+            if (done != null) done.accept(false);
             return;
         }
         String id = g.id();
         long value = Math.max(0, points);
         plugin.async(() -> {
+            boolean ok;
             try {
                 plugin.repo().setPoints(id, value);
+                ok = true;
             } catch (Exception e) {
                 plugin.getLogger().warning("设置工会点数失败: " + e.getMessage());
-                return;
+                ok = false;
             }
-            pullPoints(id, false);
+            if (ok) {
+                pullPoints(id, false);
+            }
+            final boolean saved = ok;
+            if (done != null) plugin.sync(() -> done.accept(saved));
         });
     }
 

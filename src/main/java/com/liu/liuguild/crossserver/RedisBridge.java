@@ -273,7 +273,7 @@ public final class RedisBridge {
     // =====================================================================
 
     public void subscribe(java.util.function.BiConsumer<String, String> handler) {
-        subscribe(handler, null);
+        subscribe(handler, null, null);
     }
 
     /**
@@ -283,6 +283,17 @@ public final class RedisBridge {
      *                     避免“线程刚启动就宣布可用”导致自己发出的消息收不到回声）
      */
     public void subscribe(java.util.function.BiConsumer<String, String> handler, Runnable onSubscribed) {
+        subscribe(handler, onSubscribed, null);
+    }
+
+    /**
+     * 订阅跨服消息。
+     *
+     * @param onSubscribed 真正 SUBSCRIBE 成功后的回调（ready=true）
+     * @param onLost       订阅断开时回调（ready=false），重连成功后会再次 onSubscribed
+     */
+    public void subscribe(java.util.function.BiConsumer<String, String> handler,
+                          Runnable onSubscribed, Runnable onLost) {
         if (!isHealthyIgnoringDegrade() && pool == null) {
             return;
         }
@@ -317,6 +328,9 @@ public final class RedisBridge {
                         return;
                     }
                     plugin.getLogger().warning("跨服订阅中断，2 秒后重连: " + ex.getMessage());
+                    if (onLost != null) {
+                        onLost.run();
+                    }
                     try {
                         Thread.sleep(2000L);
                     } catch (InterruptedException ie) {

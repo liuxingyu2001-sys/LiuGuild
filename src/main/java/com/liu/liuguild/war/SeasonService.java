@@ -301,13 +301,41 @@ public final class SeasonService implements GuildModule, Listener {
         String eventId=current.id();
         submit(() -> {
             try {
-                if(plugin.repo().loadWarEscrow(entry.player())!=null) throw new IllegalStateException("玩家仍有未恢复的装备托管");
-                plugin.repo().saveWarEscrow(escrow);
-                if(!running) return;
+                boolean escrowFree = plugin.repo().loadWarEscrow(entry.player()) == null
+                        && plugin.repo().saveWarEscrow(escrow);
+                if (!escrowFree) {
+                    // 上一场崩溃遗留的托管快照未恢复：拒绝入场并立即走恢复，绝不再覆盖。
+                    plugin.sync(() -> {
+                        capturing.remove(entry.player());
+                        capturedOnce.remove(entry.player());
+                        if (player.isOnline()) {
+                            player.sendMessage("§c你还有未恢复的装备托管，正在恢复，请稍后再试。");
+                            plugin.war().recoverPendingEscrow(player);
+                        }
+                    });
+                    return;
+                }
+                if(!running) {
+                    // 赛季在异步写库期间结束：此时还没动过玩家背包，托管记录只是入场前快照。
+                    // 删除它，绝不能拿旧快照覆盖玩家这段时间的正常变动。
+                    boolean deleted = false;
+                    try {
+                        plugin.repo().deleteWarEscrow(entry.player(), entry.event(), escrow.createdAt());
+                        deleted = true;
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("清理未生效赛季托管失败: " + e.getMessage());
+                    }
+                    if (!deleted) {
+                        plugin.sync(() -> { if (player.isOnline()) plugin.war().recoverPendingEscrow(player); });
+                    }
+                    return;
+                }
                 plugin.sync(() -> {
                     capturing.remove(entry.player());
                     if(!player.isOnline() || current==null || finishing || !eventId.equals(current.id()) || starting) {
-                        if(player.isOnline()) plugin.war().recoverPendingEscrow(player);
+                        // 还没发套装/换背包：托管记录只是入场前快照，删除而不是“恢复”，
+                        // 否则会把玩家在等待期间正常获得的物品覆盖掉。
+                        discardUnappliedEscrow(entry, escrow.createdAt(), player);
                         return;
                     }
                     snapshots.put(entry.player(),snap); participants.put(entry.player(),entry);
@@ -321,10 +349,30 @@ public final class SeasonService implements GuildModule, Listener {
                 });
             } catch(Exception e) {
                 failure(e);
-                plugin.sync(() -> { capturing.remove(entry.player()); capturedOnce.remove(entry.player()); });
+                plugin.sync(() -> {
+                    capturing.remove(entry.player());
+                    capturedOnce.remove(entry.player());
+                    if (player.isOnline()) player.sendMessage("§c赛季入场写入失败，已取消，请稍后重试。");
+                });
             }
         });
     }
+    /** 入场未真正生效时删除托管快照；删除失败才退回恢复流程，避免丢装备。 */
+    private void discardUnappliedEscrow(SeasonRepository.Entry entry, long createdAt, Player player) {
+        plugin.async(() -> {
+            boolean deleted = false;
+            try {
+                plugin.repo().deleteWarEscrow(entry.player(), entry.event(), createdAt);
+                deleted = true;
+            } catch (Exception e) {
+                plugin.getLogger().warning("清理未生效赛季托管失败: " + e.getMessage());
+            }
+            if (!deleted && player.isOnline()) {
+                plugin.sync(() -> plugin.war().recoverPendingEscrow(player));
+            }
+        });
+    }
+
     private boolean teleportSpawn(Player p,String guild,List<SeasonRepository.Entry> entries) {
         List<String> guilds=entries.stream().map(SeasonRepository.Entry::guild).distinct().sorted().toList();
         List<String> points=arena.spawnPointNames();

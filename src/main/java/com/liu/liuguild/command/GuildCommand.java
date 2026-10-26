@@ -361,7 +361,11 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(player, "not-in-guild");
             return;
         }
-        if (!plugin.guilds().canManageSettings(player, g) || args.length < 3) {
+        if (!plugin.guilds().canManageSettings(player, g)) {
+            plugin.messages().send(player, "no-permission-rank");
+            return;
+        }
+        if (args.length < 3) {
             plugin.messages().send(player, "set-usage");
             return;
         }
@@ -372,8 +376,14 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 boolean open = value.equalsIgnoreCase("true") || value.equalsIgnoreCase("开放")
                         || value.equalsIgnoreCase("on") || value.equalsIgnoreCase("1");
                 g.open(open);
-                plugin.guilds().saveGuild(g);
-                plugin.messages().send(player, "set-open", "value", open ? "开放" : "邀请");
+                plugin.guilds().saveGuild(g, saved -> {
+                    if (!Boolean.TRUE.equals(saved)) {
+                        g.open(!open);
+                        plugin.messages().send(player, "operation-failed");
+                        return;
+                    }
+                    plugin.messages().send(player, "set-open", "value", open ? "开放" : "邀请");
+                });
             }
             case "notice" -> {
                 plugin.guilds().setNotice(player, g, value);
@@ -427,7 +437,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
     private void info(Player player, String[] args) {
         Guild g = args.length >= 2 ? plugin.guilds().guildByName(args[1]) : plugin.guilds().guildOf(player.getUniqueId());
         if (g == null) {
-            plugin.messages().send(player, "not-in-guild");
+            plugin.messages().send(player, "guild-not-found", "name", args.length >= 2 ? args[1] : "");
             return;
         }
         plugin.messages().sendRaw(player, "info-header", "tag", g.tag(), "guild", g.name());
@@ -853,19 +863,23 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(player, "shop-hand-empty");
             return;
         }
-        String err = plugin.shop().addListing(g, player, hand, hand.getAmount(), price, buyPrice);
+        final ItemStack listed = hand.clone();
+        final int listedAmount = hand.getAmount();
+        String err = plugin.shop().addListing(g, player, hand, listedAmount, price, buyPrice,
+                actual -> {
+                    plugin.messages().send(player, "shop-listed",
+                            "item", plugin.shop().itemName(listed),
+                            "amount", String.valueOf(actual),
+                            "price", String.valueOf(price));
+                    announce(g, "shop-broadcast-list", player,
+                            "item", plugin.shop().itemName(listed),
+                            "amount", String.valueOf(actual));
+                },
+                null);
         if (err != null) {
             plugin.messages().send(player, err,
                     "max", String.valueOf(plugin.settings().guild.shopMaxListings));
-            return;
         }
-        plugin.messages().send(player, "shop-listed",
-                "item", plugin.shop().itemName(hand),
-                "amount", String.valueOf(hand.getAmount()),
-                "price", String.valueOf(price));
-        announce(g, "shop-broadcast-list", player,
-                "item", plugin.shop().itemName(hand),
-                "amount", String.valueOf(hand.getAmount()));
     }
 
     /** `/guild shop remove <编号前8位>`：下架并退回剩余物品。 */
@@ -895,9 +909,10 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(player, "shop-not-found");
             return;
         }
-        int had = target.stock();
         String err = plugin.shop().removeListing(g, player, target);
-        if (err != null) {
+        // removeListing 已对“序列化失败/背包不足/写入失败”发过提示，避免重复刷屏。
+        if (err != null && !err.equals("shop-serialize-failed")
+                && !err.equals("shop-inventory-full") && !err.equals("shop-remove-failed")) {
             plugin.messages().send(player, err, "item", "", "amount", "");
         }
     }

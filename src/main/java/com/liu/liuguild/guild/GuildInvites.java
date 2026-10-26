@@ -22,7 +22,8 @@ final class GuildInvites {
 
     private final LiuGuild plugin;
     private final GuildManager guilds;
-    private final Map<UUID, Invite> invites = new ConcurrentHashMap<>();
+    /** 玩家 -> (工会 id -> 邀请)。每人可同时保留多个工会的邀请，接受时按工会名精确匹配。 */
+    private final Map<UUID, Map<String, Invite>> invites = new ConcurrentHashMap<>();
     private final Map<UUID, Long> inviteCooldown = new ConcurrentHashMap<>();
 
     GuildInvites(LiuGuild plugin, GuildManager guilds) {
@@ -90,7 +91,8 @@ final class GuildInvites {
             return;
         }
         long expires = now + conf().inviteExpireSeconds * 1000L;
-        invites.put(targetId, new Invite(g.id(), expires));
+        invites.computeIfAbsent(targetId, k -> new ConcurrentHashMap<>())
+                .put(g.id(), new Invite(g.id(), expires));
         inviteCooldown.put(actor.getUniqueId(), now);
         if (target != null) {
             target.sendMessage(plugin.messages().component("invite-received", "guild", g.name()));
@@ -103,7 +105,8 @@ final class GuildInvites {
         if (target == null || guildId == null) {
             return;
         }
-        invites.put(target, new Invite(guildId, System.currentTimeMillis() + conf().inviteExpireSeconds * 1000L));
+        invites.computeIfAbsent(target, k -> new ConcurrentHashMap<>())
+                .put(guildId, new Invite(guildId, System.currentTimeMillis() + conf().inviteExpireSeconds * 1000L));
         plugin.sync(() -> {
             Player p = plugin.player(target);
             if (p != null) {
@@ -113,28 +116,74 @@ final class GuildInvites {
     }
 
     boolean accept(Player player, String guildName) {
-        Invite inv = invites.get(player.getUniqueId());
+        Invite inv = select(player.getUniqueId(), guildName);
         if (inv == null) {
             plugin.messages().send(player, "invite-none");
             return false;
         }
-        if (System.currentTimeMillis() > inv.expiresAt) {
-            invites.remove(player.getUniqueId());
-            plugin.messages().send(player, "invite-expired");
-            return false;
-        }
         Guild g = guilds.guild(inv.guildId);
         if (g == null) {
-            plugin.messages().send(player, "guild-not-found", "name", guildName);
+            removeInvite(player.getUniqueId(), inv);
+            plugin.messages().send(player, "guild-not-found", "name", guildName == null ? "" : guildName);
             return false;
         }
-        return guilds.join(player, g, true);
+        // 写库失败/人数满时邀请仍然有效，玩家可以稍后重试；只有真正入会才消费。
+        boolean joined = guilds.join(player, g, true);
+        if (joined) {
+            removeInvite(player.getUniqueId(), inv);
+        }
+        return joined;
     }
 
     void deny(Player player, String guildName) {
-        Invite inv = invites.remove(player.getUniqueId());
+        Invite inv = select(player.getUniqueId(), guildName);
         Guild g = inv == null ? null : guilds.guild(inv.guildId);
-        plugin.messages().send(player, "deny-success", "guild", g == null ? guildName : g.name());
+        if (inv != null) {
+            removeInvite(player.getUniqueId(), inv);
+        }
+        plugin.messages().send(player, "deny-success", "guild", g == null
+                ? (guildName == null ? "" : guildName) : g.name());
+    }
+
+    /**
+     * 按工会名/id 精确选择邀请；未指定时选最早到期的一条。
+     * 这样聊天里的“接受 A”不会因为 B 后邀请而加入 B。
+     */
+    private Invite select(UUID player, String guildName) {
+        Map<String, Invite> map = invites.get(player);
+        if (map == null || map.isEmpty()) {
+            return null;
+        }
+        long now = System.currentTimeMillis();
+        map.entrySet().removeIf(e -> e.getValue().expiresAt <= now);
+        if (map.isEmpty()) {
+            invites.remove(player, map);
+            return null;
+        }
+        if (guildName == null || guildName.isBlank()) {
+            return map.values().stream().min(java.util.Comparator.comparingLong(i -> i.expiresAt)).orElse(null);
+        }
+        String wanted = guildName.trim();
+        for (Invite inv : map.values()) {
+            Guild g = guilds.guild(inv.guildId);
+            if (inv.guildId.equalsIgnoreCase(wanted)
+                    || (g != null && g.name().equalsIgnoreCase(wanted))
+                    || (g != null && g.tag().equalsIgnoreCase(wanted))) {
+                return inv;
+            }
+        }
+        return null;
+    }
+
+    private void removeInvite(UUID player, Invite inv) {
+        Map<String, Invite> map = invites.get(player);
+        if (map == null) {
+            return;
+        }
+        map.remove(inv.guildId, inv);
+        if (map.isEmpty()) {
+            invites.remove(player, map);
+        }
     }
 
     List<GuildManager.PendingInvite> pendingInvites(UUID uuid) {
@@ -142,12 +191,21 @@ final class GuildInvites {
         if (uuid == null) {
             return out;
         }
-        Invite inv = invites.get(uuid);
-        if (inv == null || inv.expiresAt <= System.currentTimeMillis()) {
+        Map<String, Invite> map = invites.get(uuid);
+        if (map == null || map.isEmpty()) {
             return out;
         }
-        Guild g = guilds.guild(inv.guildId);
-        out.add(new GuildManager.PendingInvite(inv.guildId, g == null ? inv.guildId : g.name(), inv.expiresAt));
+        long now = System.currentTimeMillis();
+        map.entrySet().removeIf(e -> e.getValue().expiresAt <= now);
+        if (map.isEmpty()) {
+            invites.remove(uuid, map);
+            return out;
+        }
+        for (Invite inv : map.values()) {
+            Guild g = guilds.guild(inv.guildId);
+            out.add(new GuildManager.PendingInvite(inv.guildId, g == null ? inv.guildId : g.name(), inv.expiresAt));
+        }
+        out.sort(java.util.Comparator.comparingLong(GuildManager.PendingInvite::expiresAt));
         return out;
     }
 
@@ -161,7 +219,10 @@ final class GuildInvites {
     /** 清理解除过期邀请与冷却记录（心跳调用，防止内存泄漏）。 */
     void purge() {
         long now = System.currentTimeMillis();
-        invites.entrySet().removeIf(e -> e.getValue().expiresAt < now);
+        invites.entrySet().removeIf(e -> {
+            e.getValue().entrySet().removeIf(inv -> inv.getValue().expiresAt < now);
+            return e.getValue().isEmpty();
+        });
         long cooldownMs = Math.max(1, conf().inviteCooldownSeconds) * 1000L;
         inviteCooldown.entrySet().removeIf(e -> now - e.getValue() > cooldownMs * 4);
     }

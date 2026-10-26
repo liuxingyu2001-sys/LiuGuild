@@ -187,12 +187,30 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
     // 场地
     // =====================================================================
 
+    /** 所有需要竞技场 id 的子命令：统一校验，避免把任意字符串写进配置路径。 */
+    private static final java.util.Set<String> ARENA_ID_ACTIONS = java.util.Set.of(
+            "info", "setspawn", "setworld", "setserver", "settemplate", "create", "remove", "delete",
+            "setradius", "settempworld", "setgamerule", "setafter", "setendspawn", "tp", "teleport");
+
+    static boolean validArenaId(String id) {
+        return id != null && id.matches("[a-z0-9_-]{1,32}");
+    }
+
     private void arena(CommandSender sender, String[] args) {
         if (args.length < 2) {
             plugin.messages().sendRaw(sender, "arena-usage");
             return;
         }
         String action = args[1].toLowerCase(Locale.ROOT);
+        if (ARENA_ID_ACTIONS.contains(action) && args.length >= 3) {
+            String id = args[2].toLowerCase(Locale.ROOT);
+            if (!validArenaId(id)) {
+                plugin.messages().sendRaw(sender, "arena-invalid-id");
+                return;
+            }
+            args = args.clone();
+            args[2] = id;
+        }
         switch (action) {
             case "list" -> {
                 sender.sendMessage(cn("&6竞技场列表："));
@@ -262,7 +280,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             }
             case "remove", "delete" -> {
                 if (require(sender, args, 3)) {
-                    if (!plugin.settings().arenas.arenas.containsKey(args[2].toLowerCase(Locale.ROOT))) {
+                    if (!plugin.settings().arenas.arenas.containsKey(args[2])) {
                         sender.sendMessage(cn("&c竞技场不存在：" + args[2]));
                         return;
                     }
@@ -393,8 +411,8 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         }
         String arenaId = args[2];
         String point = args[3].toLowerCase(Locale.ROOT);
-        if (!point.matches("[a-z0-9_-]{1,16}")) {
-            plugin.messages().sendRaw(sender, "arena-usage");
+        if (!validArenaId(arenaId) || !point.matches("[a-z0-9_-]{1,16}")) {
+            plugin.messages().sendRaw(sender, "arena-invalid-id");
             return;
         }
         String name = (point.equals("spec") || point.equals("spectator")) ? "spectator" : point;
@@ -438,6 +456,10 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                     return;
                 }
                 String key = args[2].toLowerCase(Locale.ROOT);
+                if (!key.matches("[a-z0-9_-]{1,32}")) {
+                    plugin.messages().sendRaw(sender, "kit-invalid-key");
+                    return;
+                }
                 String snapshot = plugin.kits().capture(player);
                 plugin.configs().set("kit.yml", "kits." + key + ".enabled", true);
                 plugin.configs().set("kit.yml", "kits." + key + ".snapshot", snapshot);
@@ -446,14 +468,24 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             }
             case "delete" -> {
                 if (require(sender, args, 3)) {
-                    plugin.configs().set("kit.yml", "kits." + args[2], null);
+                    String key = args[2].toLowerCase(Locale.ROOT);
+                    if (!key.matches("[a-z0-9_-]{1,32}")) {
+                        plugin.messages().sendRaw(sender, "kit-invalid-key");
+                        return;
+                    }
+                    plugin.configs().set("kit.yml", "kits." + key, null);
                     plugin.reloadSettings();
-                    plugin.messages().sendRaw(sender, "kit-deleted", "key", args[2]);
+                    plugin.messages().sendRaw(sender, "kit-deleted", "key", key);
                 }
             }
             case "info" -> {
                 if (require(sender, args, 3)) {
-                    var k = plugin.settings().kit.profile(args[2]);
+                    String key = args[2].toLowerCase(Locale.ROOT);
+                    if (!key.matches("[a-z0-9_-]{1,32}")) {
+                        plugin.messages().sendRaw(sender, "kit-invalid-key");
+                        return;
+                    }
+                    var k = plugin.settings().kit.profile(key);
                     sender.sendMessage(cn("&6套装 &f" + k.key));
                     sender.sendMessage(cn("&7启用: &f" + k.enabled + " &7清空背包: &f" + k.clearInventory));
                     sender.sendMessage(cn("&7快照: " + (k.hasSnapshot() ? "&a已保存" : "&8无")));
@@ -573,8 +605,14 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
                 }
                 // 先按显式 id 找普通工会战；没给 id 或找不到时才尝试停赛季，
                 // 避免 `/guildadmin war stop <某场战 id>` 先把正在进行的赛季停掉。
-                GuildWar w = args.length >= 3 ? plugin.war().warById(args[2]) : null;
-                if (w == null && plugin.seasons() != null && plugin.seasons().stop()) {
+                boolean explicitId = args.length >= 3;
+                GuildWar w = explicitId ? plugin.war().warById(args[2]) : null;
+                if (explicitId && w == null) {
+                    // 显式 id 找不到时绝不回退停赛季/当前战：一个拼写错误会误停正在进行的比赛。
+                    plugin.messages().send(sender, "war-not-in-war");
+                    return;
+                }
+                if (!explicitId && plugin.seasons() != null && plugin.seasons().stop()) {
                     sender.sendMessage(cn("&e正在取消本服赛季混战并归还装备。"));
                     return;
                 }
@@ -693,9 +731,14 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         Integer parsed = parseInt(sender, args[2], false);
         if (parsed == null) return;
         int oldLevel = g.level();
-        plugin.guilds().setLevel(g, parsed);
-        audit(sender, g, "admin.setlevel", null, parsed, "old=" + oldLevel);
-        plugin.messages().send(sender, "admin-setlevel", "guild", g.name(), "level", g.level());
+        plugin.guilds().setLevel(g, parsed, ok -> {
+            if (!Boolean.TRUE.equals(ok)) {
+                plugin.messages().send(sender, "operation-failed");
+                return;
+            }
+            audit(sender, g, "admin.setlevel", null, g.level(), "old=" + oldLevel);
+            plugin.messages().send(sender, "admin-setlevel", "guild", g.name(), "level", g.level());
+        });
     }
 
     private void setPoints(CommandSender sender, String[] args) {
@@ -710,9 +753,15 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         Integer parsed = parseInt(sender, args[2], false);
         if (parsed == null) return;
         long oldPoints = g.points();
-        plugin.guilds().setPoints(g, parsed);
-        audit(sender, g, "admin.setpoints", null, parsed, "old=" + oldPoints);
-        plugin.messages().send(sender, "admin-setpoints", "guild", g.name(), "points", parsed);
+        long value = Math.max(0L, parsed);
+        plugin.guilds().setPoints(g, value, ok -> {
+            if (!Boolean.TRUE.equals(ok)) {
+                plugin.messages().send(sender, "operation-failed");
+                return;
+            }
+            audit(sender, g, "admin.setpoints", null, value, "old=" + oldPoints);
+            plugin.messages().send(sender, "admin-setpoints", "guild", g.name(), "points", value);
+        });
     }
 
     /** /guildadmin rename <工会> <新名称> [新标签] —— 绕开冷却与费用。 */

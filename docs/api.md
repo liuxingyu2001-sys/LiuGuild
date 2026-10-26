@@ -63,7 +63,7 @@ if (GuildAPI.isReady()) {
 | `GuildWarMatchEvent` | `war` |
 | `GuildWarStartEvent` | `war` |
 | `GuildKillEvent` | `war`, `killer`, `victim`, `points` |
-| `GuildWarEndEvent` | `war`, `result`（A_WIN/B_WIN/DRAW/CANCELLED） |
+| `GuildWarEndEvent` | `war`, `result`（A_WIN/B_WIN/OTHER_WIN/DRAW/CANCELLED）, `winnerGuildId` |
 
 `GuildEvent` 提供 `guild()` / `guildId()` / `guildName()`；`GuildWarEvent` 提供 `war()` / `warId()`。
 

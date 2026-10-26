@@ -20,7 +20,11 @@ import net.momirealms.sparrow.ui.window.AnvilWindow;
 import net.momirealms.sparrow.ui.window.NormalWindow;
 import net.momirealms.sparrow.ui.window.Window;
 import net.momirealms.sparrow.ui.window.WindowSession;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -39,7 +43,7 @@ import java.util.function.Consumer;
  * <p>Sparrow UI 已随插件打包并 relocate 到 {@code com.liu.liuguild.libs.sparrow.ui}，
  * 因此不会与其他使用 Sparrow UI 的插件冲突。若初始化或渲染失败，会自动回退到内置 GUI。</p>
  */
-public final class SparrowUiHook {
+public final class SparrowUiHook implements Listener {
 
     private final LiuGuild plugin;
     private boolean available;
@@ -59,6 +63,7 @@ public final class SparrowUiHook {
             SparrowUI.getInstance().setExceptionHandler((context, error) ->
                     plugin.getLogger().warning("Sparrow UI 异常 [" + context + "]: " + error));
             available = true;
+            Bukkit.getPluginManager().registerEvents(this, plugin);
             plugin.getLogger().info("Sparrow UI 界面引擎已启用。");
         } catch (Throwable t) {
             available = false;
@@ -272,6 +277,12 @@ public final class SparrowUiHook {
                     plugin.sync(() -> plugin.gui().dispatch(player, holder, slot,
                             click.clickType().isRightClick(), click.clickType().isShiftClick()));
                 });
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        // Window 会持有玩家引用；不主动移除会让 sessionWindows 随玩家数无限增长。
+        reset(event.getPlayer());
     }
 
     /** 插件关闭/重载时清理全部会话，避免 Window 持有 Player/Inventory 泄漏。 */

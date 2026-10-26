@@ -140,6 +140,8 @@ hooks:
 - 自动：文件 mtime 变化后自动重载。
 - 手动：`/guildadmin reload`。
 - QQ 机器人连接参数（app-id/secret/intents/push）修改后建议重启服务器，`/guildadmin reload` 不会重建 WebSocket。
+- 跨服参数（`server-id`、`cross-server.*`、`transfer.enabled`）在启动时固化到 Redis/代理连接，
+  热重载会继续使用旧连接并记录警告；修改后必须重启服务器。
 
 
 ## 工会玩法（`guild.yml`）

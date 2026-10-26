@@ -44,9 +44,15 @@ public final class ConfigManager {
     private final File configRoot;
     /** 仅用于迁移旧版本游戏内编辑文件。 */
     private final File overrideRoot;
-    private final Map<String, FileConfiguration> files = new LinkedHashMap<>();
+    /**
+     * 配置对象与 Settings 必须一起替换：异步读方若先看到新文件、再看到旧 Settings，
+     * 会得到一个半新半旧的视图。
+     */
+    private volatile Snapshot snapshot = new Snapshot(Map.of(), null);
     private final Messages messages;
-    private volatile Settings settings;
+
+    private record Snapshot(Map<String, FileConfiguration> files, Settings settings) {
+    }
 
     /** 覆盖层中的删除标记。 */
     static final String DELETED = "__liuguild_deleted__";
@@ -67,11 +73,11 @@ public final class ConfigManager {
     }
 
     public Settings settings() {
-        return settings;
+        return snapshot.settings();
     }
 
     public FileConfiguration file(String name) {
-        return files.get(name);
+        return snapshot.files().get(name);
     }
 
     // =====================================================================
@@ -101,6 +107,11 @@ public final class ConfigManager {
     // =====================================================================
 
     public void load() {
+        load(null);
+    }
+
+    /** {@code beforePublish} 在 Settings 发布前执行，用于冻结启动期固化的跨服参数。 */
+    public void load(java.util.function.Consumer<MainSettings> beforePublish) {
         boolean migrateWarehouse = !new File(configRoot, "warehouse.yml").exists()
                 && new File(configRoot, "guild.yml").exists();
         copyDefaults();
@@ -162,15 +173,25 @@ public final class ConfigManager {
         guild.warehouseRentOptions = warehouse.rentOptions;
         guild.warehouseRentPricePerDay = warehouse.rentPrice.amount();
         guild.warehouseRentMaxDays = warehouse.maxDays;
-        files.clear();
-        files.putAll(loaded);
+        // 所有可能抛异常的解析都必须在替换 files/settings 之前完成：
+        // 否则会留下“settings 是旧值、configs().file() 是新值”的分裂状态。
         BuffSettings buffs = BuffSettings.parse(loaded.get("buffs.yml"));
+        if (beforePublish != null) {
+            beforePublish.accept(main);
+        }
         Settings next = new Settings(main, guild, war, warModes, arenas, kit, gui, icons, warehouse);
         next.buffs = buffs;
-        this.settings = next;
+        // 配置对象与文件镜像同一临界区替换，读方不会看到半新半旧。
+        this.snapshot = new Snapshot(Map.copyOf(loaded), next);
 
-        messages.copyDefault();
-        messages.reload(main.language);
+        // 消息表已在 Settings 发布之后；这里失败不能反过来把已发布配置标成“失败”，
+        // 否则调用方会误以为仍在用旧配置。记录错误并保留可用的消息表。
+        try {
+            messages.copyDefault();
+            messages.reload(main.language);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("消息表重载失败（配置已生效，消息可能回退默认）: " + t.getMessage());
+        }
         com.liu.liuguild.util.Text.invalidateCache();
     }
 
@@ -518,14 +539,27 @@ public final class ConfigManager {
     // =====================================================================
 
     public long fingerprint() {
-        long max = 0;
+        // 不能只取最大 mtime：文件被删除、同名替换或秒级粗粒度文件系统上
+        // 连续两次修改都可能得到同一个 mtime。把“存在性 + 长度 + mtime”混入哈希，
+        // 既能感知删除，也能感知内容长度变化；不包含配置目录本身的 mtime，
+        // 否则同目录的数据库/日志写入会误触发配置重载。
+        long h = 1125899906842597L;
         for (String name : MODULES) {
-            max = Math.max(max, new File(configRoot, name).lastModified());
-            max = Math.max(max, new File(overrideRoot, name).lastModified());
+            h = mix(h, new File(configRoot, name));
+            h = mix(h, new File(overrideRoot, name));
         }
-        // 覆盖层目录的 mtime 会因新建/删除文件而变化，从而让其它子服也能感知删除。
-        max = Math.max(max, overrideRoot.lastModified());
-        max = Math.max(max, new File(plugin.getDataFolder(), "server.yml").lastModified());
-        return max;
+        h = mix(h, new File(plugin.getDataFolder(), "server.yml"));
+        return h;
+    }
+
+    private static long mix(long h, File file) {
+        boolean exists = file.exists();
+        long len = exists ? file.length() : 0;
+        long mtime = exists ? file.lastModified() : 0;
+        h = h * 31 + file.getName().hashCode();
+        h = h * 31 + (exists ? 1 : 2);
+        h = h * 31 + len;
+        h = h * 31 + mtime;
+        return h;
     }
 }

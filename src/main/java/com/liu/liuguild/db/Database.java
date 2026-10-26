@@ -577,6 +577,15 @@ public final class Database {
                     }
                 }
             }
+            // 老库新增 member_count 时默认 0，必须按真实成员关系回填；
+            // 否则跨服入会人数上限会按 0 计算而被绕过。
+            try (PreparedStatement ps = c.prepareStatement("UPDATE `" + t("guilds")
+                    + "` SET `member_count`=(SELECT COUNT(*) FROM `" + t("guild_members")
+                    + "` m WHERE m.`guild_id`=`" + t("guilds") + "`.`guild_id`)")) {
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                log.log(Level.WARNING, "回填 member_count 失败: " + e.getMessage());
+            }
         } catch (SQLException e) {
             log.log(Level.WARNING, "数据库结构升级检查失败: " + e.getMessage());
         }

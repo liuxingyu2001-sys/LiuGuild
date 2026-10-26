@@ -173,8 +173,8 @@ public final class GuiManager implements GuildModule, Listener {
                 meta.lore(lore);
                 item.setItemMeta(meta);
             }
-            inv.setItem(clamp(b.slot), item);
-            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
+            inv.setItem(clamp(b.slot, inv.getSize()), item);
+            holder.actions.put(clamp(b.slot, inv.getSize()), actionId(e.getKey()));
         }
         show(player, holder, inv);
     }
@@ -270,8 +270,8 @@ public final class GuiManager implements GuildModule, Listener {
                 continue;
             }
             ButtonDef b = e.getValue();
-            inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
-            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
+            inv.setItem(clamp(b.slot, inv.getSize()), GuiUtil.fromButton(player, b, ph));
+            holder.actions.put(clamp(b.slot, inv.getSize()), actionId(e.getKey()));
         }
         show(player, holder, inv);
     }
@@ -313,8 +313,8 @@ public final class GuiManager implements GuildModule, Listener {
                 continue;
             }
             ButtonDef b = e.getValue();
-            inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
-            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
+            inv.setItem(clamp(b.slot, inv.getSize()), GuiUtil.fromButton(player, b, ph));
+            holder.actions.put(clamp(b.slot, inv.getSize()), actionId(e.getKey()));
         }
         addBack(inv, holder, def, ph, player, "back:main", page, "list", guilds.size(), perPage);
         show(player, holder, inv);
@@ -341,7 +341,8 @@ public final class GuiManager implements GuildModule, Listener {
                 .filter(party -> !party.guildId().equals(g.id()))
                 .mapToInt(GuildWar.Party::score).max().orElse(0)));
         ph.put("lives", String.valueOf(plugin.war() == null ? 0 : plugin.war().lives(player.getUniqueId())));
-        ph.put("arena", plugin.war() == null ? "-" : plugin.war().arenaOf(war).id);
+        var currentArena = war == null || plugin.war() == null ? null : plugin.war().arenaOf(war);
+        ph.put("arena", currentArena == null ? "-" : currentArena.id);
         ph.put("host", war == null ? "-" : war.hostServer());
         ph.put("ranking", war == null ? "-" : war.ranking().stream()
                 .map(party -> "#" + (war.ranking().indexOf(party) + 1) + " "
@@ -384,8 +385,8 @@ public final class GuiManager implements GuildModule, Listener {
                 continue;
             }
             ButtonDef b = e.getValue();
-            inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
-            holder.actions.put(clamp(b.slot), actionId(key));
+            inv.setItem(clamp(b.slot, inv.getSize()), GuiUtil.fromButton(player, b, ph));
+            holder.actions.put(clamp(b.slot, inv.getSize()), actionId(key));
         }
         show(player, holder, inv);
     }
@@ -411,8 +412,8 @@ public final class GuiManager implements GuildModule, Listener {
         Inventory inv = create(holder, def, ph, player);
         for (Map.Entry<String, ButtonDef> e : def.buttons.entrySet()) {
             ButtonDef b = e.getValue();
-            inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
-            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
+            inv.setItem(clamp(b.slot, inv.getSize()), GuiUtil.fromButton(player, b, ph));
+            holder.actions.put(clamp(b.slot, inv.getSize()), actionId(e.getKey()));
         }
         show(player, holder, inv);
     }
@@ -449,8 +450,8 @@ public final class GuiManager implements GuildModule, Listener {
                 meta.lore(lore);
                 item.setItemMeta(meta);
             }
-            inv.setItem(clamp(b.slot), item);
-            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
+            inv.setItem(clamp(b.slot, inv.getSize()), item);
+            holder.actions.put(clamp(b.slot, inv.getSize()), actionId(e.getKey()));
         }
         show(player, holder, inv);
     }
@@ -492,8 +493,8 @@ public final class GuiManager implements GuildModule, Listener {
                 continue;
             }
             ButtonDef b = e.getValue();
-            inv.setItem(clamp(b.slot), GuiUtil.fromButton(player, b, ph));
-            holder.actions.put(clamp(b.slot), actionId(e.getKey()));
+            inv.setItem(clamp(b.slot, inv.getSize()), GuiUtil.fromButton(player, b, ph));
+            holder.actions.put(clamp(b.slot, inv.getSize()), actionId(e.getKey()));
         }
         show(player, holder, inv);
     }
@@ -1133,11 +1134,19 @@ public final class GuiManager implements GuildModule, Listener {
                     openShop(player, g);
                     return;
                 }
-                plugin.shop().updatePrices(g, l, price, 0);
-                plugin.messages().send(player, "shop-price-updated",
-                        "item", plugin.shop().itemName(l.preview()),
-                        "price", String.valueOf(price));
-                openShop(player, g);
+                plugin.shop().updatePrices(g, l, price, 0,
+                        () -> {
+                            if (!player.isOnline()) return;
+                            plugin.messages().send(player, "shop-price-updated",
+                                    "item", plugin.shop().itemName(l.preview()),
+                                    "price", String.valueOf(price));
+                            openShop(player, g);
+                        },
+                        () -> {
+                            if (!player.isOnline()) return;
+                            plugin.messages().send(player, "shop-price-failed");
+                            openShop(player, g);
+                        });
             });
             return;
         }
@@ -1233,6 +1242,9 @@ public final class GuiManager implements GuildModule, Listener {
      * 统一打开菜单：优先 Sparrow UI（支持 ESC 返回上一页），失败/禁用时回退内置库存 GUI。
      */
     public void show(Player player, Holder holder, Inventory inv) {
+        if (player == null || !player.isOnline()) {
+            return; // 异步查询返回时玩家已退出，不能继续操作库存
+        }
         com.liu.liuguild.hook.SparrowUiHook sparrow = plugin.sparrowUi();
         if (sparrow != null && sparrow.openWindow(player, holder, inv)) {
             return;
@@ -1317,10 +1329,13 @@ public final class GuiManager implements GuildModule, Listener {
             case "checkin" -> {
                 closeMenu(player);
                 plugin.guilds().checkin(player);
-                // 签到状态是同步更新的，立即重开让「今日：已签到」马上刷新
-                if (plugin.guilds().guildOf(player.getUniqueId()) != null) {
-                    openMain(player);
-                }
+                // 签到入账在异步线程完成；立即重开只会显示旧的“未签到”状态。
+                // 稍等两 tick 后再刷新，覆盖正常 DB 往返。
+                plugin.syncDelayed(() -> {
+                    if (player.isOnline() && plugin.guilds().guildOf(player.getUniqueId()) != null) {
+                        openMain(player);
+                    }
+                }, 10L);
             }
             case "funds" -> openFunds(player);
             case "funds:donate" -> donateFunds(player);
@@ -1487,6 +1502,10 @@ public final class GuiManager implements GuildModule, Listener {
                 openWar(player, require(g, player));
             }
             case "war_rejoin" -> {
+                if (!player.hasPermission("liuguild.war")) {
+                    plugin.messages().send(player, "no-permission");
+                    break;
+                }
                 closeMenu(player);
                 plugin.war().rejoin(player);
             }
@@ -1495,6 +1514,10 @@ public final class GuiManager implements GuildModule, Listener {
                 if (g != null) openWar(player, g); else openMain(player);
             }
             case "war_spectate" -> {
+                if (!player.hasPermission("liuguild.war")) {
+                    plugin.messages().send(player, "no-permission");
+                    break;
+                }
                 closeMenu(player);
                 plugin.war().spectate(player);
             }
@@ -1543,10 +1566,17 @@ public final class GuiManager implements GuildModule, Listener {
             }
             case "set:open" -> {
                 if (g != null && plugin.guilds().canManageSettings(player, g)) {
-                    g.open(!g.open());
-                    plugin.guilds().saveGuild(g);
-                    plugin.messages().send(player, "set-open", "value", g.open() ? "开放" : "邀请");
-                    openSettings(player, g);
+                    boolean open = !g.open();
+                    g.open(open);
+                    plugin.guilds().saveGuild(g, saved -> {
+                        if (!Boolean.TRUE.equals(saved)) {
+                            g.open(!open);
+                            plugin.messages().send(player, "operation-failed");
+                        } else {
+                            plugin.messages().send(player, "set-open", "value", open ? "开放" : "邀请");
+                        }
+                        if (player.isOnline()) openSettings(player, g);
+                    });
                 }
             }
             case "set:pvp" -> {
@@ -1680,17 +1710,23 @@ public final class GuiManager implements GuildModule, Listener {
                             openShop(player, shopGuild);
                             return;
                         }
-                        String err = plugin.shop().addListing(shopGuild, player, sample, amount, price, 0);
+                        String err = plugin.shop().addListing(shopGuild, player, sample, amount, price, 0,
+                                actual -> {
+                                    if (!player.isOnline()) return;
+                                    plugin.messages().send(player, "shop-listed",
+                                            "item", plugin.shop().itemName(sample),
+                                            "amount", String.valueOf(actual),
+                                            "price", String.valueOf(price));
+                                    openShop(player, shopGuild);
+                                },
+                                () -> {
+                                    if (player.isOnline()) openShop(player, shopGuild);
+                                });
                         if (err != null) {
                             plugin.messages().send(player, err,
                                     "max", String.valueOf(plugin.settings().guild.shopMaxListings));
-                        } else {
-                            plugin.messages().send(player, "shop-listed",
-                                    "item", plugin.shop().itemName(sample),
-                                    "amount", String.valueOf(amount),
-                                    "price", String.valueOf(price));
+                            openShop(player, shopGuild);
                         }
-                        openShop(player, shopGuild);
                     });
                 }
                 case "open" -> openShop(player, g);
@@ -1831,9 +1867,12 @@ public final class GuiManager implements GuildModule, Listener {
             toggleArena(player, parts[0], parts.length > 1 ? parts[1] : "auto-return");
         } else if (action.startsWith("arena_delete:")) {
             String id = action.substring("arena_delete:".length());
-            plugin.configs().remove("arena.yml", "arenas." + id);
-            plugin.reloadSettings();
-            openArenaList(player, 0);
+            confirm(player, "confirm-arena-delete", id, () -> {
+                plugin.configs().remove("arena.yml", "arenas." + id);
+                plugin.reloadSettings();
+                plugin.messages().send(player, "arena-deleted", "arena", id);
+                openArenaList(player, 0);
+            });
         } else if (action.startsWith("guild_edit:")) {
             openGuildEditor(player, action.substring("guild_edit:".length()));
         } else if (action.startsWith("guild_disband:")) {
@@ -1854,7 +1893,9 @@ public final class GuiManager implements GuildModule, Listener {
         } else if (action.startsWith("war_edit:")) {
             openWarEditor(player, action.substring("war_edit:".length()));
         } else if (action.startsWith("war_stop:")) {
-            plugin.war().forceEnd(action.substring("war_stop:".length()));
+            if (!plugin.war().forceEnd(action.substring("war_stop:".length()))) {
+                plugin.messages().send(player, "war-not-in-war");
+            }
             openWarList(player);
         } else if (action.startsWith("war_scoreinput:")) {
             String[] parts = action.substring("war_scoreinput:".length()).split(":", 2);
@@ -2011,6 +2052,9 @@ public final class GuiManager implements GuildModule, Listener {
                             "", "<yellow>点击编辑"), Map.of(), null));
             holder.actions.put(slot, "kit_edit:" + e.getKey());
             slot++;
+            if (slot >= 45) {
+                break; // 45~53 留给“新建/返回”等固定按钮，避免覆盖和越界
+            }
         }
         inv.setItem(47, GuiUtil.build(player, "ANVIL", "ANVIL", "<green>新建套装（使用当前装备）",
                 List.of("<gray>点击后输入名字"), Map.of(), null));
@@ -2111,6 +2155,10 @@ public final class GuiManager implements GuildModule, Listener {
     // ---- 竞技场编辑动作 ----
 
     private void setArenaSpawn(Player player, String arenaId, String point) {
+        if (arenaId == null || !arenaId.matches("[a-z0-9_-]{1,32}")) {
+            plugin.messages().send(player, "arena-usage");
+            return;
+        }
         String name = point.toLowerCase(java.util.Locale.ROOT);
         if (name.equals("spec")) {
             name = "spectator";
@@ -2300,8 +2348,20 @@ public final class GuiManager implements GuildModule, Listener {
         requestText(player, "guild-input", text -> {
             String value = text.trim();
             switch (key.toLowerCase(java.util.Locale.ROOT)) {
-                case "level" -> plugin.guilds().setLevel(guild, NumberUtil.toInt(value, guild.level()));
-                case "points" -> plugin.guilds().setPoints(guild, NumberUtil.toLong(value, guild.points()));
+                case "level" -> {
+                    plugin.guilds().setLevel(guild, NumberUtil.toInt(value, guild.level()), ok -> {
+                        if (!Boolean.TRUE.equals(ok)) plugin.messages().send(player, "operation-failed");
+                        if (player.isOnline()) openGuildEditor(player, guildId);
+                    });
+                    return;
+                }
+                case "points" -> {
+                    plugin.guilds().setPoints(guild, NumberUtil.toLong(value, guild.points()), ok -> {
+                        if (!Boolean.TRUE.equals(ok)) plugin.messages().send(player, "operation-failed");
+                        if (player.isOnline()) openGuildEditor(player, guildId);
+                    });
+                    return;
+                }
                 case "bank" -> plugin.guilds().changeBank(guild.id(), NumberUtil.toLong(value, guild.bank()) - guild.bank());
                 case "notice" -> plugin.guilds().setNotice(player, guild, value);
                 case "desc" -> plugin.guilds().setDescription(player, guild, value);
@@ -2493,6 +2553,11 @@ public final class GuiManager implements GuildModule, Listener {
     /** 依次放置管理按钮并登记动作。 */
     private int put(Inventory inv, Holder holder, int slot, Player viewer, String material,
                     String name, List<String> lore, String action) {
+        if (slot < 0 || slot >= inv.getSize()) {
+            // 配置把 rows 调小但按钮 slot 没改：跳过而不是抛 AIOOBE。
+            plugin.getLogger().warning("GUI 按钮槽位越界，已跳过: " + slot + " / " + inv.getSize());
+            return slot + 1;
+        }
         inv.setItem(slot, GuiUtil.build(viewer, material, material, name, lore, Map.of(), null));
         holder.actions.put(slot, action);
         return slot + 1;
@@ -2867,8 +2932,9 @@ public final class GuiManager implements GuildModule, Listener {
         return GuiPlaceholders.flatten(ph);
     }
 
-    private static int clamp(int slot) {
-        return Math.max(0, Math.min(53, slot));
+    private static int clamp(int slot, int inventorySize) {
+        // 菜单行数可配置；slot 固定按 54 夹取会在 rows 调小后越界。
+        return Math.max(0, Math.min(Math.max(0, inventorySize - 1), slot));
     }
 
     public static String actionId(String buttonId) {

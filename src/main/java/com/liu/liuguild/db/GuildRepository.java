@@ -260,34 +260,102 @@ public final class GuildRepository {
      * {@link #setMemberCount}），否则整行保存会把其它子服刚写入的等级/人数覆盖回旧值。</p>
      */
     private String guildUpdateSql() {
-        return "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,`leader_uuid`=?,`leader_name`=?,"
+        // leader/wins/losses 只能走各自的原子 UPDATE：整行保存会用本服旧快照
+        // 覆盖另一子服刚完成的转让或战果。name/tag 仍是会长唯一操作，保留整行写。
+        return "UPDATE `" + db.t("guilds") + "` SET `name`=?,`tag`=?,"
                 + "`description`=?,`notice`=?,`icon`=?,`icon_data`=?,`open`=?,`updated_at`=?,"
-                + "`wins`=?,`losses`=?,"
                 + "`home_server`=?,`last_active_at`=?,`member_pvp`=? WHERE `guild_id`=? AND `updated_at`<=?";
     }
 
     private void bindGuildUpdate(PreparedStatement ps, Guild g, long newUpdatedAt, long expectedUpdatedAt) throws SQLException {
         ps.setString(1, g.name());
         ps.setString(2, g.tag());
-        ps.setString(3, g.leaderUuid() == null ? null : g.leaderUuid().toString());
-        ps.setString(4, g.leaderName());
-        ps.setString(5, g.description());
-        ps.setString(6, g.notice());
-        ps.setString(7, g.icon());
-        ps.setString(8, g.iconData());
-        ps.setInt(9, g.open() ? 1 : 0);
-        ps.setLong(10, newUpdatedAt);
-        ps.setInt(11, g.wins());
-        ps.setInt(12, g.losses());
-        ps.setString(13, g.homeServer());
-        ps.setLong(14, g.lastActiveAt());
+        ps.setString(3, g.description());
+        ps.setString(4, g.notice());
+        ps.setString(5, g.icon());
+        ps.setString(6, g.iconData());
+        ps.setInt(7, g.open() ? 1 : 0);
+        ps.setLong(8, newUpdatedAt);
+        ps.setString(9, g.homeServer());
+        ps.setLong(10, g.lastActiveAt());
         if (g.memberPvp() == null) {
-            ps.setNull(15, java.sql.Types.INTEGER);
+            ps.setNull(11, java.sql.Types.INTEGER);
         } else {
-            ps.setInt(15, g.memberPvp() ? 1 : 0);
+            ps.setInt(11, g.memberPvp() ? 1 : 0);
         }
-        ps.setString(16, g.id());
-        ps.setLong(17, expectedUpdatedAt);
+        ps.setString(12, g.id());
+        ps.setLong(13, expectedUpdatedAt);
+    }
+
+    /** 原子记录一场工会战结果；避免整行保存覆盖其它子服刚写入的胜/负场。 */
+    public boolean addWarResult(String guildId, boolean win) throws SQLException {
+        String column = win ? "wins" : "losses";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                     + "` SET `" + column + "`=`" + column + "`+1 WHERE `guild_id`=?")) {
+            ps.setString(1, guildId);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /**
+     * 原子转让会长：工会 leader 列与两名成员的 rank 必须在同一事务里更新。
+     * 拆成多次 UPDATE 时，服务崩溃/写库失败会留下“新会长没有 LEADER 权限”或
+     * “旧会长仍是 LEADER”的分裂状态。
+     */
+    public boolean transferLeader(String guildId, UUID oldLeader, UUID newLeader, String newLeaderName)
+            throws SQLException {
+        try (Connection c = db.source().getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                int guildRows;
+                try (PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                        + "` SET `leader_uuid`=?,`leader_name`=? WHERE `guild_id`=? AND `leader_uuid`=?")) {
+                    ps.setString(1, newLeader.toString());
+                    ps.setString(2, newLeaderName);
+                    ps.setString(3, guildId);
+                    ps.setString(4, oldLeader.toString());
+                    guildRows = ps.executeUpdate();
+                }
+                int newRows;
+                try (PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_members")
+                        + "` SET `rank`='LEADER' WHERE `player_uuid`=? AND `guild_id`=?")) {
+                    ps.setString(1, newLeader.toString());
+                    ps.setString(2, guildId);
+                    newRows = ps.executeUpdate();
+                }
+                int oldRows;
+                try (PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guild_members")
+                        + "` SET `rank`='OFFICER' WHERE `player_uuid`=? AND `guild_id`=?")) {
+                    ps.setString(1, oldLeader.toString());
+                    ps.setString(2, guildId);
+                    oldRows = ps.executeUpdate();
+                }
+                if (guildRows == 0 || newRows == 0 || oldRows == 0) {
+                    c.rollback();
+                    return false;
+                }
+                c.commit();
+                return true;
+            } catch (SQLException e) {
+                try { c.rollback(); } catch (SQLException ignored) { }
+                throw e;
+            } finally {
+                c.setAutoCommit(true);
+            }
+        }
+    }
+
+    /** 原子转让会长；整行保存不再携带 leader 列。 */
+    public boolean setLeader(String guildId, UUID leaderUuid, String leaderName) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement("UPDATE `" + db.t("guilds")
+                     + "` SET `leader_uuid`=?,`leader_name`=? WHERE `guild_id`=?")) {
+            ps.setString(1, leaderUuid == null ? null : leaderUuid.toString());
+            ps.setString(2, leaderName);
+            ps.setString(3, guildId);
+            return ps.executeUpdate() > 0;
+        }
     }
 
     /**
@@ -395,8 +463,8 @@ public final class GuildRepository {
                 + "`open`,`created_at`,`updated_at`,`points`,`level`,`wins`,`losses`,`bank`,`home_server`,`member_count`,"
                 + "`last_active_at`,`member_pvp`)";
         String values = "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-        String[] updated = {"name", "tag", "leader_uuid", "leader_name", "description", "notice", "icon", "icon_data",
-                "open", "updated_at", "wins", "losses", "home_server", "last_active_at", "member_pvp"};
+        String[] updated = {"name", "tag", "description", "notice", "icon", "icon_data",
+                "open", "updated_at", "home_server", "last_active_at", "member_pvp"};
         StringBuilder tail = new StringBuilder();
         for (String col : updated) {
             if (tail.length() > 0) tail.append(',');
@@ -456,14 +524,25 @@ public final class GuildRepository {
 
         /** 条件删除成员并原子递减计数；成员关系已不属于该工会时不减计数。 */
     public boolean removeMember(UUID uuid, String guildId) throws SQLException {
+        return removeMember(uuid, guildId, Long.MAX_VALUE);
+    }
+
+    /**
+     * 只删除在这个时间点之前入会的成员关系。
+     *
+     * <p>退会后立刻重新入会时，异步删除可能晚于新插入；用 {@code joined_at}
+     * 做代际校验，旧删除不会把新成员关系删掉。</p>
+     */
+    public boolean removeMember(UUID uuid, String guildId, long joinedBefore) throws SQLException {
         try (Connection c = db.source().getConnection()) {
             c.setAutoCommit(false);
             try {
                 int removed;
                 try (PreparedStatement ps = c.prepareStatement("DELETE FROM `" + db.t("guild_members")
-                        + "` WHERE `player_uuid`=? AND `guild_id`=?")) {
+                        + "` WHERE `player_uuid`=? AND `guild_id`=? AND `joined_at`<=?")) {
                     ps.setString(1, uuid.toString());
                     ps.setString(2, guildId);
+                    ps.setLong(3, joinedBefore);
                     removed = ps.executeUpdate();
                 }
                 if (removed == 0) {
@@ -1398,63 +1477,57 @@ public final class GuildRepository {
     // 工会战装备托管快照（guild_war_escrow）
     // =====================================================================
 
-    public void saveWarEscrow(com.liu.liuguild.war.KitService.PersistedEscrow e) throws SQLException {
-        String update = "UPDATE `" + db.t("guild_war_escrow") + "` SET "
-                + "`server_id`=?,`war_id`=?,`sparrow_snapshot_id`=?,`items_data`=?,"
-                + "`world_name`=?,`x`=?,`y`=?,`z`=?,`yaw`=?,`pitch`=?,"
-                + "`game_mode`=?,`health`=?,`food`=?,`exp_level`=?,`exp_progress`=?,`created_at`=? "
-                + "WHERE `player_uuid`=?";
-        try (Connection c = db.source().getConnection()) {
-            try (PreparedStatement ps = c.prepareStatement(update)) {
-                ps.setString(1, e.serverId());
-                ps.setString(2, e.warId());
-                ps.setString(3, e.sparrowSnapshotId() == null ? null : e.sparrowSnapshotId().toString());
-                ps.setString(4, e.itemsData());
-                ps.setString(5, e.worldName());
-                ps.setDouble(6, e.x());
-                ps.setDouble(7, e.y());
-                ps.setDouble(8, e.z());
-                ps.setFloat(9, e.yaw());
-                ps.setFloat(10, e.pitch());
-                ps.setString(11, e.gameMode());
-                ps.setDouble(12, e.health());
-                ps.setInt(13, e.food());
-                ps.setInt(14, e.level());
-                ps.setFloat(15, e.exp());
-                ps.setLong(16, e.createdAt());
-                ps.setString(17, e.playerUuid().toString());
-                if (ps.executeUpdate() > 0) {
-                    return;
+    /**
+     * 写入装备托管快照；已存在同一玩家的记录时返回 {@code false}，绝不覆盖。
+     *
+     * <p>旧实现先 UPDATE 再 INSERT，会静默覆盖上一场遗留的托管快照。若上一场
+     * 崩溃后快照尚未恢复，覆盖就等于把玩家原装备永久抹掉。调用方必须把
+     * {@code false} 当成“存在未恢复快照”，拒绝入场并走恢复流程。</p>
+     */
+    public boolean saveWarEscrow(com.liu.liuguild.war.KitService.PersistedEscrow e) throws SQLException {
+        String sql = "INSERT INTO `" + db.t("guild_war_escrow") + "` ("
+                + "`player_uuid`,`server_id`,`war_id`,`sparrow_snapshot_id`,`items_data`,"
+                + "`world_name`,`x`,`y`,`z`,`yaw`,`pitch`,"
+                + "`game_mode`,`health`,`food`,`exp_level`,`exp_progress`,`created_at`"
+                + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, e.playerUuid().toString());
+            ps.setString(2, e.serverId());
+            ps.setString(3, e.warId());
+            ps.setString(4, e.sparrowSnapshotId() == null ? null : e.sparrowSnapshotId().toString());
+            ps.setString(5, e.itemsData());
+            ps.setString(6, e.worldName());
+            ps.setDouble(7, e.x());
+            ps.setDouble(8, e.y());
+            ps.setDouble(9, e.z());
+            ps.setFloat(10, e.yaw());
+            ps.setFloat(11, e.pitch());
+            ps.setString(12, e.gameMode());
+            ps.setDouble(13, e.health());
+            ps.setInt(14, e.food());
+            ps.setInt(15, e.level());
+            ps.setFloat(16, e.exp());
+            ps.setLong(17, e.createdAt());
+            try {
+                return ps.executeUpdate() > 0;
+            } catch (SQLException duplicate) {
+                // 主键冲突：已有未恢复快照。不能用 ON DUPLICATE KEY UPDATE，
+                // MySQL Connector/J 默认返回“匹配行数”，会把重复误判成成功。
+                String state = duplicate.getSQLState();
+                String message = duplicate.getMessage() == null ? ""
+                        : duplicate.getMessage().toLowerCase(java.util.Locale.ROOT);
+                if ((state != null && state.startsWith("23"))
+                        || message.contains("unique constraint")
+                        || message.contains("duplicate entry")) {
+                    return false;
                 }
-            }
-            String insert = "INSERT INTO `" + db.t("guild_war_escrow") + "` ("
-                    + "`player_uuid`,`server_id`,`war_id`,`sparrow_snapshot_id`,`items_data`,"
-                    + "`world_name`,`x`,`y`,`z`,`yaw`,`pitch`,"
-                    + "`game_mode`,`health`,`food`,`exp_level`,`exp_progress`,`created_at`"
-                    + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-            try (PreparedStatement ps = c.prepareStatement(insert)) {
-                ps.setString(1, e.playerUuid().toString());
-                ps.setString(2, e.serverId());
-                ps.setString(3, e.warId());
-                ps.setString(4, e.sparrowSnapshotId() == null ? null : e.sparrowSnapshotId().toString());
-                ps.setString(5, e.itemsData());
-                ps.setString(6, e.worldName());
-                ps.setDouble(7, e.x());
-                ps.setDouble(8, e.y());
-                ps.setDouble(9, e.z());
-                ps.setFloat(10, e.yaw());
-                ps.setFloat(11, e.pitch());
-                ps.setString(12, e.gameMode());
-                ps.setDouble(13, e.health());
-                ps.setInt(14, e.food());
-                ps.setInt(15, e.level());
-                ps.setFloat(16, e.exp());
-                ps.setLong(17, e.createdAt());
-                ps.executeUpdate();
+                throw duplicate;
             }
         }
     }
 
+    /** Sparrow 快照采集是异步完成的，采集成功后补写 id（不改变托管内容）。 */
     public void updateWarEscrowSparrowId(UUID playerUuid, UUID sparrowSnapshotId) throws SQLException {
         String sql = "UPDATE `" + db.t("guild_war_escrow")
                 + "` SET `sparrow_snapshot_id`=? WHERE `player_uuid`=?";
@@ -1485,6 +1558,22 @@ public final class GuildRepository {
              PreparedStatement ps = c.prepareStatement(
                      "DELETE FROM `" + db.t("guild_war_escrow") + "` WHERE `player_uuid`=?")) {
             ps.setString(1, playerUuid.toString());
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * 只删除“本次入场写入”的托管记录。异步清理前玩家可能已经重新入场并写入新记录；
+     * 无条件按玩家删除会误删新快照，造成真正的装备丢失。
+     */
+    public void deleteWarEscrow(UUID playerUuid, String warId, long createdAt) throws SQLException {
+        try (Connection c = db.source().getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "DELETE FROM `" + db.t("guild_war_escrow")
+                             + "` WHERE `player_uuid`=? AND `war_id`=? AND `created_at`=?")) {
+            ps.setString(1, playerUuid.toString());
+            ps.setString(2, warId);
+            ps.setLong(3, createdAt);
             ps.executeUpdate();
         }
     }

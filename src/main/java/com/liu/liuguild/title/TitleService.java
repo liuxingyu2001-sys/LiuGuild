@@ -349,9 +349,11 @@ public final class TitleService implements GuildModule {
 
     /** 工会解散：清空该工会的头衔与装备记录。 */
     public void onGuildDisbanded(String guildId) {
+        // 只清被解散工会的玩家。原先 g == null 也会命中，导致一次解散把所有
+        // 无工会玩家的称号从内存缓存里清掉。
         equipped.keySet().removeIf(u -> {
             Guild g = plugin.guilds().guildOf(u);
-            return g == null || g.id().equals(guildId);
+            return g != null && g.id().equals(guildId);
         });
         plugin.async(() -> {
             try {

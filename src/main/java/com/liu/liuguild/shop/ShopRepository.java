@@ -288,6 +288,8 @@ public final class ShopRepository {
             } catch (SQLException e) {
                 c.rollback();
                 throw e;
+            } finally {
+                c.setAutoCommit(true);
             }
         }
     }

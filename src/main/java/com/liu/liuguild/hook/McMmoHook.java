@@ -38,9 +38,6 @@ public final class McMmoHook implements Listener {
         if (dependency == null || !dependency.isEnabled()) {
             return;
         }
-        if (!plugin.settings().main.mcmmoBlockInWar) {
-            return;
-        }
         abilityEvent = eventClass(dependency,
                 "com.gmail.nossr50.events.skills.abilities.McMMOPlayerAbilityActivateEvent");
         notificationEvent = eventClass(dependency,
@@ -56,7 +53,7 @@ public final class McMmoHook implements Listener {
         if (notificationEvent != null) {
             registerEvent(notificationEvent, this::suppressNotification);
         }
-        plugin.getLogger().info("mcMMO 兼容已启用：工会战期间完全屏蔽技能与全部提示");
+        plugin.getLogger().info("mcMMO 兼容已注册：工会战期间按 hooks.mcmmo.block-in-war 屏蔽技能与全部提示");
     }
 
     public boolean available() {
@@ -95,7 +92,9 @@ public final class McMmoHook implements Listener {
     }
 
     private boolean inWar(Player player) {
-        return plugin.war() != null && plugin.war().isWarRestricted(player.getUniqueId());
+        return plugin.settings().main.mcmmoBlockInWar
+                && plugin.war() != null
+                && plugin.war().isWarRestricted(player.getUniqueId());
     }
 
     private Player playerOf(Event event) {

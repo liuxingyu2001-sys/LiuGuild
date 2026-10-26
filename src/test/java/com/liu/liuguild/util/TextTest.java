@@ -165,4 +165,12 @@ class TextTest {
         }
         return false;
     }
+
+    @Test
+    void malformedMiniMessageNeverThrowsAndStaysLiteral() {
+        // MiniMessage 会把未闭合/未知标签当普通文本；sanitize 必须转义而不是抛异常。
+        assertEquals("\\<red", Text.sanitizeToMini("<red"));
+        assertEquals("价格\\<100", Text.sanitizeToMini("价格<100"));
+        assertTrue(Text.isValidMini("<red>ok</red>"));
+    }
 }

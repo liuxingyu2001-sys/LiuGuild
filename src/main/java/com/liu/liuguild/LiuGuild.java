@@ -102,6 +102,7 @@ public final class LiuGuild extends JavaPlugin {
     private BukkitTask configWatchTask;
     private BukkitTask presenceTask;
     private BukkitTask cleanupTask;
+    private BukkitTask retentionTask;
     private volatile long configFingerprint;
     /** 关服中：Bukkit 调度器已拒绝新任务，异步收尾改走自建线程。 */
     private volatile boolean shuttingDown;
@@ -146,7 +147,8 @@ public final class LiuGuild extends JavaPlugin {
 
         // 软依赖钩子（缺失自动降级）。对直接引用第三方类的钩子先做插件存在性判断，
         // 避免在缺少依赖时触发类初始化失败（虽然 safe() 能兜住，但会多一轮异常且无日志）。
-        economy = hasPlugin("Vault") ? safe(EconomyHook::new) : null;
+        // Vault 是软依赖：始终构造降级实例，避免 economy() 返回 null 让所有经济调用点 NPE。
+        economy = new EconomyHook();
         pass = safe(() -> new PassHook(this));
         craftEngine = safe(CraftEngineHook::new);
         dungeon = hasPlugin("liudungeon") ? safe(() -> new DungeonHook(this)) : null;
@@ -245,11 +247,16 @@ public final class LiuGuild extends JavaPlugin {
         if (packetEvents != null) packetEvents.close();
         if (sparrowUi != null) sparrowUi.clearSessions();
         if (luckPerms != null) luckPerms.unregister();
-        if (modules != null) {
-            modules.disableAll();
+        // 先释放仓库跨服锁（此时 Redis 还活着），再停跨服总线、拆模块。
+        // 反过来会在 disable 期间对已关闭的 Redis 连接发请求，或把锁留到 TTL 超时。
+        if (warehouse != null) {
+            warehouse.lock().releaseAll();
         }
         if (bus != null) {
             bus.shutdown();
+        }
+        if (modules != null) {
+            modules.disableAll();
         }
         if (heartbeatTask != null) {
             heartbeatTask.cancel();
@@ -262,6 +269,9 @@ public final class LiuGuild extends JavaPlugin {
         }
         if (cleanupTask != null) {
             cleanupTask.cancel();
+        }
+        if (retentionTask != null) {
+            retentionTask.cancel();
         }
         // 关服收尾线程里的删除只依赖数据库：必须在关池前排队完成。
         drainTeardown(5000L);
@@ -290,6 +300,10 @@ public final class LiuGuild extends JavaPlugin {
             cleanupTask = getServer().getScheduler().runTaskTimer(this,
                     () -> guilds.autoCleanup(), ticks, ticks);
         }
+        // 历史表清理不能依赖 cleanup.enabled：默认关闭时邮件/审计/申请/战报会无限增长。
+        long retentionTicks = 20L * 3600L * 6L; // 6 小时
+        retentionTask = getServer().getScheduler().runTaskTimer(this,
+                () -> guilds.purgeHistoryAsync(), 20L * 60L, retentionTicks);
         if (settings().main.autoReload) {
             configWatchTask = getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
                 long fp = configManager.fingerprint();
@@ -319,8 +333,30 @@ public final class LiuGuild extends JavaPlugin {
         if (configManager == null || shuttingDown) {
             return;
         }
-        configManager.load();
+        com.liu.liuguild.config.MainSettings oldMain = settings().main;
+        boolean[] crossFrozen = {false};
+        try {
+            configManager.load(parsed -> {
+                if (oldMain == null || !crossServerConfigChanged(parsed, oldMain)) {
+                    return;
+                }
+                // RedisBridge/ServerTransfer/CrossServerBus 在启动时固化了连接参数，
+                // 热改 host/channel/server-id 不会生效，反而让新配置与老连接撕裂。
+                // 在 Settings 发布前冻结回旧值，读方永远看不到撕裂的中间态。
+                keepCrossServerConfig(parsed, oldMain);
+                crossFrozen[0] = true;
+            });
+        } catch (Throwable t) {
+            // 解析失败时配置管理层保持旧 Settings/files；必须记录指纹，
+            // 否则异步 watcher 每 5 秒重试一次并刷屏，旧任务也一直不重建。
+            configFingerprint = configManager.fingerprint();
+            getLogger().severe("配置重载失败，继续使用上一份有效配置: " + t.getMessage());
+            return;
+        }
         configFingerprint = configManager.fingerprint();
+        if (crossFrozen[0]) {
+            getLogger().warning("跨服连接参数（server-id/Redis/代理传送）已变更：本次热重载继续使用旧连接，需重启服务器才能生效。");
+        }
         if (kits != null) {
             kits.preload();
         }
@@ -330,8 +366,37 @@ public final class LiuGuild extends JavaPlugin {
         // 按新配置重建全局任务，避免清理开关和间隔继续沿用旧值。
         if (presenceTask != null) { presenceTask.cancel(); presenceTask = null; }
         if (cleanupTask != null) { cleanupTask.cancel(); cleanupTask = null; }
+        if (retentionTask != null) { retentionTask.cancel(); retentionTask = null; }
         if (configWatchTask != null) { configWatchTask.cancel(); configWatchTask = null; }
         startTasks();
+    }
+
+    private static boolean crossServerConfigChanged(com.liu.liuguild.config.MainSettings a,
+                                                    com.liu.liuguild.config.MainSettings b) {
+        return !java.util.Objects.equals(a.serverId, b.serverId)
+                || a.crossServerEnabled != b.crossServerEnabled
+                || !java.util.Objects.equals(a.redisHost, b.redisHost)
+                || a.redisPort != b.redisPort
+                || !java.util.Objects.equals(a.redisPassword, b.redisPassword)
+                || a.redisDatabase != b.redisDatabase
+                || a.redisPoolSize != b.redisPoolSize
+                || a.redisTimeoutMs != b.redisTimeoutMs
+                || !java.util.Objects.equals(a.redisChannel, b.redisChannel)
+                || a.transferEnabled != b.transferEnabled;
+    }
+
+    private static void keepCrossServerConfig(com.liu.liuguild.config.MainSettings target,
+                                              com.liu.liuguild.config.MainSettings source) {
+        target.serverId = source.serverId;
+        target.crossServerEnabled = source.crossServerEnabled;
+        target.redisHost = source.redisHost;
+        target.redisPort = source.redisPort;
+        target.redisPassword = source.redisPassword;
+        target.redisDatabase = source.redisDatabase;
+        target.redisPoolSize = source.redisPoolSize;
+        target.redisTimeoutMs = source.redisTimeoutMs;
+        target.redisChannel = source.redisChannel;
+        target.transferEnabled = source.transferEnabled;
     }
 
     // =====================================================================
@@ -631,11 +696,10 @@ public final class LiuGuild extends JavaPlugin {
         try {
             teardown().execute(task);
         } catch (java.util.concurrent.RejectedExecutionException e) {
-            // 收尾线程已关闭（插件已完全卸载）：尽力执行，异常由任务自身兜住。
-            try {
-                task.run();
-            } catch (Throwable ignored) {
-            }
+            // 收尾线程已关闭（插件已完全卸载）：绝不回退到调用线程执行。
+            // 这些任务通常是 JDBC 写入，而连接池此时已经关闭，内联执行只会在
+            // 主线程抛异常并可能拖住关服。数据已由 saveAllSync 兜底。
+            getLogger().fine("关服收尾线程已关闭，丢弃收尾任务");
         }
     }
 
@@ -805,7 +869,7 @@ public final class LiuGuild extends JavaPlugin {
                 + " &7赛事: &f" + s.war.modes.keySet());
         String hostedIds = war.localWars().isEmpty() ? "无"
                 : war.localWars().stream()
-                .map(w -> w.id() + "@" + war.arenaOf(w).id)
+                .map(w -> w.id() + "@" + (war.arenaOf(w) == null ? "-" : war.arenaOf(w).id))
                 .collect(java.util.stream.Collectors.joining(","));
         out.add("&7匹配队列: &f" + war.queueSize() + " &7进行中: &f" + war.liveWars().size()
                 + " &7本服承办: &f" + hostedIds

@@ -24,7 +24,7 @@ import java.util.*;
 public final class BuffService implements GuildModule, Listener {
     private final LiuGuild plugin;
     private final BuffRepository repo;
-    private Map<String, Map<String, Long>> active = Map.of();
+    private volatile Map<String, Map<String, Long>> active = Map.of();
     /** 配置里 effect 名 -> 已解析的效果类型（reload 时重建，避免每 tick 查 Registry）。 */
     private volatile Map<String, PotionEffectType> effectTypes = Map.of();
     /** 工会 -> 生效中的效果（refresh 时重建，apply 只做只读遍历）。 */
@@ -42,6 +42,11 @@ public final class BuffService implements GuildModule, Listener {
     public String id() { return "buffs"; }
     public int order() { return 61; }
     public void enable(LiuGuild plugin) {
+        // enable 可能被模块热重载重复调用；不幂等会留下多套 1 秒/10 秒任务。
+        if (running) {
+            reload();
+            return;
+        }
         running = true;
         Bukkit.getPluginManager().registerEvents(this, plugin);
         reload();
@@ -96,11 +101,12 @@ public final class BuffService implements GuildModule, Listener {
     }
     public void disable() {
         running = false;
-        if (task != null) task.cancel();
-        if (refreshTask != null) refreshTask.cancel();
+        refreshing = false;
+        if (task != null) { task.cancel(); task = null; }
+        if (refreshTask != null) { refreshTask.cancel(); refreshTask = null; }
         // Bukkit cancels remaining plugin tasks on disable.
         for (Player p : Bukkit.getOnlinePlayers()) suspend(p);
-        active = Map.of(); buying.clear(); xpRemainder.clear();
+        active = Map.of(); activeEffects = Map.of(); buying.clear(); xpRemainder.clear();
     }
     public void onCrossServer(String type, Map<String, String> data) {
         if ("GUILD_BUFFS".equals(type)) plugin.sync(this::refresh);

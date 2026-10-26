@@ -234,6 +234,19 @@ public final class Text {
         return s.replace("\\", "\\\\").replace("<", "\\<");
     }
 
+    /** 文本能否被 MiniMessage 解析；用于写入侧校验，避免畸形格式入库后炸掉渲染。 */
+    public static boolean isValidMini(String s) {
+        if (s == null || s.isEmpty()) {
+            return true;
+        }
+        try {
+            mm(s);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /**
      * 校验玩家自定义文本：保留颜色与装饰格式，但清除点击/悬浮/插入等交互事件，
      * 返回可安全交给 {@link #fmtRich} 的 MiniMessage 字符串。
@@ -242,7 +255,13 @@ public final class Text {
         if (s == null || s.isEmpty()) {
             return "";
         }
-        return MM.serialize(stripEvents(mm(s)));
+        try {
+            return MM.serialize(stripEvents(mm(s)));
+        } catch (Throwable t) {
+            // 玩家输入的公告/简介可能包含畸形 MiniMessage（如 "<red" 或未知标签）。
+            // 这里必须降级为纯文本，否则一个工会的公告会让该会所有成员的 GUI 打不开。
+            return esc(s);
+        }
     }
 
     private static Component stripEvents(Component component) {

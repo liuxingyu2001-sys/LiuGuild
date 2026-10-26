@@ -57,3 +57,5 @@ guild:
 - 触发 `GuildDisbandEvent`，`cause` 为 `INACTIVE`，便于其它插件监听。
 - `broadcast: true` 时按解散广播提示；`false` 时静默删除。
 - 自动清理任务在关闭插件时会一并取消。
+- 战报/奖励/邮件/申请/审计等历史数据由独立的保留任务每 6 小时清理（多服用 Redis 抢锁），
+  不受本页 `cleanup.enabled` 影响。

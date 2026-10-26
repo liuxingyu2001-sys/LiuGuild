@@ -425,7 +425,9 @@ public final class WarManager implements GuildModule {
     public void reload() {
         // 配置热重载只重启定时任务，不结算、不取消正在进行的工会战，也不做崩溃恢复。
         cancelTasks();
-        if (conf().enabled) {
+        // 关闭 war.enabled 不能停掉进行中比赛的推进任务，否则场次会永久卡在
+        // 战斗中：没有倒计时、没有结算、没有返程。已有场次时继续 tick，直到收尾。
+        if (conf().enabled || !sessions.isEmpty()) {
             scheduleTasks();
         }
     }
@@ -1775,7 +1777,23 @@ public final class WarManager implements GuildModule {
                 WarSession session = w == null ? null : session(w);
                 if (session != null && !session.acceptClosed) {
                     try {
-                        session.accepted.add(UUID.fromString(data.get("player")));
+                        UUID uuid = UUID.fromString(data.get("player"));
+                        if (!session.rejected.contains(uuid)) {
+                            session.accepted.add(uuid);
+                        }
+                    } catch (RuntimeException ignored) {
+                    }
+                }
+            }
+            case "WAR_ACCEPT_REJECT" -> {
+                String warId = data.get("war");
+                GuildWar w = warId == null ? null : observed.get(warId);
+                WarSession session = w == null ? null : session(w);
+                if (session != null && !session.acceptClosed) {
+                    try {
+                        UUID uuid = UUID.fromString(data.get("player"));
+                        session.accepted.remove(uuid);
+                        session.rejected.add(uuid);
                     } catch (RuntimeException ignored) {
                     }
                 }
@@ -2256,6 +2274,7 @@ public final class WarManager implements GuildModule {
                 plugin.messages().send(player, "war-join-locked");
                 return;
             }
+            session.rejected.remove(player.getUniqueId());
             session.accepted.add(player.getUniqueId());
             plugin.messages().send(player, "war-accept-ok");
             return;
@@ -2600,13 +2619,45 @@ public final class WarManager implements GuildModule {
                             plugin.messages().send(p, "war-transfer-failed");
                         }
                     }
+                    // 批量写标记可能部分成功：全部清掉，避免残留 180 秒。
+                    plugin.async(() -> {
+                        for (UUID uuid : markers.keySet()) {
+                            plugin.bus().deletePendingWar(uuid);
+                        }
+                    });
                     return;
                 }
+                List<UUID> failed = new ArrayList<>();
                 for (Player p : players) {
                     if (p != null && p.isOnline() && !plugin.bus().transfer().connect(p, host)) {
                         plugin.messages().send(p, "war-transfer-failed");
+                        failed.add(p.getUniqueId());
                     }
                 }
+                if (!failed.isEmpty()) {
+                    plugin.async(() -> {
+                        for (UUID uuid : failed) {
+                            plugin.bus().deletePendingWar(uuid);
+                        }
+                    });
+                }
+                // 代理已受理但迟迟没有切服：30 秒后仍在原服的玩家，清掉标记，
+                // 避免标记存活 180 秒导致之后正常进承办服被拉进战局。
+                plugin.syncDelayed(() -> {
+                    List<UUID> stale = new ArrayList<>();
+                    for (Player p : players) {
+                        if (p != null && p.isOnline()) {
+                            stale.add(p.getUniqueId());
+                        }
+                    }
+                    if (!stale.isEmpty()) {
+                        plugin.async(() -> {
+                            for (UUID uuid : stale) {
+                                plugin.bus().deletePendingWar(uuid);
+                            }
+                        });
+                    }
+                }, 600L);
             });
         });
     }
@@ -2651,7 +2702,15 @@ public final class WarManager implements GuildModule {
                 }
                 if (!plugin.bus().transfer().connect(player, host)) {
                     plugin.messages().send(player, "war-transfer-failed");
+                    plugin.async(() -> plugin.bus().deletePendingWar(uuid));
+                    return;
                 }
+                // 代理受理后超时未切服：清掉待入场标记，防止正常进服被误拉入战局。
+                plugin.syncDelayed(() -> {
+                    if (player.isOnline()) {
+                        plugin.async(() -> plugin.bus().deletePendingWar(uuid));
+                    }
+                }, 600L);
             });
         });
     }
@@ -3498,10 +3557,19 @@ public final class WarManager implements GuildModule {
             cleanup(war, true);
             return;
         }
-        GuildWarEndEvent.Result result = winner == null || winner.isEmpty()
-                ? GuildWarEndEvent.Result.DRAW
-                : (winner.equals(war.guildB()) ? GuildWarEndEvent.Result.B_WIN : GuildWarEndEvent.Result.A_WIN);
-        Bukkit.getPluginManager().callEvent(new GuildWarEndEvent(war, result));
+        String winnerId = winner == null ? "" : winner;
+        GuildWarEndEvent.Result result;
+        if (winnerId.isBlank()) {
+            result = GuildWarEndEvent.Result.DRAW;
+        } else if (winnerId.equals(war.guildA())) {
+            result = GuildWarEndEvent.Result.A_WIN;
+        } else if (winnerId.equals(war.guildB())) {
+            result = GuildWarEndEvent.Result.B_WIN;
+        } else {
+            // N 公会混战：冠军可能是 C/D…，不能误报成 A 胜。
+            result = GuildWarEndEvent.Result.OTHER_WIN;
+        }
+        Bukkit.getPluginManager().callEvent(new GuildWarEndEvent(war, result, winnerId));
         if (winner == null || winner.isEmpty()) {
             broadcastWar(war, plugin.messages().component("war-draw",
                     "score_a", war.scoreA(), "score_b", war.scoreB()));
@@ -3763,10 +3831,7 @@ public final class WarManager implements GuildModule {
         }
         clearWarBar(war);
         broadcastWar(war, plugin.messages().component(reasonKey));
-        try {
-            plugin.repo().updateWar(war);
-        } catch (Exception ignored) {
-        }
+        // 状态由 cleanup 的异步写入落库；这里不能再主线程同步写库。
         cleanup(war);
     }
 
@@ -3955,6 +4020,23 @@ public final class WarManager implements GuildModule {
     public void reject(Player player) {
         if (player == null) {
             return;
+        }
+        Guild guild = plugin.guilds().guildOf(player.getUniqueId());
+        GuildWar war = guild == null ? null : warOf(guild.id());
+        WarSession session = war == null ? null : session(war);
+        if (session != null) {
+            // 拒绝必须撤销之前的接受：否则接受窗口结束时仍会把玩家传送进场。
+            session.accepted.remove(player.getUniqueId());
+            session.rejected.add(player.getUniqueId());
+            if (plugin.bus() != null && plugin.bus().isReady() && !isHostServer(war.hostServer())) {
+                plugin.publishAsync("WAR_ACCEPT_REJECT", CrossServerBus.map(
+                        "war", war.id(), "host", war.hostServer(), "server", plugin.serverId(),
+                        "player", player.getUniqueId().toString()));
+            }
+        } else if (war != null && plugin.bus() != null && plugin.bus().isReady()) {
+            plugin.publishAsync("WAR_ACCEPT_REJECT", CrossServerBus.map(
+                    "war", war.id(), "host", war.hostServer(), "server", plugin.serverId(),
+                    "player", player.getUniqueId().toString()));
         }
         plugin.messages().send(player, "war-accept-rejected");
     }
@@ -4849,18 +4931,7 @@ public final class WarManager implements GuildModule {
         // 因为入场本身就会改写游戏模式/坐标，崩溃/重启后必须能兜底还原。
         String itemsData = plugin.kits().encodeSnapshotItems(snap);
         if (itemsData == null || itemsData.isBlank()) {
-            capturing.remove(uuid);
-            localSnap.remove(uuid, snap);
-            sideOf.remove(uuid);
-            spectators.remove(uuid);
-            returnLoc.remove(uuid);
-            livesRemaining.remove(uuid);
-            if (war != null) {
-                war.removePlayer(uuid);
-                playerWars.remove(uuid, war);
-                statWar.remove(uuid, war);
-                spectatorWar.remove(uuid);
-            }
+            abortEntry(uuid, player, war, snap, "war-escrow-unavailable");
             plugin.getLogger().warning("工会战快照编码失败，拒绝入场: " + uuid);
             return;
         }
@@ -4884,22 +4955,22 @@ public final class WarManager implements GuildModule {
                 snap.exp(),
                 System.currentTimeMillis());
         plugin.async(() -> {
+            boolean saved;
             try {
-                plugin.repo().saveWarEscrow(escrow);
+                saved = plugin.repo().saveWarEscrow(escrow);
             } catch (Exception e) {
                 plugin.getLogger().warning("保存工会战装备托管快照失败(" + playerName + "): " + e.getMessage());
+                plugin.sync(() -> abortEntry(uuid, player, war, snap, "war-escrow-unavailable"));
+                return;
+            }
+            if (!saved) {
+                // 上一场崩溃遗留的托管快照还没恢复。此时覆盖会永久丢失原装备，
+                // 因此拒绝本次入场，并立即触发恢复流程。
+                plugin.getLogger().warning("检测到未恢复的工会战装备托管快照，拒绝入场: " + uuid);
                 plugin.sync(() -> {
-                    capturing.remove(uuid);
-                    localSnap.remove(uuid, snap);
-                    sideOf.remove(uuid);
-                    spectators.remove(uuid);
-                    returnLoc.remove(uuid);
-                    livesRemaining.remove(uuid);
-                    if (war != null) {
-                        war.removePlayer(uuid);
-                        playerWars.remove(uuid, war);
-                        statWar.remove(uuid, war);
-                        spectatorWar.remove(uuid);
+                    abortEntry(uuid, player, war, snap, "war-escrow-pending");
+                    if (player.isOnline()) {
+                        recoverPendingEscrow(player);
                     }
                 });
                 return;
@@ -4907,10 +4978,50 @@ public final class WarManager implements GuildModule {
             plugin.sync(() -> {
                 capturing.remove(uuid);
                 if (!player.isOnline() || localSnap.get(uuid) != snap || session(war) == null
-                        || !war.state().isLive()) return;
+                        || !war.state().isLive()) {
+                    // 托管已落库但套装还没发放：删除入库记录并清掉本场临时状态，
+                    // 不能把一条“入场前背包快照”留给下次登录去覆盖玩家背包。
+                    plugin.async(() -> {
+                        try {
+                            plugin.repo().deleteWarEscrow(uuid, war.id(), escrow.createdAt());
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("清理未生效的工会战托管失败: " + e.getMessage());
+                        }
+                    });
+                    abortEntry(uuid, player, war, snap, null);
+                    return;
+                }
                 completeCapture(player, afterCaptured);
             });
         });
+    }
+
+    /** 入场前置步骤失败：清理本场临时状态并通知玩家，不触碰尚未替换的背包。 */
+    private void abortEntry(UUID uuid, Player player, GuildWar war, KitService.Snapshot snap, String messageKey) {
+        if (uuid == null) {
+            return;
+        }
+        capturing.remove(uuid);
+        localSnap.remove(uuid, snap);
+        sideOf.remove(uuid);
+        spectators.remove(uuid);
+        returnLoc.remove(uuid);
+        livesRemaining.remove(uuid);
+        // 入场前已经写入统计/出发地；取消入场必须一并清掉，避免结算/统计残留幽灵。
+        statSide.remove(uuid);
+        statJoinedAt.remove(uuid);
+        statLeftAt.remove(uuid);
+        statOfflineMillis.remove(uuid);
+        originOf.remove(uuid);
+        if (war != null) {
+            war.removePlayer(uuid);
+            playerWars.remove(uuid, war);
+            statWar.remove(uuid, war);
+            spectatorWar.remove(uuid);
+        }
+        if (player != null && player.isOnline() && messageKey != null && !messageKey.isBlank()) {
+            plugin.messages().send(player, messageKey);
+        }
     }
 
     private void completeCapture(Player player, Runnable afterCaptured) {
@@ -5853,6 +5964,8 @@ public final class WarManager implements GuildModule {
         long acceptUntil;
         boolean acceptClosed;
         final java.util.Set<UUID> accepted = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        /** 明确拒绝过的玩家；防止跨服 WAR_ACCEPT 迟到后又把拒绝者加回 accepted。 */
+        final java.util.Set<UUID> rejected = java.util.concurrent.ConcurrentHashMap.newKeySet();
         long prepareStartedAt;
         long lastBroadcastSecond = -1;
         boolean settling;

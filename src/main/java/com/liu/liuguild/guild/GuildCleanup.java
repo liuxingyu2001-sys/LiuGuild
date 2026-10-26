@@ -79,7 +79,34 @@ final class GuildCleanup {
         return count;
     }
 
-        /** 自动清理入口（只能在主线程调用）；未启用或无命中时返回空列表。 */
+    /**
+     * 历史数据保留窗口（战报 1 年、已发放奖励 90 天、邮件/申请/审计定期清理）。
+     * 即使关闭“清理不活跃工会”，也必须周期性执行，否则这些表会无限增长。
+     */
+    void purgeHistory() {
+        long nowMs = System.currentTimeMillis();
+        try {
+            plugin.repo().purgeWarsBefore(nowMs - 365L * 24L * 3600L * 1000L);
+            plugin.repo().purgeWarRewardsBefore(nowMs - 90L * 24L * 3600L * 1000L);
+            plugin.repo().purgeWarOriginsBefore(nowMs - 7L * 24L * 3600L * 1000L);
+            if (plugin.audit() != null) {
+                plugin.audit().purgeAsync(nowMs - 180L * 24L * 3600L * 1000L);
+            }
+            if (plugin.war() != null) {
+                plugin.war().purgeStatsAsync(nowMs - 365L * 24L * 3600L * 1000L);
+            }
+            if (plugin.mail() != null) {
+                plugin.mail().purgeAsync();
+            }
+            if (plugin.applications() != null) {
+                plugin.applications().purgeAsync(nowMs - 90L * 24L * 3600L * 1000L);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("清理历史数据失败: " + e.getMessage());
+        }
+    }
+
+    /** 自动清理入口（只能在主线程调用）；未启用或无命中时返回空列表。 */
     void autoCleanup() {
         GuildSettings c = conf();
         if (!c.cleanupEnabled) {
@@ -92,27 +119,6 @@ final class GuildCleanup {
             if (plugin.bus() != null && plugin.bus().isReady()
                     && !plugin.bus().acquireOnce("cleanup", intervalSec)) {
                 return;
-            }
-            // 历史数据保留窗口：战报 1 年、已发放奖励 90 天（避免只增不删）。
-            long nowMs = System.currentTimeMillis();
-            try {
-                plugin.repo().purgeWarsBefore(nowMs - 365L * 24L * 3600L * 1000L);
-                plugin.repo().purgeWarRewardsBefore(nowMs - 90L * 24L * 3600L * 1000L);
-                plugin.repo().purgeWarOriginsBefore(nowMs - 7L * 24L * 3600L * 1000L);
-                if (plugin.audit() != null) {
-                    plugin.audit().purgeAsync(nowMs - 180L * 24L * 3600L * 1000L);
-                }
-                if (plugin.war() != null) {
-                    plugin.war().purgeStatsAsync(nowMs - 365L * 24L * 3600L * 1000L);
-                }
-                if (plugin.mail() != null) {
-                    plugin.mail().purgeAsync();
-                }
-                if (plugin.applications() != null) {
-                    plugin.applications().purgeAsync(nowMs - 90L * 24L * 3600L * 1000L);
-                }
-            } catch (Exception e) {
-                plugin.getLogger().warning("清理工会战历史失败: " + e.getMessage());
             }
             List<Guild> targets = findInactiveGuilds();
             if (targets.isEmpty()) {

@@ -61,6 +61,8 @@ public final class WarehouseLock {
         public final String playerName;
         public final String token;
         public final long acquiredAt;
+        /** 连续续期失败次数；Redis 短暂抖动不立刻踢人。 */
+        volatile int refreshFailures;
 
         Session(UUID player, String playerName, String token) {
             this.player = player;
@@ -193,22 +195,42 @@ public final class WarehouseLock {
         for (Map.Entry<String, Session> e : sessions.entrySet()) {
             Session s = e.getValue();
             if (!remote) {
-                if (plugin != null && plugin.settings().main.crossServerEnabled) sessions.remove(e.getKey(), s);
+                // 多服模式但 Redis 暂时不可用：不要一次抖动就把玩家踢出仓库。
+                // 此时所有子服的 acquire 都会失败（不会再开新会话），本服已有会话
+                // 继续本地独占是安全的；连续 3 个心跳（60s）都不可用才降级关闭。
+                if (plugin != null && plugin.settings().main.crossServerEnabled
+                        && ++s.refreshFailures >= 3) {
+                    dropSession(e.getKey(), s);
+                }
                 continue;
             }
             com.liu.liuguild.crossserver.CrossServerBus.LockState state =
                     plugin.bus().refreshLockState(lockKey(e.getKey()), s.token, TTL_SECONDS);
-            if (state != com.liu.liuguild.crossserver.CrossServerBus.LockState.OK) {
-                // 锁已失效或 Redis 不可用：丢弃会话并关闭界面，避免继续写入造成数据冲突。
-                sessions.remove(e.getKey(), s);
-                UUID holder = s.player;
-                plugin.sync(() -> {
-                    if (plugin.warehouse() != null) plugin.warehouse().kick(holder);
-                    Player p = plugin.player(holder);
-                    if (p != null) plugin.messages().send(p, "wh-lock-lost");
-                });
+            if (state == com.liu.liuguild.crossserver.CrossServerBus.LockState.UNAVAILABLE) {
+                // Redis 抖动：锁并未被证明丢失，给 3 次续期机会再关闭。
+                if (++s.refreshFailures < 3) {
+                    continue;
+                }
+            } else if (state == com.liu.liuguild.crossserver.CrossServerBus.LockState.OK) {
+                s.refreshFailures = 0;
+                continue;
             }
+            // 锁确实已失效（被抢占/过期），必须立即停止写入。
+            dropSession(e.getKey(), s);
         }
+    }
+
+    private void dropSession(String guildId, Session session) {
+        sessions.remove(guildId, session);
+        if (plugin == null) {
+            return;
+        }
+        UUID holder = session.player;
+        plugin.sync(() -> {
+            if (plugin.warehouse() != null) plugin.warehouse().kick(holder);
+            Player p = plugin.player(holder);
+            if (p != null) plugin.messages().send(p, "wh-lock-lost");
+        });
     }
 
     /** 仅测试用：会话数。 */
