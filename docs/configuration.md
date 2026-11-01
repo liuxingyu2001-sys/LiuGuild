@@ -85,7 +85,7 @@ heartbeat-seconds: 5
 ## guild.yml
 
 工会名称/标签长度、创建费、成员上限与每级增长、邀请有效期与冷却、银行开关与税率、
-升级所需点数与成长系数、最高等级、新工会的成员 PvP 默认值（`friendly-fire`）、官员权限（邀请/踢人/宣战/公告）、默认图标与图标更换费用。已有工会可在 GUI「工会设置」中单独开关成员 PvP。
+升级所需点数与成长系数、最高等级、新工会的成员 PvP 默认值（`friendly-fire`）、官员权限（邀请/踢人/宣战/公告/驻地/群发邮件）、默认图标与图标更换费用、工会邮件群发开关/冷却/长度/保留天数。已有工会可在 GUI「工会设置」中单独开关成员 PvP。
 
 ## war.yml
 
@@ -159,6 +159,14 @@ guild:
     afk-seconds: 180
     min-online: 1
 
+  # 会长/官员向本会全员群发工会邮件（官员需 officer.send-mail: true）
+  mail:
+    enabled: true
+    cooldown-seconds: 60
+    max-title-length: 32
+    max-body-length: 256
+    ttl-days: 30
+
   titles:
     enabled: true
     max: 12
@@ -194,3 +202,4 @@ guild:
 - [activity.md](activity.md) —— 玩家在线活跃发工会资金（活跃判定 + 每日上限）
 - [warehouse.md](warehouse.md) —— 工会仓库（跨服独占锁；用工会资金购买时长 / 升级容量）
 - [shop.md](shop.md) —— 工会商店（按工会隔离；个人工会资金购买，税后货款入工会点数）
+- [mail.md](mail.md) —— 工会系统邮件（离线通知 + 会长/官员群发；LiuChat MailApi 优先）

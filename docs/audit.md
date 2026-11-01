@@ -15,6 +15,7 @@
 | `admin.setlevel` / `admin.setpoints` / `admin.setbank` | 管理员改等级 / 资金 / 银行 |
 | `guild.rename` | 会长/玩家改名（受冷却与费用） |
 | `admin.rename` | 管理员改名（绕开冷却与费用） |
+| `mail.broadcast` | 会长/官员群发工会邮件（target 为标题，detail 含收件人数） |
 
 每条记录包含：工会 UUID、操作者 UUID/名称、动作、对象、金额/数量、补充说明、时间。
 自动清理：`GuildCleanup` 每轮清理 **180 天**前的记录。

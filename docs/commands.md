@@ -54,6 +54,7 @@
 | `/guild shop remove <编号前8位>` | 下架并退回剩余（管理） |
 | `/guild log [条数]` | 查看本会审计日志（官员/会长；别名 `logs` / `audit`） |
 | `/guild mail [read <编号>\|clear]` | 查看/处理工会系统邮件（见 [mail.md](mail.md)） |
+| `/guild mail send <标题> <正文>` | 向本会全员群发工会邮件（会长/官员；见 [mail.md](mail.md#群发会长--官员)） |
 | `/guild recruit` | 打开招募板（工会列表；邀请制工会点击后提交申请） |
 | `/guild apply <工会> [留言]` | 向邀请制工会提交入会申请 |
 | `/guild apps [accept\|deny\|cancel] [编号]` | 官员审批 / 玩家取消入会申请（见 [applications.md](applications.md)） |
@@ -121,6 +122,7 @@
 | `liuguild.war` | true | 参与 / 排队 / 进入工会战（仍需会长或官员身份） |
 | `liuguild.warehouse` | true | 打开工会共享仓库 |
 | `liuguild.shop.manage` | op | 管理工会商店（上架 / 改价 / 下架） |
+| `liuguild.mail.send` | true | 向本会全员群发工会邮件（仍需会长/官员身份与 `guild.yml` 开关） |
 | `liuguild.admin` | op | 管理总权限 |
 | `liuguild.admin.reload` / `.status` / `.import` / `.arena` / `.kit` / `.mode` / `.war` / `.disband` / `.setlevel` / `.setpoints` / `.setbank` / `.forceend` / `.cleanup` / `.verify` / `.guilds` / `.player` / `.broadcast` / `.audit` / `.purge` / `.gui` | op | 各级管理子权限（默认由 `liuguild.admin` 控制） |
 

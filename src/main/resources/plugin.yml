@@ -73,6 +73,9 @@ permissions:
   liuguild.shop.manage:
     description: 管理工会商店（上架 / 改价 / 下架）
     default: op
+  liuguild.mail.send:
+    description: 向本会全员群发工会邮件（仍需会长或官员身份）
+    default: true
   liuguild.admin:
     description: 工会管理总权限
     default: op

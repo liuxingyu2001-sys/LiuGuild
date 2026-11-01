@@ -45,6 +45,8 @@ guild:
     set-notice: true
     # 官员是否可设置/删除工会驻地（此前复用 set-notice，关掉改公告会连带收回驻地权限）
     set-home: true
+    # 官员是否可向本会全员群发工会邮件（会长始终可以）
+    send-mail: true
   # 工会图标：见 icons.yml 定义可用图标
   icon:
     # 新工会默认图标 id（对应 icons.yml 的键）
@@ -95,6 +97,19 @@ guild:
     afk-seconds: 180
     # 至少需要多少名活跃成员才结算（0 = 有 1 名即可）
     min-online: 1
+  # 工会邮件群发：会长（及获授权的官员，见 officer.send-mail）可向本会全员发送，
+  # 离线成员登录后可在 /guild mail 或主菜单「工会邮件」查看。
+  mail:
+    # 是否允许手动群发（关闭后仅保留工会战/入会申请等系统邮件）
+    enabled: true
+    # 同一工会两次群发的最小间隔（秒）；0 = 不限
+    cooldown-seconds: 60
+    # 标题最大长度（字符，含 MiniMessage 标签）
+    max-title-length: 32
+    # 正文最大长度（字符，含 MiniMessage 标签）
+    max-body-length: 256
+    # 邮件保留天数；0 = 不自动过期（实际展示上限仍受存储层 128/512 字符约束）
+    ttl-days: 30
   # 工会改名字
   rename:
     # 是否允许会长改名字（/guild rename 或设置菜单）

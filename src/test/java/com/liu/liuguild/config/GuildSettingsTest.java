@@ -285,4 +285,54 @@ class GuildSettingsTest {
         assertEquals(15, GuildSettings.activityReward(3, 3, 5));
         assertEquals(0, GuildSettings.activityReward(5, 0, 0), "每人 0 点时不发");
     }
+
+    // =====================================================================
+    // 工会邮件群发
+    // =====================================================================
+
+    @Test
+    void mailBroadcastSettingsParseAndClamp() {
+        org.bukkit.configuration.file.YamlConfiguration c =
+                new org.bukkit.configuration.file.YamlConfiguration();
+        try {
+            c.loadFromString("""
+                    guild:
+                      officer:
+                        send-mail: false
+                      mail:
+                        enabled: false
+                        cooldown-seconds: -5
+                        max-title-length: 999
+                        max-body-length: 0
+                        ttl-days: -1
+                    """);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        GuildSettings s = GuildSettings.parse(c);
+        assertFalse(s.officerSendMail, "官员群发开关应可单独关闭");
+        assertFalse(s.mailBroadcastEnabled);
+        assertEquals(0, s.mailBroadcastCooldownSeconds, "负冷却归零");
+        assertEquals(100, s.mailMaxTitleLength, "标题上限收敛到 100");
+        assertEquals(1, s.mailMaxBodyLength, "正文上限至少 1");
+        assertEquals(0, s.mailTtlDays, "负保留天数归零（永不过期）");
+    }
+
+    @Test
+    void mailBroadcastSettingsDefaultsWhenSectionMissing() {
+        org.bukkit.configuration.file.YamlConfiguration c =
+                new org.bukkit.configuration.file.YamlConfiguration();
+        try {
+            c.loadFromString("guild: {}");
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        GuildSettings s = GuildSettings.parse(c);
+        assertTrue(s.mailBroadcastEnabled);
+        assertTrue(s.officerSendMail);
+        assertEquals(60, s.mailBroadcastCooldownSeconds);
+        assertEquals(32, s.mailMaxTitleLength);
+        assertEquals(256, s.mailMaxBodyLength);
+        assertEquals(30, s.mailTtlDays);
+    }
 }

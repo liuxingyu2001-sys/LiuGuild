@@ -168,7 +168,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "信息", "/guild list", "浏览全服工会");
         helpLine(player, "信息", "/guild top points", "查看排行榜（points/level/wins/losses/members）");
         helpLine(player, "信息", "/guild log [条数]", "查看本会审计日志（官员/会长）");
-        helpLine(player, "信息", "/guild mail [read <编号>|clear]", "查看/处理工会系统邮件");
+        helpLine(player, "信息", "/guild mail [read <编号>|clear|send <标题> <正文>]", "查看/群发工会邮件（群发需会长/官员）");
         helpLine(player, "信息", "/guild recruit", "打开招募板（工会列表，点击申请）");
         helpLine(player, "信息", "/guild apply <工会> [留言]", "向邀请制工会提交入会申请");
         helpLine(player, "信息", "/guild apps [accept|deny|cancel] [编号]", "审批/取消入会申请");
@@ -700,10 +700,26 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         });
     }
 
-    /** /guild mail [read <编号>|clear]：查看系统邮件。 */
+    /** /guild mail [read <编号>|clear|send <标题> <正文>]：查看系统邮件 / 会长官员群发。 */
     private void mail(Player player, String[] args) {
         String sub = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "list";
         UUID uuid = player.getUniqueId();
+        if ("send".equals(sub)) {
+            // args: [mail, send, 标题, 正文...]
+            if (args.length < 4) {
+                plugin.messages().send(player, "mail-send-usage");
+                return;
+            }
+            Guild g = plugin.guilds().guildOf(uuid);
+            if (g == null) {
+                plugin.messages().send(player, "not-in-guild");
+                return;
+            }
+            String title = args[2];
+            String body = String.join(" ", Arrays.copyOfRange(args, 3, args.length));
+            plugin.mail().broadcast(player, g, title, body);
+            return;
+        }
         if ("read".equals(sub)) {
             if (args.length < 3) {
                 plugin.messages().send(player, "mail-usage");
@@ -1069,7 +1085,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
                 return filter(List.of("queue", "leave", "join", "accept", "reject", "rejoin", "spectate", "status", "stats", "history"), args[1]);
             }
             if (sub.equals("mail")) {
-                return filter(List.of("read", "clear"), args[1]);
+                return filter(List.of("read", "clear", "send"), args[1]);
             }
             if (sub.equals("apps") || sub.equals("applications")) {
                 return filter(List.of("accept", "deny", "cancel"), args[1]);

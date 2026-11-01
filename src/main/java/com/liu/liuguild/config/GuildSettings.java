@@ -31,6 +31,8 @@ public final class GuildSettings {
     public boolean officerSetNotice = true;
     /** 官员是否能设置/删除工会驻地（与“改公告”解耦）。 */
     public boolean officerSetHome = true;
+    /** 官员是否能向本会全员群发工会邮件（会长始终可以）。 */
+    public boolean officerSendMail = true;
     public String defaultIcon = "default";
     public double iconChangeCost = 5000.0;
 
@@ -87,6 +89,18 @@ public final class GuildSettings {
     public int activityAfkSeconds = 180;
     /** 至少需要多少名活跃成员才结算（0 = 有 1 名即可）。 */
     public int activityMinOnline = 1;
+
+    // ---- 工会邮件群发 ----
+    /** 是否允许会长/官员手动向本会全员群发工会邮件。 */
+    public boolean mailBroadcastEnabled = true;
+    /** 同一工会两次群发的最小间隔（秒）；0 = 不限。 */
+    public int mailBroadcastCooldownSeconds = 60;
+    /** 群发邮件标题最大长度（字符，含 MiniMessage 标签）。 */
+    public int mailMaxTitleLength = 32;
+    /** 群发邮件正文最大长度（字符，含 MiniMessage 标签）。 */
+    public int mailMaxBodyLength = 256;
+    /** 群发邮件保留天数；0 = 不自动过期。 */
+    public int mailTtlDays = 30;
 
     // ---- 改名字 ----
     /** 是否允许工会改名字（/guild rename <新名>）。 */
@@ -181,6 +195,7 @@ public final class GuildSettings {
         s.officerDeclareWar = c.getBoolean("guild.officer.declare-war", s.officerDeclareWar);
         s.officerSetNotice = c.getBoolean("guild.officer.set-notice", s.officerSetNotice);
         s.officerSetHome = c.getBoolean("guild.officer.set-home", s.officerSetHome);
+        s.officerSendMail = c.getBoolean("guild.officer.send-mail", s.officerSendMail);
         s.defaultIcon = c.getString("guild.icon.default", s.defaultIcon);
         s.iconChangeCost = c.getDouble("guild.icon.change-cost", s.iconChangeCost);
         s.homeEnabled = c.getBoolean("guild.home.enabled", s.homeEnabled);
@@ -209,6 +224,14 @@ public final class GuildSettings {
         s.activityDailyCap = Math.max(0, c.getLong("guild.activity.daily-cap", s.activityDailyCap));
         s.activityAfkSeconds = Math.max(0, c.getInt("guild.activity.afk-seconds", s.activityAfkSeconds));
         s.activityMinOnline = Math.max(0, c.getInt("guild.activity.min-online", s.activityMinOnline));
+        s.mailBroadcastEnabled = c.getBoolean("guild.mail.enabled", s.mailBroadcastEnabled);
+        s.mailBroadcastCooldownSeconds = Math.max(0, Math.min(86400,
+                c.getInt("guild.mail.cooldown-seconds", s.mailBroadcastCooldownSeconds)));
+        s.mailMaxTitleLength = Math.max(1, Math.min(100,
+                c.getInt("guild.mail.max-title-length", s.mailMaxTitleLength)));
+        s.mailMaxBodyLength = Math.max(1, Math.min(512,
+                c.getInt("guild.mail.max-body-length", s.mailMaxBodyLength)));
+        s.mailTtlDays = Math.max(0, Math.min(3650, c.getInt("guild.mail.ttl-days", s.mailTtlDays)));
         s.renameEnabled = c.getBoolean("guild.rename.enabled", s.renameEnabled);
         s.renameCooldownSeconds = Math.max(0, c.getInt("guild.rename.cooldown-seconds", s.renameCooldownSeconds));
         s.renameCost = Math.max(0, c.getDouble("guild.rename.cost", s.renameCost));

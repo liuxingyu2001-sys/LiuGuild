@@ -37,7 +37,7 @@ Paper 1.21 跨服工会插件。核心特性：工会管理、跨服工会战（
 | [qqbot.md](qqbot.md) | QQ 官方机器人 WebSocket、指令查询与事件推送 |
 | [webhook.md](webhook.md) | Discord / 通用 JSON webhook 推送 |
 | [audit.md](audit.md) | 工会审计日志与管理员清理动作 |
-| [mail.md](mail.md) | 离线工会邮件 |
+| [mail.md](mail.md) | 工会系统邮件（离线通知 + 会长/官员群发） |
 | [applications.md](applications.md) | 入会申请 / 招募板 |
 | [gui.md](gui.md) | GUI 菜单、Sparrow UI 界面引擎 |
 | [import.md](import.md) | 旧版 PlayerGuild 数据导入 |

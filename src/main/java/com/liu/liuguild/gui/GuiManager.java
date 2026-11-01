@@ -873,6 +873,11 @@ public final class GuiManager implements GuildModule, Listener {
             }
             put(inv, holder, 48, player, "WRITABLE_BOOK", "<white>全部标记已读",
                     List.of("<gray>清除未读状态"), "mail_clear");
+            if (guild != null && plugin.mail().canBroadcast(player, guild)) {
+                put(inv, holder, 50, player, "FEATHER", "<white>群发邮件",
+                        List.of("<gray>向本会全员发送工会邮件（含离线）",
+                                "<gray>点击撰写标题与正文"), "mail_compose");
+            }
             show(player, holder, inv);
         });
     }
@@ -1528,6 +1533,31 @@ public final class GuiManager implements GuildModule, Listener {
                 plugin.mail().markAllReadAsync(player.getUniqueId());
                 plugin.messages().send(player, "mail-all-read");
                 openMail(player, holder == null ? 0 : holder.page);
+            }
+            case "mail_compose" -> {
+                if (g == null) {
+                    plugin.messages().send(player, "not-in-guild");
+                    break;
+                }
+                if (!plugin.mail().canBroadcast(player, g)) {
+                    plugin.messages().send(player, "no-permission-rank");
+                    break;
+                }
+                // requestText 优先 Sparrow 铁砧输入，缺失时回退聊天栏；标题先校验再收正文。
+                requestText(player, "mail-send-input-title", title -> {
+                    com.liu.liuguild.config.GuildSettings conf = plugin.settings().guild;
+                    com.liu.liuguild.mail.MailService.BroadcastResult invalid =
+                            com.liu.liuguild.mail.MailService.validateTitle(title, conf.mailMaxTitleLength);
+                    if (invalid != null) {
+                        plugin.mail().notifyInvalid(player, invalid, conf.mailMaxTitleLength);
+                        openMail(player, 0);
+                        return;
+                    }
+                    requestText(player, "mail-send-input-body", body -> {
+                        plugin.mail().broadcast(player, g, title, body);
+                        openMail(player, 0);
+                    });
+                });
             }
             case "back:war" -> {
                 if (g != null) openWar(player, g);

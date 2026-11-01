@@ -6,7 +6,7 @@
 
     <groupId>com.liu</groupId>
     <artifactId>LiuGuild</artifactId>
-    <version>0.5.9</version>
+    <version>0.6.0</version>
     <packaging>jar</packaging>
 
     <name>LiuGuild</name>
@@ -39,6 +39,11 @@
         <repository>
             <id>codemc-repo</id>
             <url>https://repo.codemc.io/repository/maven-releases/</url>
+        </repository>
+        <!-- VaultAPI 1.7（com.github.MilkBowl:VaultAPI）只发布在 jitpack，缺少该仓库时依赖解析失败 -->
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
         </repository>
     </repositories>
 
