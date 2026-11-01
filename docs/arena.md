@@ -108,6 +108,10 @@ modes:
 > 若 `after-war` 同时关闭 `auto-return` 且未启用 `end-spawn`，玩家将停留在原位；
 > 当使用的是**动态世界**时该世界会被销毁，因此这种组合仅建议在 `keep-on-end: true` 时使用。
 
+> `end-spawn.world` 留空时默认指向竞技场世界；若场地是临时世界（`builtin` 或模板）且赛后会被销毁，
+> 插件会记录警告并改为按 `auto-return` 直接送回出发地，避免把玩家传进即将卸载的世界。
+> 临时竞技场世界会等世界内玩家（含旁观者）离开后再卸载，最多等待 10 秒，超时按兜底移动后卸载。
+
 > **内置临时世界**：在竞技场 `temporary-world` 下设置 `builtin: true` 且不配置 `template` 时，
 > LiuGuild 会用 Bukkit `WorldCreator` 自行创建世界——此时 `environment`、`world-type`、`name-format`
 > 全部生效，战斗结束后自动卸载并异步删除世界目录（`keep-on-end: true` 时保留）。

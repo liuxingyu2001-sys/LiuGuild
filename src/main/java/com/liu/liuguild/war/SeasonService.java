@@ -23,6 +23,8 @@ public final class SeasonService implements GuildModule, Listener {
     private final Map<UUID, SeasonRepository.Entry> participants = new LinkedHashMap<>();
     private final Set<UUID> capturedOnce = new HashSet<>();
     private final Set<UUID> capturing = new HashSet<>(), restoring = new HashSet<>(), waiting = new HashSet<>();
+    /** 本场已提前淘汰（复活次数用尽）并开始返程的工会；用于只播报/处理一次。 */
+    private final Set<String> eliminatedGuilds = new HashSet<>();
     private final Map<UUID, Long> arrivals = new HashMap<>();
     private final Map<UUID, Long> transferCooldown = new HashMap<>();
     /** 返程失败提示限流（UUID → 上次提示时间），避免 5 秒轮询把聊天刷爆。 */
@@ -172,7 +174,11 @@ public final class SeasonService implements GuildModule, Listener {
         if("PREPARING".equals(current.state()) && now>=prepareUntil && !starting) begin();
         if(battle!=null && battle.phase()==SeasonBattle.Phase.RUNNING) {
             if(battle.finishIfDue(now)) finish(false);
-            else updateBoard();
+            else {
+                // 每秒兜底：死亡/断线之外的路径（如代理同步延迟）导致某队已无复活血时也能及时结束该队。
+                handleEliminatedTeams();
+                updateBoard();
+            }
         }
     }
     private void process(SeasonRepository.Event event,List<SeasonRepository.Entry> entries) {
@@ -382,6 +388,7 @@ public final class SeasonService implements GuildModule, Listener {
     private void begin() {
         starting=true;
         if(!capturing.isEmpty()) { starting=false; prepareUntil=System.currentTimeMillis()+1000; return; }
+        eliminatedGuilds.clear();
         SeasonBattle next=new SeasonBattle();
         Map<String,List<UUID>> teams=new TreeMap<>();
         for(var entry:participants.values()) if(Bukkit.getPlayer(entry.player())!=null) teams.computeIfAbsent(entry.guild(),k->new ArrayList<>()).add(entry.player());
@@ -393,7 +400,12 @@ public final class SeasonService implements GuildModule, Listener {
         for(var entry:new ArrayList<>(participants.values())) {
             Player p=Bukkit.getPlayer(entry.player());
             if(p==null) continue;
-            if(!teams.containsKey(entry.guild())) { restore(p,entry,false); continue; }
+            if(!teams.containsKey(entry.guild())) {
+                restore(p,entry,false);
+                // 名单不足被移出赛事：返程轮询送走前保持无敌，避免在竞技场里掉落真实装备。
+                p.setInvulnerable(true);
+                continue;
+            }
             teleportSpawn(p,entry.guild(),new ArrayList<>(participants.values()));
             p.setInvulnerable(false);
         }
@@ -412,7 +424,12 @@ public final class SeasonService implements GuildModule, Listener {
     }
     /** 赛季战况/结算只发给本场参赛者，不再向承办服全体玩家广播。 */
     private void announceParticipants(String message) {
-        for (UUID id : new ArrayList<>(participants.keySet())) {
+        announceTo(participants.keySet(), message);
+    }
+
+    /** 发给指定玩家集合（例如结算时已被提前淘汰、已移出 participants 的成员）。 */
+    private void announceTo(Collection<UUID> players, String message) {
+        for (UUID id : new ArrayList<>(players)) {
             Player player = Bukkit.getPlayer(id);
             if (player != null && player.isOnline()) {
                 player.sendMessage(message);
@@ -456,16 +473,23 @@ public final class SeasonService implements GuildModule, Listener {
                 if(!running) return;
                 plugin.sync(() -> {
                     if(current==null || !current.id().equals(id)) return;
+                    ArenaDef closingArena=arena;
+                    World closingWorld=world;
+                    // 含已被提前淘汰/自动返程中的成员：结算播报与关世界等待都不能只看当前 participants。
+                    Set<UUID> closingPlayers=new HashSet<>(participants.keySet());
                     if(!cancelled) for(var row:ranks) {
-                        announceParticipants("§6[赛季结算] #"+row.rank()+" "+guildName(row.guildId())+"："+row.points()+"分，死亡"+row.deaths()+"次，公共资金奖励"+prizes.getOrDefault(row.rank(),0L));
+                        announceTo(closingPlayers, "§6[赛季结算] #"+row.rank()+" "+guildName(row.guildId())+"："+row.points()+"分，死亡"+row.deaths()+"次，公共资金奖励"+prizes.getOrDefault(row.rank(),0L));
                         plugin.guilds().reloadGuild(row.guildId());
                         plugin.broadcastGuildChange(row.guildId());
                     }
-                    else announceParticipants("§e[工会赛季] 赛事取消（人数不足、场地不可用或管理员停止），不发放排名奖励。");
+                    else announceTo(closingPlayers, "§e[工会赛季] 赛事取消（人数不足、场地不可用或管理员停止），不发放排名奖励。");
                     for(var entry:new ArrayList<>(participants.values())) {
                         Player p=Bukkit.getPlayer(entry.player());
                         if(p!=null && !p.isDead()) {
                             restore(p,entry,false);
+                            // 还原真实装备后到真正传送回出发地之间还有 1~5 秒轮询窗口：保持无敌，
+                            // 避免在仍处于战斗的场地世界里被环境/生物击杀而掉落真实背包。
+                            p.setInvulnerable(true);
                         } else {
                             // 离线/死亡玩家不能留在 participants，否则 restricted 会阻塞返程与 escrow 恢复。
                             participants.remove(entry.player()); snapshots.remove(entry.player()); waiting.remove(entry.player());
@@ -477,16 +501,54 @@ public final class SeasonService implements GuildModule, Listener {
                         for(var row:ranks) lines.add("#"+row.rank()+" "+guildName(row.guildId())+"："+row.points()+"分");
                         plugin.webhook().seasonResult(modeName, host, lines);
                     }
-                    plugin.war().closeSeasonWorld(arena);
+                    world = null;
+                    if(closingArena == null) {
+                        // 没有可用场地定义（例如模式在开赛期间被删）：仍要清掉 war 侧残留的赛季世界引用。
+                        plugin.war().closeSeasonWorld(null);
+                    } else if (closingArena.tempWorld.keepOnEnd
+                            || (!closingArena.tempWorld.builtin && !closingArena.hasTemplate())) {
+                        // 固定世界/保留世界：不会卸载，正常立即收尾。
+                        plugin.war().closeSeasonWorld(closingArena);
+                    } else {
+                        // 临时世界要等参赛者返程离开后再销毁，否则会先被甩到承办服主城再回家。
+                        scheduleSeasonWorldClose(closingArena, closingWorld, 0);
+                    }
                     if(host != null && !host.isBlank() && plugin.war().currentWar() == null) {
                         plugin.async(() -> plugin.bus().clearHostBusy(host));
                     }
                     current=null; battle=null; starting=false; finishing=false; waiting.clear();
+                    eliminatedGuilds.clear();
+                    // 赛事结束后无赛事轮询会退避到 5 秒；这里立刻触发一次，让返程尽快开始，
+                    // 也给“等世界清空后再销毁”留出更大的时间余量。
+                    lastPollAt = 0;
                 });
             } catch(Exception e) { failure(e); plugin.sync(() -> { finishing=false; if(running) plugin.syncDelayed(() -> finish(cancelled),100); }); }
         });
     }
     private void cancelAsync(String id) { submit(() -> { try { repo.finish(id,List.of(),Map.of(),true); } catch(Exception e) { failure(e); } }); }
+
+    /**
+     * 延迟关闭赛季临时世界：等参赛者返程离开场地后再销毁，避免“先回承办服主城、再回家”的两段传送。
+     * 最多等 10 秒；期间若新赛季接管了场地，则交给新场次，绝不误删。
+     */
+    private void scheduleSeasonWorldClose(ArenaDef def, World arenaWorld, int attempt) {
+        if(def==null) return;
+        if(!running || !plugin.isEnabled() || arenaWorld == null) {
+            plugin.war().closeSeasonWorldIfCurrent(def, arenaWorld);
+            if(world == arenaWorld) world = null;
+            return;
+        }
+        // 专用赛季世界里可能还有“已被提前淘汰、正在等返程轮询”的成员（已移出 participants），
+        // 因此以“世界内没有玩家”为准，不能只看当前名单。
+        boolean waiting = !arenaWorld.getPlayers().isEmpty();
+        if(waiting && attempt < 20) {
+            plugin.syncDelayed(() -> scheduleSeasonWorldClose(def, arenaWorld, attempt + 1), 10L);
+            return;
+        }
+        if(plugin.war().closeSeasonWorldIfCurrent(def, arenaWorld) && world == arenaWorld) {
+            world = null;
+        }
+    }
     private boolean playerReady(UUID player) {
         return plugin.sparrow()==null || plugin.sparrow().playerReady(player);
     }
@@ -557,6 +619,8 @@ public final class SeasonService implements GuildModule, Listener {
                     try { ok=plugin.war().warTeleport(p,dest); }
                     catch (Throwable t) { plugin.getLogger().warning("赛季返程传送异常: "+t.getMessage()); ok=false; }
                     if(ok) {
+                        // 已送回出发地：解除返程等待期间的临时无敌。
+                        p.setInvulnerable(false);
                         if(fallback) noticeReturnFallback(p,latest.world());
                         submit(() -> { try { repo.entryState(entry.event(),entry.player(),"RETURNED"); } catch(Exception e) { failure(e); } });
                     } else {
@@ -631,16 +695,80 @@ public final class SeasonService implements GuildModule, Listener {
         }
         victim.setFireTicks(0); victim.setInvulnerable(true);
         if(battle.phase()==SeasonBattle.Phase.FINISHED) { finish(false); return; }
+        // 打出最后一条命：该队已无复活次数，立即结束其赛程并返程，不占着复活位空等整场结束。
+        // /kill 等原版死亡入口会在死亡事件里调用 die()，此时先等一 tick 再改背包/血量。
+        if(victim.isDead()) {
+            plugin.syncDelayed(() -> { if(battle!=null) handleEliminatedTeams(); }, 1L);
+        } else {
+            handleEliminatedTeams();
+            if(!participants.containsKey(uuid)) return;
+        }
         SeasonBattle identity=battle;
         plugin.syncDelayed(() -> {
             if(battle!=identity || finishing || !victim.isOnline() || !participants.containsKey(uuid) || victim.isDead()) return;
-            if(!battle.respawn(uuid)) return;
+            if(!battle.respawn(uuid)) {
+                if(battle.phase()==SeasonBattle.Phase.RUNNING && waiting.remove(uuid)) {
+                    // 个人生命耗尽但队伍还有存活：解除冻结、继续旁观，等队伍全员淘汰或赛事结束再返程。
+                    // waiting.remove 同时充当“同一次死亡只提示一次”的去重标记。
+                    plugin.messages().send(victim, "war-lives-eliminated");
+                }
+                return;
+            }
             waiting.remove(uuid);
             applyFairHealth(victim);
             plugin.kits().apply(victim,mode); victim.setGameMode(GameMode.ADVENTURE); victim.setInvulnerable(false);
             teleportSpawn(victim,participants.get(uuid).guild(),new ArrayList<>(participants.values()));
         },Math.max(0,mode.respawnDelaySeconds)*20L);
     }
+
+    /**
+     * 处理“复活次数用尽”的队伍：提前结束该队赛程，把在线成员还原托管并送返出发服，
+     * 不再让他们以旁观/复活等待状态空耗到整场赛事结束。
+     *
+     * <p>只对 RUNNING 且仍有 ≥2 支存活队伍的场次生效；若淘汰后只剩一支存活队，
+     * {@link SeasonBattle#finishIfDue} 会直接结束整场，由 {@link #finish(boolean)} 统一返程。</p>
+     */
+    private void handleEliminatedTeams() {
+        if(battle==null || battle.phase()!=SeasonBattle.Phase.RUNNING || finishing) return;
+        List<SeasonBattle.Standing> rows=battle.standings();
+        for(SeasonBattle.Standing row:rows) {
+            if(!battle.teamEliminated(row.guildId()) || !eliminatedGuilds.add(row.guildId())) continue;
+            long alive=rows.stream().filter(other->other.survivors()>0).count();
+            announceParticipants("§c[工会赛季] §f"+guildName(row.guildId())
+                    +" §c已无复活次数，提前结束本队赛程（剩余 "+alive+" 个工会），成员正在返程。");
+        }
+        if(eliminatedGuilds.isEmpty()) return;
+        // 每秒兜底重试：代理同步未就绪时 restore 会跳过，下一轮继续，直到成员真正离场。
+        for(SeasonRepository.Entry entry:new ArrayList<>(participants.values())) {
+            if(eliminatedGuilds.contains(entry.guild())) eliminateTeamMember(entry);
+        }
+    }
+
+    /** 把已淘汰队伍的成员移出参赛名单并还原托管；真正返程由 pendingReturns 轮询完成。 */
+    private void eliminateTeamMember(SeasonRepository.Entry entry) {
+        if(!running || entry==null) return;
+        UUID id=entry.player();
+        waiting.remove(id);
+        Player p=Bukkit.getPlayer(id);
+        if(p==null || !p.isOnline()) {
+            // 离线成员没有可还原的实体：移出名单并标记待返程，登录后由轮询送返并恢复托管。
+            participants.remove(id); snapshots.remove(id);
+            submit(() -> { try { repo.entryState(entry.event(),id,"LEFT"); } catch(Exception e) { failure(e); } });
+            return;
+        }
+        boolean hasSnapshot=snapshots.containsKey(id);
+        restore(p,entry,false);
+        if(!hasSnapshot) {
+            // 极端情况（快照缺失）：restore 只移除名单、不会写 LEFT，这里补一条保证轮询仍能返程。
+            submit(() -> { try { repo.entryState(entry.event(),id,"LEFT"); } catch(Exception e) { failure(e); } });
+            participants.remove(id); waiting.remove(id);
+        }
+        // 真实装备已还原、但返程轮询还没把玩家送走：这段时间保持无敌，避免在战区里掉落真实背包。
+        if(p.isOnline()) {
+            p.setInvulnerable(true);
+        }
+    }
+
     @EventHandler(priority=EventPriority.HIGHEST)
     public void death(PlayerDeathEvent event) {
         if(!participants.containsKey(event.getEntity().getUniqueId())) return;
@@ -658,7 +786,13 @@ public final class SeasonService implements GuildModule, Listener {
                 applyFairHealth(player);
                 plugin.kits().apply(player,mode); player.setGameMode(GameMode.ADVENTURE); player.setInvulnerable(false);
                 teleportSpawn(player,participants.get(uuid).guild(),new ArrayList<>(participants.values()));
-            } else { player.setGameMode(GameMode.SPECTATOR); player.setInvulnerable(true); }
+            } else {
+                player.setGameMode(GameMode.SPECTATOR); player.setInvulnerable(true);
+                if(battle.phase()==SeasonBattle.Phase.RUNNING && waiting.remove(uuid)) {
+                    // 生命耗尽：解除冻结、继续旁观，等队伍全员淘汰或赛事结束再返程。
+                    plugin.messages().send(player, "war-lives-eliminated");
+                }
+            }
         }, Math.max(0,mode.respawnDelaySeconds)*20L);
     }
 
@@ -672,7 +806,11 @@ public final class SeasonService implements GuildModule, Listener {
         if(entry==null) return;
         if(battle!=null) battle.eliminate(entry.player(),System.currentTimeMillis());
         restore(event.getPlayer(),entry,true);
-        if(battle!=null && battle.phase()==SeasonBattle.Phase.FINISHED) finish(false);
+        if(battle!=null) {
+            if(battle.phase()==SeasonBattle.Phase.FINISHED) finish(false);
+            // 断线可能让该队直接耗尽复活次数：剩余队友同样提前结束赛程并返程。
+            else handleEliminatedTeams();
+        }
     }
     @EventHandler(ignoreCancelled=true) public void teleport(PlayerTeleportEvent e) {
         if(restricted(e.getPlayer().getUniqueId()) && !plugin.war().isAllowingWarTeleport(e.getPlayer().getUniqueId())) e.setCancelled(true);

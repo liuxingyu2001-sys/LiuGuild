@@ -24,6 +24,9 @@ public final class SeasonRepository {
             catch (SQLException ignored) { }
             try { s.executeUpdate("CREATE INDEX IF NOT EXISTS idx_season_entries_event_state ON " + t("entries") + " (event_id,state)"); }
             catch (SQLException ignored) { }
+            // 运行中赛事也会查询 state='LEFT' 的待返程记录，单独建 state 索引避免 entries 全表扫描。
+            try { s.executeUpdate("CREATE INDEX IF NOT EXISTS idx_season_entries_state ON " + t("entries") + " (state)"); }
+            catch (SQLException ignored) { }
         }
     }
     public boolean create(Event event) throws SQLException {
@@ -97,9 +100,20 @@ public final class SeasonRepository {
         }
         return new Entry(r.getString("event_id"),player,r.getString("guild_id"),r.getString("source"),r.getString("world"),r.getDouble("x"),r.getDouble("y"),r.getDouble("z"),r.getFloat("yaw"),r.getFloat("pitch"),r.getString("state"));
     }
+    /**
+     * 待返程名单：赛事已结束，或玩家已离场（{@code LEFT}，如提前淘汰/主动退出）但尚未送回出发服。
+     *
+     * <p>包含运行中赛事的 {@code LEFT} 行，才能让提前淘汰的队伍在比赛继续时也能完成跨服返程，
+     * 而不是卡在承办服旁观到整场结束。</p>
+     */
     public List<Entry> pendingReturns() throws SQLException {
         List<Entry> result=new ArrayList<>();
-        try(var c=db.source().getConnection(); var p=c.prepareStatement("SELECT e.* FROM " + t("entries") + " e JOIN " + t("events") + " s ON s.id=e.event_id WHERE s.state IN ('FINISHED','CANCELLED') AND e.state<>'RETURNED'"); var r=p.executeQuery()) {
+        // 拆成两段可走索引的查询再 UNION 去重（LEFT 行可能同时属于已结束赛事）：
+        // 1) 已结束/取消赛事里还没 RETURNED 的记录；2) 任何赛事里已离场（LEFT）的记录。
+        String sql="SELECT e.* FROM " + t("entries") + " e JOIN " + t("events") + " s ON s.id=e.event_id"
+                + " WHERE s.state IN ('FINISHED','CANCELLED') AND e.state<>'RETURNED'"
+                + " UNION SELECT e.* FROM " + t("entries") + " e WHERE e.state='LEFT'";
+        try(var c=db.source().getConnection(); var p=c.prepareStatement(sql); var r=p.executeQuery()) {
             while(r.next()) { Entry e = entry(r); if (e != null) result.add(e); }
         }
         return result;
@@ -111,8 +125,9 @@ public final class SeasonRepository {
         }
     }
 
+    /** 赛后统一集合点：只改写仍在场内的记录；已 LEFT（提前淘汰/退出、正在返程）的保持原出发地。 */
     public void destination(String id, String server, String world, ArenaDestination pos) throws SQLException {
-        try(var c=db.source().getConnection(); var p=c.prepareStatement("UPDATE " + t("entries") + " SET source=?,world=?,x=?,y=?,z=?,yaw=?,pitch=? WHERE event_id=? AND state<>'RETURNED'")) {
+        try(var c=db.source().getConnection(); var p=c.prepareStatement("UPDATE " + t("entries") + " SET source=?,world=?,x=?,y=?,z=?,yaw=?,pitch=? WHERE event_id=? AND state<>'RETURNED' AND state<>'LEFT'")) {
             p.setString(1,server); p.setString(2,world); p.setDouble(3,pos.x()); p.setDouble(4,pos.y()); p.setDouble(5,pos.z()); p.setFloat(6,pos.yaw()); p.setFloat(7,pos.pitch()); p.setString(8,id); p.executeUpdate();
         }
     }

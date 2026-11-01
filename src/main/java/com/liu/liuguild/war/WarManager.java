@@ -72,6 +72,11 @@ public final class WarManager implements GuildModule {
     private volatile World fallbackWorld;
     /** 由 LiuGuild 自建并负责销毁的临时竞技场世界。 */
     private volatile World builtinWorld;
+    /**
+     * 本插件实例创建、尚未销毁的临时世界集合。
+     * 用于避免“上一场收尾还没删完，下一场/赛季按同名复用并接管，随后被旧收尾误删”。
+     */
+    private final java.util.Set<World> pluginOwnedWorlds = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /** 当前使用的竞技场定义。 */
     private volatile ArenaDef currentArena;
 
@@ -2056,6 +2061,8 @@ public final class WarManager implements GuildModule {
 
     public void openSeasonWorld(ArenaDef def, java.util.function.Consumer<World> ready) {
         currentArena = def;
+        // 上一场模板赛季若关闭失败，arena 句柄可能残留；新赛季必须从干净状态开始。
+        arena = null;
         fallbackWorld = null;
         builtinWorld = null;
         if (def.tempWorld.builtin && !def.hasTemplate()) {
@@ -2094,6 +2101,41 @@ public final class WarManager implements GuildModule {
             destroyBuiltinWorld();
         }
         arena = null; fallbackWorld = null; builtinWorld = null; currentArena = null;
+    }
+
+    /**
+     * 延迟关闭赛季世界：只有当前赛季场地仍是 {@code expectedWorld} 时才走通用关闭，
+     * 避免延迟期间新赛季接管场地后被误删。
+     *
+     * @return true 已处理；false 场地已被新场次接管（跳过）
+     */
+    public boolean closeSeasonWorldIfCurrent(ArenaDef def, World expectedWorld) {
+        if (def == null) {
+            // 场地定义已不可用（例如模式被删）：仍要清掉 war 侧残留的赛季世界引用。
+            closeSeasonWorld(null);
+            return true;
+        }
+        if (expectedWorld == null) {
+            closeSeasonWorld(def);
+            return true;
+        }
+        World currentWorld = arena != null ? arena.world() : builtinWorld;
+        if (expectedWorld.equals(currentWorld)) {
+            closeSeasonWorld(def);
+            return true;
+        }
+        if (expectedWorld.equals(fallbackWorld)) {
+            // 新赛季复用了同名世界（内置世界创建时会复用已加载世界）：交给新场次，绝不能销毁。
+            plugin.getLogger().warning("赛季场地仍被新赛季引用，跳过旧世界销毁: " + expectedWorld.getName());
+            return false;
+        }
+        if (def.tempWorld.builtin && !def.tempWorld.keepOnEnd) {
+            // 场地引用已清空/被新场次替换：旧内置临时世界不再被任何人使用，卸载即可。
+            destroyBuiltinWorld(expectedWorld);
+            return true;
+        }
+        plugin.getLogger().warning("赛季场地在延迟收尾期间已被新场次接管，旧动态世界未销毁: " + expectedWorld.getName());
+        return false;
     }
 
     private void prepareArena(GuildWar war) {
@@ -2314,6 +2356,12 @@ public final class WarManager implements GuildModule {
                 name = name.substring(0, 48);
             }
             World existing = WorldResolver.resolve(name);
+            if (existing != null && pluginOwnedWorlds.contains(existing)) {
+                // 上一场（工会战/赛季）创建的世界还在延迟收尾中：换一个唯一名字新建，
+                // 避免两个子系统复用同一世界后互相被对方的收尾逻辑误删或永久泄漏。
+                name = uniqueWorldName(name);
+                existing = WorldResolver.resolve(name);
+            }
             if (existing != null) {
                 // 世界已存在（可能是服主自建的同名世界）：只复用，不纳入赛后销毁范围，
                 // 否则会误删服主的永久世界。
@@ -2330,6 +2378,7 @@ public final class WarManager implements GuildModule {
             wc.type("normal".equalsIgnoreCase(def.tempWorld.worldType) ? WorldType.NORMAL : WorldType.FLAT);
             World world = wc.createWorld();
             if (world != null) {
+                pluginOwnedWorlds.add(world);
                 if (session != null) {
                     session.builtinWorld = world;
                 } else {
@@ -2342,6 +2391,13 @@ public final class WarManager implements GuildModule {
             plugin.getLogger().warning("创建内置临时世界失败: " + t.getMessage());
             return null;
         }
+    }
+
+    /** 给待销毁中的旧世界名加唯一后缀，确保新场次不会复用到一个“马上要被删掉”的世界。 */
+    private static String uniqueWorldName(String base) {
+        String suffix = "_" + Long.toString(System.currentTimeMillis() % 1_000_000L, 36);
+        int max = 48 - suffix.length();
+        return (base.length() <= max ? base : base.substring(0, max)) + suffix;
     }
 
     /** 卸载并异步删除内置临时世界。 */
@@ -2367,6 +2423,7 @@ public final class WarManager implements GuildModule {
             plugin.getLogger().warning("内置临时世界卸载失败: " + name);
             return;
         }
+        pluginOwnedWorlds.remove(world);
         plugin.async(() -> deleteFolder(folder));
     }
 
@@ -3842,6 +3899,12 @@ public final class WarManager implements GuildModule {
     private void cleanup(GuildWar war, boolean publishTerminal) {
         java.util.Set<UUID> warPlayers = new java.util.HashSet<>();
         warPlayers.addAll(war.allPlayers());
+        // 旁观者不在 roster 里，但同样要等其离开场地世界后才能销毁；先记入本场玩家集合。
+        for (java.util.Map.Entry<UUID, GuildWar> entry : spectatorWar.entrySet()) {
+            if (entry.getValue() == war) {
+                warPlayers.add(entry.getKey());
+            }
+        }
         // 传送所有参赛者/旁观者回原位并还原数据
         for (UUID u : new ArrayList<>(war.allPlayers())) {
             leaveLocal(u);
@@ -3855,55 +3918,35 @@ public final class WarManager implements GuildModule {
             party.roster().clear();
         }
         WarSession session = session(war);
-        ArenaDef activeDef = session != null ? session.def : currentArena;
-        boolean keepWorld = activeDef != null && activeDef.tempWorld.keepOnEnd;
-        // 销毁世界前先把滞留在竞技场里的玩家挪出去：SparrowSync 异步还原可能还没执行完，
-        // 直接把世界卸掉会让这些玩家卡在已销毁世界。
-        if (!keepWorld) {
-            World arenaRef = arenaWorld(war);
-            World fallback = session != null && session.fallbackWorld != null ? session.fallbackWorld
-                    : (fallbackWorld != null ? fallbackWorld
-                    : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0)));
-            if (arenaRef != null && fallback != null && !fallback.equals(arenaRef)) {
-                for (Player stray : new ArrayList<>(arenaRef.getPlayers())) {
-                    // 同世界不同区域可能已有另一场并发；只能移动本场玩家/本场旁观者。
-                    if (!warPlayers.contains(stray.getUniqueId())
-                            && spectatorWar.get(stray.getUniqueId()) != war
-                            && returnWar.get(stray.getUniqueId()) != war) {
-                        continue;
-                    }
-                    Location dest = safeReturnLocation(returnLoc.get(stray.getUniqueId()));
-                    if (dest == null || dest.getWorld() == null) {
-                        dest = safeReturnLocation(fallback.getSpawnLocation());
-                    }
-                    if (dest != null && dest.getWorld() != null) {
-                        warTeleport(stray, dest);
-                    }
-                }
-            }
-        }
-        World builtin = session != null ? session.builtinWorld : builtinWorld;
-        ArenaWorld dynamic = session != null ? session.dynamicArena : arena;
-        if (builtin != null) {
-            if (keepWorld) {
+        boolean keepWorld = session != null && session.def != null && session.def.tempWorld.keepOnEnd;
+        // 没有本场 session（重复收尾/镜像）时不能回退到全局字段：那些可能属于正在进行的赛季场地。
+        World builtin = session != null ? session.builtinWorld : null;
+        ArenaWorld dynamic = session != null ? session.dynamicArena : null;
+        World arenaRef = session != null ? arenaWorld(war) : null;
+        if (session == null) {
+            plugin.getLogger().warning("工会战 " + war.id() + " 收尾时已找不到场次（可能重复清理），跳过竞技场世界处理。");
+        } else if (keepWorld) {
+            if (builtin != null) {
                 plugin.getLogger().info("工会战 " + war.id() + " 已结束，按配置保留内置世界（" + builtin.getName() + "）。");
-            } else {
-                destroyBuiltinWorld(builtin);
+            } else if (dynamic != null) {
+                plugin.getLogger().info("工会战 " + war.id() + " 已结束，按配置保留动态世界（" + dynamic.worldName() + "）。");
             }
-        } else if (plugin.dungeon() != null && dynamic != null && !keepWorld) {
-            plugin.dungeon().destroy(dynamic);
-        } else if (keepWorld && dynamic != null) {
-            plugin.getLogger().info("工会战 " + war.id() + " 已结束，按配置保留动态世界（" + dynamic.worldName() + "）。");
+        } else {
+            World fallback = session.fallbackWorld != null ? session.fallbackWorld
+                    : (Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0));
+            // SparrowSync 的装备/坐标还原是异步的：如果这里立刻销毁世界，还没还原完的参赛者会先被
+            // 甩到承办服主城（或 returnLoc），随后才由 finishTeleport 送回出发服——玩家看到的就是
+            // “先回承办服、再回家”的两段传送。改为等本场玩家真正离开场地世界后再销毁。
+            // 固定世界不会卸载，也就没有“提前挪人”的必要，直接等 finishTeleport 送回出发地即可。
+            if (builtin != null || dynamic != null) {
+                scheduleArenaTeardown(war, arenaRef, builtin, dynamic, warPlayers, fallback, 0);
+            }
         }
         if (session != null) {
             session.builtinWorld = null;
             session.dynamicArena = null;
             session.world = null;
             session.fallbackWorld = null;
-        } else {
-            arena = null;
-            fallbackWorld = null;
-            currentArena = null;
         }
         for (UUID id : warPlayers) {
             livesRemaining.remove(id);
@@ -3967,6 +4010,94 @@ public final class WarManager implements GuildModule {
             flushPendingTerminals();
         }
         plugin.getLogger().info("工会战 " + war.id() + " 已结束并回收竞技场。");
+    }
+
+    /**
+     * 延迟销毁竞技场世界：等本场玩家被 {@code finishTeleport} 送走后再卸载，避免先落到承办服主城。
+     *
+     * <p>SparrowSync 还原异步完成，通常 1~2 秒；最多等 10 秒。期间若新一场工会战已经复用同一世界，
+     * 则交给新场次，绝不销毁。</p>
+     */
+    private void scheduleArenaTeardown(GuildWar war, World arenaRef, World builtin, ArenaWorld dynamic,
+                                       Set<UUID> warPlayers, World fallback, int attempt) {
+        // 先判断是否已被新场次接管：即使等满 10 秒也不能误删新场次正在使用的世界。
+        if (arenaReusedByAnotherSession(war, arenaRef, builtin, dynamic)) {
+            plugin.getLogger().info("工会战 " + war.id() + " 结束后竞技场世界已被新场次复用，跳过销毁。");
+            return;
+        }
+        if (!plugin.isEnabled() || attempt >= 20) {
+            // 关服/重载或等待超时：按兜底处理（移动残留玩家后卸载），避免世界泄漏。
+            teardownArena(war, arenaRef, builtin, dynamic, warPlayers, fallback);
+            return;
+        }
+        // 临时竞技场为单场专用世界；以“世界内已无玩家”为准，避免漏掉旁观者、已被移出名单
+        // 或已发起跨服传送但代理尚未切走的玩家。
+        boolean waiting = arenaRef != null && !arenaRef.getPlayers().isEmpty();
+        if (waiting) {
+            plugin.syncDelayed(() -> scheduleArenaTeardown(war, arenaRef, builtin, dynamic, warPlayers, fallback, attempt + 1), 10L);
+            return;
+        }
+        teardownArena(war, arenaRef, builtin, dynamic, warPlayers, fallback);
+    }
+
+    /**
+     * 延迟期间是否有新场次接管了同一竞技场世界。
+     *
+     * <p>若新场次复用了本场创建的临时内置世界，旧场次不能再销毁它，但也不能让新场次把它当成
+     * “服主自建世界”而永远不清理——这里把销毁责任移交给新场次。</p>
+     */
+    private boolean arenaReusedByAnotherSession(GuildWar finished, World arenaRef, World builtin, ArenaWorld dynamic) {
+        if (arenaRef == null && builtin == null && dynamic == null) {
+            return false;
+        }
+        for (WarSession other : sessions.values()) {
+            if (other.war == finished) {
+                continue;
+            }
+            if (arenaRef != null && other.world == arenaRef) {
+                if (builtin != null && other.builtinWorld == null) {
+                    other.builtinWorld = builtin;
+                    plugin.getLogger().info("工会战 " + finished.id() + " 的内置竞技场世界移交新场次 "
+                            + other.war.id() + " 赛后销毁。");
+                } else {
+                    plugin.getLogger().info("工会战 " + finished.id() + " 结束后竞技场世界已被新场次复用，跳过销毁。");
+                }
+                return true;
+            }
+            if (builtin != null && other.builtinWorld == builtin) {
+                return true;
+            }
+            if (dynamic != null && other.dynamicArena == dynamic) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 真正卸载/销毁竞技场世界；只移动本场玩家，同世界其它场次的玩家不能动。 */
+    private void teardownArena(GuildWar war, World arenaRef, World builtin, ArenaWorld dynamic,
+                               Set<UUID> warPlayers, World fallback) {
+        if (arenaRef != null && fallback != null && !fallback.equals(arenaRef)) {
+            for (Player stray : new ArrayList<>(arenaRef.getPlayers())) {
+                if (!warPlayers.contains(stray.getUniqueId())
+                        && spectatorWar.get(stray.getUniqueId()) != war
+                        && returnWar.get(stray.getUniqueId()) != war) {
+                    continue;
+                }
+                Location dest = safeReturnLocation(returnLoc.get(stray.getUniqueId()));
+                if (dest == null || dest.getWorld() == null) {
+                    dest = safeReturnLocation(fallback.getSpawnLocation());
+                }
+                if (dest != null && dest.getWorld() != null) {
+                    warTeleport(stray, dest);
+                }
+            }
+        }
+        if (builtin != null) {
+            destroyBuiltinWorld(builtin);
+        } else if (plugin.dungeon() != null && dynamic != null) {
+            plugin.dungeon().destroy(dynamic);
+        }
     }
 
     // =====================================================================
@@ -4723,12 +4854,23 @@ public final class WarManager implements GuildModule {
             if (world == null) {
                 return;
             }
-            warTeleport(player, aw.endSpawn.toLocation(world));
-            if (origin != null) {
-                originOf.remove(uuid);
-                deleteOriginAsync(uuid);
+            World tempArena = returningWar != null ? arenaWorld(returningWar) : arenaWorld();
+            boolean doomedWorld = world.equals(tempArena) && def != null
+                    && (def.tempWorld.builtin || def.hasTemplate())
+                    && !def.tempWorld.keepOnEnd;
+            if (doomedWorld && aw.autoReturn) {
+                // end-spawn 没写 world 时默认指向竞技场世界；临时场地赛后会被销毁，
+                // 传过去只会被延迟收尾再甩到主城，因此改为按 auto-return 直接送回出发地。
+                plugin.getLogger().warning("after-war.end-spawn 指向即将销毁的临时竞技场世界（"
+                        + world.getName() + "），改为按 auto-return 送回出发地。");
+            } else {
+                warTeleport(player, aw.endSpawn.toLocation(world));
+                if (origin != null) {
+                    originOf.remove(uuid);
+                    deleteOriginAsync(uuid);
+                }
+                return;
             }
-            return;
         }
 
         // 2) 自动返回：跨服玩家回出发服 + 原坐标；本服玩家回入场前位置。

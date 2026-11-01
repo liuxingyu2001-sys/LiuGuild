@@ -68,6 +68,19 @@ class SeasonBattleTest {
         assertEquals(0,battle.standings().stream().mapToLong(SeasonBattle.Standing::points).sum());
     }
 
+    @Test void exhaustedRevivesMarkOnlyThatTeamEliminated() {
+        SeasonBattle battle=battle(1);
+        assertFalse(battle.teamEliminated("a"));
+        assertFalse(battle.teamEliminated("unknown"), "未注册工会不算淘汰");
+        assertTrue(battle.death(b,a,1,110));
+        assertTrue(battle.teamEliminated("b"), "生命耗尽即全队淘汰");
+        assertFalse(battle.teamEliminated("a"));
+        assertFalse(battle.teamEliminated("c"));
+        assertFalse(battle.respawn(b), "生命耗尽不能复活");
+        assertEquals(0,battle.standings().stream().filter(row->row.guildId().equals("b"))
+                .findFirst().orElseThrow().survivors());
+    }
+
     @Test void registrationIsAtomicAndCannotChangeAfterStart() {
         SeasonBattle battle = new SeasonBattle();
         battle.register("a", List.of(a), 2);

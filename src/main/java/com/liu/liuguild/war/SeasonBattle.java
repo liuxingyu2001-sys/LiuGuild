@@ -89,6 +89,12 @@ public final class SeasonBattle {
         return (int) team.lives.values().stream().filter(lives -> lives > 0).count();
     }
 
+    /** 该工会是否已全员阵亡（复活次数用尽）。未注册的工会返回 false。 */
+    public boolean teamEliminated(String guildId) {
+        Team team = teams.get(guildId);
+        return team != null && survivors(team) == 0;
+    }
+
     private long livingTeams() {
         return teams.values().stream().filter(team -> survivors(team) > 0).count();
     }

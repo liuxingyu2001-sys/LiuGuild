@@ -57,4 +57,19 @@ class SeasonServiceGuardTest {
         assertTrue(war.contains("plugin.serverId().equals(data.get(\"server\"))"));
         assertTrue(war.contains("plugin.sync(() -> plugin.guilds().broadcastAll(text))"));
     }
+
+    @Test
+    void exhaustedTeamEndsEarlyInsteadOfWaitingForMatchEnd() throws Exception {
+        String season = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/SeasonService.java"));
+        // 复活次数用尽 → 提前结束该队赛程，而不是留在场地旁观到整场结束
+        assertTrue(season.contains("private void handleEliminatedTeams"));
+        assertTrue(season.contains("已无复活次数，提前结束本队赛程"));
+        assertTrue(season.contains("eliminateTeamMember"));
+        // 死亡、断线与每秒轮询三条路径都要触发
+        assertTrue(season.contains("handleEliminatedTeams();"));
+        String repo = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/SeasonRepository.java"));
+        assertTrue(repo.contains("e.state='LEFT'"), "提前离场的 LEFT 记录必须进入返程队列");
+        String battle = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/SeasonBattle.java"));
+        assertTrue(battle.contains("public boolean teamEliminated"));
+    }
 }

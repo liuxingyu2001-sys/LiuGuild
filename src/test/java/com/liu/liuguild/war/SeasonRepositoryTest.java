@@ -27,6 +27,20 @@ class SeasonRepositoryTest {
         assertEquals("CANCELLED",repo.event("one").state());
         assertTrue(repo.create(event("two")));
     }
+    @Test void leftEntryIsReturnableWhileEventStillRunning() throws Exception {
+        repo.create(event("one"));
+        UUID uuid=UUID.randomUUID();
+        repo.enter(new SeasonRepository.Entry("one",uuid,"g","fb","lobby",1,2,3,45,6,"ADMITTED"));
+        assertTrue(repo.pendingReturns().isEmpty(),"未离场不返程");
+        // 提前淘汰/主动退出：赛事还在 RUNNING，但 entry 已 LEFT，必须立即进入返程队列
+        repo.entryState("one",uuid,"LEFT");
+        var returns=repo.pendingReturns();
+        assertEquals(1,returns.size());
+        assertEquals(uuid,returns.getFirst().player());
+        assertEquals("fb",returns.getFirst().source());
+        repo.entryState("one",uuid,"RETURNED");
+        assertTrue(repo.pendingReturns().isEmpty(),"已返程不再重复处理");
+    }
     @Test void entriesAndReturnCoordinatesSurviveRestart() throws Exception {
         repo.create(event("one")); UUID uuid=UUID.randomUUID();
         var entry=new SeasonRepository.Entry("one",uuid,"g","99","world",1,2,3,45,6,"REGISTERED");
