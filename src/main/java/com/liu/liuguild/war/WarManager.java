@@ -5289,6 +5289,33 @@ public final class WarManager implements GuildModule {
     }
 
     /**
+     * 清除本插件可能遗留的临时无敌标记。
+     *
+     * <p>准备阶段冻结会给玩家 {@code setInvulnerable(true)}；正常结束由 {@link #unfreezePlayer(Player)}
+     * 解除，但服务器在冻结期间崩溃/被强杀时，无敌标记会随玩家存档一起保留，重新上线后没人再解除，
+     * 玩家就会永久无敌。因此在托管恢复完成后（说明该玩家的战局已经结束）统一清一次。</p>
+     *
+     * <p>创造/旁观等游戏模式自带的无敌不受影响；仍在进行中的战局/赛季里也不动，避免打断正常流程。</p>
+     */
+    private void clearStaleInvulnerability(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        UUID uuid = player.getUniqueId();
+        if (frozen.contains(uuid) || isInWar(uuid) || spectators.contains(uuid)) {
+            return;
+        }
+        if (plugin.seasons() != null && plugin.seasons().restricted(uuid)) {
+            return;
+        }
+        if (!player.isInvulnerable()) {
+            return;
+        }
+        player.setInvulnerable(false);
+        plugin.getLogger().info("已清除玩家 " + player.getName() + " 遗留的工会战临时无敌状态。");
+    }
+
+    /**
      * 玩家登录时检查是否有未归还的工会战托管装备（例如战中服务器崩溃/重启或异常断线残留）。
      * 若该玩家当前不在进行中的工会战内，则自动归还托管装备并清理记录。
      */
@@ -5337,6 +5364,7 @@ public final class WarManager implements GuildModule {
                                 player.setItemOnCursor(null);
                             }
                             deleteEscrowAsync(uuid);
+                            clearStaleInvulnerability(player);
                             maybeReturnAfterRecovery(player, uuid);
                             plugin.getLogger().info("已为玩家 " + player.getName() + " 恢复未归还的工会战托管装备（SparrowSync）。");
                         });
@@ -5344,6 +5372,7 @@ public final class WarManager implements GuildModule {
                 } else if (fallback != null) {
                     plugin.kits().restore(player, fallback, false);
                     deleteEscrowAsync(uuid);
+                    clearStaleInvulnerability(player);
                     maybeReturnAfterRecovery(player, uuid);
                     plugin.getLogger().info("已为玩家 " + player.getName() + " 恢复未归还的工会战托管装备（本地持久化快照）。");
                 } else {

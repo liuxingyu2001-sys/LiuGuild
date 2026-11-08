@@ -72,4 +72,24 @@ class SeasonServiceGuardTest {
         String battle = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/SeasonBattle.java"));
         assertTrue(battle.contains("public boolean teamEliminated"));
     }
+
+    @Test
+    void returnWaitInvulnerabilityAlwaysHasBoundedCleanup() throws Exception {
+        String season = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/SeasonService.java"));
+        // 返程等待期的临时无敌必须登记兜底期限，并在每秒 tick 中强制到期解除。
+        assertTrue(season.contains("private void protectUntilReturn(Player p)"));
+        assertTrue(season.contains("private void notePendingInvulnerability(Player p)"));
+        assertTrue(season.contains("private void releaseInvulnerability(Player p)"));
+        assertTrue(season.contains("private void sweepInvulnerability(long now)"));
+        assertTrue(season.contains("INVULNERABLE_TIMEOUT_MS"));
+        assertTrue(season.contains("sweepInvulnerability(nowMs);"));
+        // 重启前遗留的无敌标记也要登记期限，不能只在本次赛程内记录。
+        assertTrue(season.contains("notePendingInvulnerability(p);"));
+        // 返程成功、退服、关服都要解除，否则标记会随玩家存档落库。
+        assertTrue(season.contains("releaseInvulnerability(p);"));
+        assertTrue(season.contains("boolean seasonProtected=returnProtections.remove(quitting)!=null;"));
+        assertTrue(season.contains("returnProtections.clear();"));
+        // 旧实现只把“恢复托管后解除”当作兜底，返程失败就会永久无敌；不能再出现这种裸调用写法。
+        assertFalse(season.contains("plugin.syncDelayed(() -> { if(p.isOnline() && !restricted(entry.player())) p.setInvulnerable(false); },20);"));
+    }
 }

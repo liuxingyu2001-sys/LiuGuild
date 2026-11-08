@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** 赛后返程不能把副本临时世界的旧坐标套到主世界。 */
@@ -59,5 +60,39 @@ class WarReturnWorldGuardTest {
                 "延迟收尾中的内置世界不能被同名新场次复用");
         String repo = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/SeasonRepository.java"));
         assertTrue(repo.contains("AND state<>'LEFT'"), "统一集合点不能覆盖已离场（提前淘汰）玩家的出发地");
+    }
+
+    @Test
+    void staleWarInvulnerabilityIsClearedAfterCrashRecovery() throws Exception {
+        String source = war();
+        int helperFrom = source.indexOf("private void clearStaleInvulnerability(Player player)");
+        int helperTo = source.indexOf("public void recoverPendingEscrow(Player player)", helperFrom);
+        assertTrue(helperFrom >= 0 && helperTo > helperFrom, "缺少崩溃恢复后的无敌清理方法");
+        String helper = source.substring(helperFrom, helperTo);
+        assertTrue(helper.contains("player.setInvulnerable(false)"));
+        // 仍在进行中的工会战/赛季不能被打断。
+        assertTrue(helper.contains("isInWar(uuid)"));
+        assertTrue(helper.contains("plugin.seasons().restricted(uuid)"));
+        int recoverFrom = source.indexOf("public void recoverPendingEscrow(Player player)");
+        int recoverTo = source.indexOf("private void maybeReturnAfterRecovery(", recoverFrom);
+        assertTrue(recoverFrom >= 0 && recoverTo > recoverFrom);
+        String recover = source.substring(recoverFrom, recoverTo);
+        assertEquals(2, countOccurrences(recover, "clearStaleInvulnerability(player)"),
+                "Sparrow 恢复与本地快照恢复两条路径都要清除遗留无敌");
+        String kit = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/KitService.java"));
+        int restoreFrom = kit.indexOf("public void restore(Player player, Snapshot snap, boolean skipTeleport)");
+        assertTrue(restoreFrom >= 0);
+        assertTrue(kit.substring(restoreFrom).contains("player.setInvulnerable(false)"),
+                "状态还原时必须解除临时无敌，避免崩溃重启后永久无敌");
+    }
+
+    private static int countOccurrences(String text, String needle) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(needle, index)) >= 0) {
+            count++;
+            index += needle.length();
+        }
+        return count;
     }
 }

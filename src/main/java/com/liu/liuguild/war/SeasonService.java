@@ -45,6 +45,12 @@ public final class SeasonService implements GuildModule, Listener {
     /** 上次续期「承办服忙碌」标记的时间。 */
     private long lastHostLeaseAt;
     private Map<Integer,Long> rewards = Map.of();
+    /** 返程等待期临时无敌的兜底记录（UUID → 到期时间 + 施加时所在世界）；任何返程失败都不能让玩家永久无敌。 */
+    private final Map<UUID, ReturnProtection> returnProtections = new HashMap<>();
+    /** 临时无敌最长等待时间：超过后强制解除并告警，避免无敌标记被写进玩家存档。 */
+    private static final long INVULNERABLE_TIMEOUT_MS = 30_000L;
+    /** {@code world} 是施加保护时玩家所在世界：超时后若人还停在该世界，先送出战场再解除无敌。 */
+    private record ReturnProtection(long until, String world) {}
 
     public SeasonService(LiuGuild plugin) { this.plugin=plugin; repo=new SeasonRepository(plugin.db()); }
     public String id() { return "season-battle"; }
@@ -116,10 +122,75 @@ public final class SeasonService implements GuildModule, Listener {
     private String guildName(String id) { var g=plugin.guilds().guild(id); return g==null?id:g.name(); }
     private void submit(Runnable work) { if(!io.isShutdown()) io.submit(work); }
     private void failure(Exception e) { plugin.getLogger().warning("赛季混战IO失败: "+e.getMessage()); }
+
+    /**
+     * 进入返程等待期的临时无敌：真实装备已还原、但还没被送回出发地时，避免在战区世界里掉落真实背包。
+     *
+     * <p>所有“临时无敌”都要登记兜底期限：返程可能因为跨服传送不可用、目标世界失效、玩家掉线等原因
+     * 永远无法完成，绝不能把无敌标记写进玩家存档后一直不解除。</p>
+     */
+    private void protectUntilReturn(Player p) {
+        if(p==null) return;
+        p.setInvulnerable(true);
+        if(p.isOnline()) returnProtections.put(p.getUniqueId(),new ReturnProtection(
+                System.currentTimeMillis()+INVULNERABLE_TIMEOUT_MS,worldName(p)));
+    }
+
+    private static String worldName(Player p) {
+        World world=p.getWorld();
+        return world==null?"":world.getName();
+    }
+
+    /** 玩家带着（可能是重启前遗留的）无敌标记等待返程：登记兜底期限，不重复顺延。 */
+    private void notePendingInvulnerability(Player p) {
+        if(p==null || !p.isOnline() || !p.isInvulnerable() || returnProtections.containsKey(p.getUniqueId())) return;
+        returnProtections.put(p.getUniqueId(),new ReturnProtection(
+                System.currentTimeMillis()+INVULNERABLE_TIMEOUT_MS,worldName(p)));
+    }
+
+    /**
+     * 解除本插件施加的赛季临时无敌。
+     *
+     * <p>即使玩家当前是旁观/创造模式也要把标记清掉：游戏模式自带的无敌不依赖该标记，
+     * 但标记若保留到管理员改回生存模式时就会变成真正的“永久无敌”。</p>
+     */
+    private void releaseInvulnerability(Player p) {
+        if(p==null) return;
+        returnProtections.remove(p.getUniqueId());
+        if(p.isOnline() && p.isInvulnerable()) p.setInvulnerable(false);
+    }
+
+    /** 每秒兜底：返程迟迟不成功时强制解除临时无敌，避免玩家永久无敌。 */
+    private void sweepInvulnerability(long now) {
+        if(returnProtections.isEmpty()) return;
+        for(var it=returnProtections.entrySet().iterator(); it.hasNext(); ) {
+            var entry=it.next();
+            ReturnProtection protection=entry.getValue();
+            if(now<protection.until()) continue;
+            UUID id=entry.getKey();
+            it.remove();
+            Player p=Bukkit.getPlayer(id);
+            if(p==null || !p.isOnline() || !p.isInvulnerable()) continue;
+            // 已离场但返程卡住：人还停在施加保护时的战场世界，就先送回主城出生点再解除无敌，
+            // 否则原本保护真实背包的无敌一解除，玩家可能顶着真实装备在战区里被击杀掉包。
+            if(!restricted(id) && worldName(p).equals(protection.world())) {
+                Location spawn=WorldResolver.defaultSpawn();
+                if(spawn!=null && spawn.getWorld()!=null && !spawn.getWorld().getName().equals(protection.world())) {
+                    try { plugin.war().warTeleport(p,spawn); }
+                    catch(Throwable ignored) { }
+                }
+            }
+            p.setInvulnerable(false);
+            plugin.getLogger().warning("玩家 "+p.getName()+" 的赛季临时无敌超时（返程未完成），已自动解除以避免永久无敌。");
+        }
+    }
+
     private void tick() {
         if(!running) return;
         long pollInterval = current == null ? 5000L : 1000L;
         long nowMs = System.currentTimeMillis();
+        // 返程等待期的临时无敌必须有兜底期限：返程失败/跨服传送不可用时也不能一直无敌。
+        sweepInvulnerability(nowMs);
         // 赛季期间也占用承办服：普通匹配不要再把两工会战派到同一台机器。
         if(current != null && nowMs - lastHostLeaseAt >= 5000L) {
             lastHostLeaseAt = nowMs;
@@ -403,11 +474,11 @@ public final class SeasonService implements GuildModule, Listener {
             if(!teams.containsKey(entry.guild())) {
                 restore(p,entry,false);
                 // 名单不足被移出赛事：返程轮询送走前保持无敌，避免在竞技场里掉落真实装备。
-                p.setInvulnerable(true);
+                protectUntilReturn(p);
                 continue;
             }
             teleportSpawn(p,entry.guild(),new ArrayList<>(participants.values()));
-            p.setInvulnerable(false);
+            releaseInvulnerability(p);
         }
         current=new SeasonRepository.Event(current.id(),current.mode(),current.host(),"RUNNING",System.currentTimeMillis()+mode.durationSeconds*1000L,System.currentTimeMillis());
         String id=current.id(); long until=current.until();
@@ -454,7 +525,7 @@ public final class SeasonService implements GuildModule, Listener {
     private void finish(boolean cancelled) {
         if(current==null || finishing) return;
         finishing=true;
-        participants.keySet().forEach(id -> { Player p=Bukkit.getPlayer(id); if(p!=null) p.setInvulnerable(true); });
+        participants.keySet().forEach(id -> protectUntilReturn(Bukkit.getPlayer(id)));
         String id=current.id();
         List<SeasonBattle.Standing> ranks=battle==null?List.of():battle.standings();
         Map<Integer,Long> prizes=rewards;
@@ -489,7 +560,7 @@ public final class SeasonService implements GuildModule, Listener {
                             restore(p,entry,false);
                             // 还原真实装备后到真正传送回出发地之间还有 1~5 秒轮询窗口：保持无敌，
                             // 避免在仍处于战斗的场地世界里被环境/生物击杀而掉落真实背包。
-                            p.setInvulnerable(true);
+                            protectUntilReturn(p);
                         } else {
                             // 离线/死亡玩家不能留在 participants，否则 restricted 会阻塞返程与 escrow 恢复。
                             participants.remove(entry.player()); snapshots.remove(entry.player()); waiting.remove(entry.player());
@@ -573,7 +644,7 @@ public final class SeasonService implements GuildModule, Listener {
         restoring.add(entry.player());
         try {
             plugin.kits().restore(p,snap,true);
-            p.setInvulnerable(false);
+            releaseInvulnerability(p);
             if(bar!=null) bar.removePlayer(p);
             submit(() -> {
                 try {
@@ -591,6 +662,8 @@ public final class SeasonService implements GuildModule, Listener {
         Player p=Bukkit.getPlayer(entry.player());
         if(p==null || p.isDead() || restricted(entry.player()) || restoring.contains(entry.player()) || plugin.war().isWarRestricted(entry.player())) return;
         if(plugin.sparrow()!=null && !plugin.sparrow().playerReady(entry.player())) return;
+        // 重启前可能残留无敌标记；返程再慢也必须能被兜底清除，不能无限期保持无敌。
+        notePendingInvulnerability(p);
         // 必须确认托管已归还，才允许跨服离开。
         if(System.currentTimeMillis()-transferCooldown.getOrDefault(entry.player(),0L)<3000) return;
         transferCooldown.put(entry.player(),System.currentTimeMillis());
@@ -602,8 +675,8 @@ public final class SeasonService implements GuildModule, Listener {
                         || !Objects.equals(latest.world(),entry.world())) return;
                 if(plugin.repo().loadWarEscrow(entry.player())!=null) { plugin.sync(() -> {
                     plugin.war().recoverPendingEscrow(p);
-                    // 恢复模块异步完成后才继续返程，恢复原始无敌状态由赛季清理兜底。
-                    plugin.syncDelayed(() -> { if(p.isOnline() && !restricted(entry.player())) p.setInvulnerable(false); },20);
+                    // 恢复模块异步完成后才继续返程；这里只解除本插件的临时无敌。
+                    plugin.syncDelayed(() -> { if(p.isOnline() && !restricted(entry.player())) releaseInvulnerability(p); },20);
                 }); return; }
                 plugin.sync(() -> {
                     if(!p.isOnline() || restricted(entry.player())) return;
@@ -620,7 +693,7 @@ public final class SeasonService implements GuildModule, Listener {
                     catch (Throwable t) { plugin.getLogger().warning("赛季返程传送异常: "+t.getMessage()); ok=false; }
                     if(ok) {
                         // 已送回出发地：解除返程等待期间的临时无敌。
-                        p.setInvulnerable(false);
+                        releaseInvulnerability(p);
                         if(fallback) noticeReturnFallback(p,latest.world());
                         submit(() -> { try { repo.entryState(entry.event(),entry.player(),"RETURNED"); } catch(Exception e) { failure(e); } });
                     } else {
@@ -765,7 +838,7 @@ public final class SeasonService implements GuildModule, Listener {
         }
         // 真实装备已还原、但返程轮询还没把玩家送走：这段时间保持无敌，避免在战区里掉落真实背包。
         if(p.isOnline()) {
-            p.setInvulnerable(true);
+            protectUntilReturn(p);
         }
     }
 
@@ -802,10 +875,16 @@ public final class SeasonService implements GuildModule, Listener {
         UUID quitting=event.getPlayer().getUniqueId();
         arrivals.remove(quitting);
         returnNoticeAt.remove(quitting);
+        // 返程等待期的临时无敌必须在退服存档前解除，否则会随玩家数据落库，重登后一直无敌。
+        boolean seasonProtected=returnProtections.remove(quitting)!=null;
         var entry=participants.get(quitting);
-        if(entry==null) return;
+        if(entry==null) {
+            if(seasonProtected) releaseInvulnerability(event.getPlayer());
+            return;
+        }
         if(battle!=null) battle.eliminate(entry.player(),System.currentTimeMillis());
         restore(event.getPlayer(),entry,true);
+        if(seasonProtected) releaseInvulnerability(event.getPlayer());
         if(battle!=null) {
             if(battle.phase()==SeasonBattle.Phase.FINISHED) finish(false);
             // 断线可能让该队直接耗尽复活次数：剩余队友同样提前结束赛程并返程。
@@ -840,6 +919,12 @@ public final class SeasonService implements GuildModule, Listener {
         running=false; if(task!=null) task.cancel();
         if(current!=null) cancelAsync(current.id());
         for(var entry:new ArrayList<>(participants.values())) { Player p=Bukkit.getPlayer(entry.player()); if(p!=null) restore(p,entry,true); }
+        // 关服/重载也不能把返程等待期的临时无敌留在玩家存档里。
+        for(UUID id:new ArrayList<>(returnProtections.keySet())) {
+            Player p=Bukkit.getPlayer(id);
+            if(p!=null) releaseInvulnerability(p);
+        }
+        returnProtections.clear();
         if(bar!=null) bar.removeAll();
         if(current!=null) plugin.war().closeSeasonWorld(arena);
         io.shutdown();

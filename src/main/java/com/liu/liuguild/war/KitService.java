@@ -270,6 +270,11 @@ public final class KitService {
         if (snap.gameMode() != null) {
             player.setGameMode(snap.gameMode());
         }
+        // 战斗/准备流程可能给玩家开过临时无敌；状态还原后必须解除，否则服务器在无敌期间崩溃重启时
+        // 标记会随玩家存档保留，导致战后永久无敌。游戏模式自带的无敌不依赖该标记，所以一并清掉。
+        if (player.isInvulnerable()) {
+            player.setInvulnerable(false);
+        }
         player.setFoodLevel(snap.food());
         player.setLevel(snap.level());
         player.setExp(snap.exp());
