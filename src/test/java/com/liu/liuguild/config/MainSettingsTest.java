@@ -59,6 +59,26 @@ class MainSettingsTest {
     }
 
     @Test
+    void playerTitleGuildTitleDefaultsAndOverrides() {
+        MainSettings defaults = MainSettings.parse(new YamlConfiguration());
+        assertFalse(defaults.playerTitleGuildTitleEnabled);
+        assertEquals(0, defaults.playerTitleGuildTitleId);
+        assertEquals(60, defaults.playerTitleGuildTitleRecheckSeconds);
+        assertTrue(defaults.playerTitleGuildTitleForce);
+
+        YamlConfiguration c = new YamlConfiguration();
+        c.set("hooks.player-title.guild-title.enabled", true);
+        c.set("hooks.player-title.guild-title.title-id", 12);
+        c.set("hooks.player-title.guild-title.recheck-seconds", 0);
+        c.set("hooks.player-title.guild-title.force", false);
+        MainSettings s = MainSettings.parse(c);
+        assertTrue(s.playerTitleGuildTitleEnabled);
+        assertEquals(12, s.playerTitleGuildTitleId);
+        assertEquals(0, s.playerTitleGuildTitleRecheckSeconds);
+        assertFalse(s.playerTitleGuildTitleForce);
+    }
+
+    @Test
     void qqBotDefaultsAndOverrides() {
         MainSettings defaults = MainSettings.parse(new YamlConfiguration());
         assertFalse(defaults.qqBotEnabled);

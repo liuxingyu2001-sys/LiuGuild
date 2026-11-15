@@ -34,6 +34,16 @@ public final class MainSettings {
     /** 工会战期间屏蔽 mcPets/LiuPets 与 MyPet 的召唤、骑乘、技能和已有宠物。 */
     public boolean petsBlockInWar = true;
 
+    // ---- PlayerTitle 工会名称号 ----
+    /** 是否用 PlayerTitle 的称号展示玩家工会名（称号名由管理员预先配置为 %liuguild_name%）。 */
+    public boolean playerTitleGuildTitleEnabled = false;
+    /** 管理员在 PlayerTitle 里创建的「工会名」称号 id；0 表示未配置，功能跳过。 */
+    public int playerTitleGuildTitleId = 0;
+    /** 在线玩家称号对账间隔（秒），0 = 关闭。 */
+    public int playerTitleGuildTitleRecheckSeconds = 60;
+    /** true = 始终佩戴工会称号；false = 仅在玩家当前没有展示称号时佩戴。 */
+    public boolean playerTitleGuildTitleForce = true;
+
     // ---- liupass（战令） ----
     /** 是否向 Liupass 上报工会玩法任务进度（需 Liupass 1.6.3+ 扩展任务类型）。 */
     public boolean passEnabled = true;
@@ -100,6 +110,14 @@ public final class MainSettings {
         // 跨服段只从 cross-server.yml 读取，config.yml 里的同名键不再生效。
         s.mcmmoBlockInWar = c.getBoolean("hooks.mcmmo.block-in-war", s.mcmmoBlockInWar);
         s.petsBlockInWar = c.getBoolean("hooks.pets.block-in-war", s.petsBlockInWar);
+        s.playerTitleGuildTitleEnabled = c.getBoolean(
+                "hooks.player-title.guild-title.enabled", s.playerTitleGuildTitleEnabled);
+        s.playerTitleGuildTitleId = Math.max(0, c.getInt(
+                "hooks.player-title.guild-title.title-id", s.playerTitleGuildTitleId));
+        s.playerTitleGuildTitleRecheckSeconds = clamp(c.getInt(
+                "hooks.player-title.guild-title.recheck-seconds", s.playerTitleGuildTitleRecheckSeconds), 0, 3600);
+        s.playerTitleGuildTitleForce = c.getBoolean(
+                "hooks.player-title.guild-title.force", s.playerTitleGuildTitleForce);
         s.passEnabled = c.getBoolean("hooks.liupass.enabled", s.passEnabled);
         s.passJoin = c.getBoolean("hooks.liupass.join", s.passJoin);
         s.passCreate = c.getBoolean("hooks.liupass.create", s.passCreate);

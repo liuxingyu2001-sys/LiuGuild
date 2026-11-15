@@ -6,3 +6,5 @@ target/
 hs_err_pid*.log
 replay_pid*.log
 temp/
+# PlayerTitle 为本地核对 API 用的第三方插件 jar：运行时软依赖、反射接入、不参与编译，不入库。
+libs/PlayerTitle-*.jar

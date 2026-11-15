@@ -38,6 +38,26 @@ hooks:
     # 未安装对应宠物插件时自动跳过；参赛者、旁观者和赛季战斗玩家均生效。
     block-in-war: true
   # webhook / QQ 机器人属于每服独立配置，请在 server.yml 配置，不要放共享 config.yml。
+  player-title:
+    # 用 PlayerTitle 把「工会名」显示成玩家称号。
+    # 原理：PlayerTitle 称号名支持 PlaceholderAPI 变量（聊天 / Tab 显示时解析），
+    #      而 LiuGuild 已注册 %liuguild_name%，所以所有公会共用一个称号即可，
+    #      工会改名也会实时生效，不需要给每个公会单独建称号。
+    # 前置：已安装 PlaceholderAPI，且启动顺序上 PlayerTitle 能检测到它（先装 PAPI 再启服）。
+    # 使用步骤：
+    #   1) 在 PlayerTitle 里创建一个隐藏（"是否显示" 填 false）、永久、免费的称号，名字用
+    #      %liuguild_name%，记下返回的称号 ID：
+    #        /plt title add not &b%liuguild_name% 0 0 false
+    #   2) 把称号 ID 填到下面 title-id，并把 enabled 改成 true，重载配置或重启。
+    guild-title:
+      enabled: false
+      # 管理员在 PlayerTitle 里创建的「工会名」称号 ID；0 = 未配置，功能跳过。
+      title-id: 0
+      # 在线玩家称号对账间隔（秒），0 = 关闭。用于兜底手动换称号、跨服入退会与漏事件。
+      recheck-seconds: 60
+      # true = 始终把工会称号设为展示称号（会顶掉玩家自选 / 战利品称号）；
+      # false = 仅在玩家当前没有展示称号时佩戴。
+      force: true
 
   liupass:
     # 向 Liupass 上报工会玩法任务进度（需要 Liupass 1.6.3+ 的扩展任务类型）。

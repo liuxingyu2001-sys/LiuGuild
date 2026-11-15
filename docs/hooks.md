@@ -98,7 +98,12 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
 参考：`hook/LuckyPeachesHook.java`。需要公平血量的模式若检测不到屏蔽 API，会跳过血量屏蔽
 （`supportsSuppress()` 为 false），不会把仅死亡豁免当作屏蔽成功。
 
-## PlayerTitle（称号奖励）
+## PlayerTitle（称号奖励 / 工会名展示）
+
+对应 PlayerTitle 5.x，全部通过反射调用 `cn.handyplus.title.api.PlayerTitleApi`，未安装或版本不符时自动跳过。
+`/guildadmin status` 会显示 `PlayerTitle` 钩子与「公会称号」状态。
+
+### 工会战奖励称号
 
 - 工会战胜利时按模式 `rewards.win-title-id` 发放 PlayerTitle 称号：
   `PlayerTitleApi.setPlayerTitle(UUID, int)`。
@@ -106,6 +111,34 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
 - 工会战入场/复活会清理玩家身上的药水效果，并在战斗期间拦截新效果，因此称号的
   `POTION_EFFECT` buff 不会带进竞技场；如果希望从源头关闭，可把竞技场世界加入
   PlayerTitle 的 `config.yml` → `disabledBuffWorld`（双保险，不强制）。
+
+### 工会名展示称号（可选）
+
+- 原理：PlayerTitle 的称号名支持 PlaceholderAPI 变量（聊天前缀与 Tab 前缀显示时会解析），
+  而 LiuGuild 已注册 `%liuguild_name%`。因此**所有公会共用一个称号**即可，成员戴上后显示的
+  是各自工会名，工会改名实时生效；不需要给每个公会建称号，也不占 PlayerTitle 免费版
+  100 个称号的名额。
+- 前置：已安装 **PlaceholderAPI**，且 PlayerTitle 启动时能检测到它（先装 PAPI 再启服）。
+- 在 PlayerTitle 里创建隐藏、免费、永久的称号（名字用 `%liuguild_name%`），记下返回 ID：
+  ```
+  /plt title add not &b%liuguild_name% 0 0 false
+  ```
+- 配置（`config.yml`）：
+  ```yaml
+  hooks:
+    player-title:
+      guild-title:
+        enabled: true
+        title-id: <上一步返回的称号 ID>
+        recheck-seconds: 60   # 0 = 关闭对账
+        force: true           # true 始终佩戴；false 仅在玩家没有展示称号时佩戴
+  ```
+- 开启后：进服 / 入会 / 建会 → 自动授予并佩戴；退会 / 被踢 / 解散 → 自动回收
+  （回落到 PlayerTitle 默认称号）；`recheck-seconds` 定时对账兜底手动换称号、跨服入退会与漏事件。
+- 显示位置：PlayerTitle 的 `config.yml` 中 `isChat`（聊天）与 `isTabPrefix`（Tab / 头顶，
+  需 PlayerScoreboard）；`displayPrefix` / `displaySuffix` 决定 `[ 工会名 ]` 前后缀。
+- 注意：PlayerTitle 只有一个展示称号槽，`force: true` 会顶掉玩家自选 / 战利品称号，
+  和工会战奖励称号共用该槽位；称号名在 Tab 前缀受 Minecraft 64 字符截断（颜色代码计入）。
 
 ## LiuShop（价格参照与禁售联动）
 

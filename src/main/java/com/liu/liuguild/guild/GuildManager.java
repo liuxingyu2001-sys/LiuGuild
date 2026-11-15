@@ -58,6 +58,12 @@ public final class GuildManager {
     private final java.util.concurrent.atomic.AtomicLong mutationVersion = new java.util.concurrent.atomic.AtomicLong();
     /** 正在写库的会长转让；防止并发双击把旧会长降级两次/覆盖新转让。 */
     private final Set<String> transfers = ConcurrentHashMap.newKeySet();
+    /**
+     * 是否已完成过一次全量载入。启动时 {@code guilds} 先是空表，此时
+     * {@link #guildOf(UUID)} 返回 null 并不代表玩家真的没有工会；依赖“是否在会”
+     * 做清理的模块（如 PlayerTitle 公会名称号）必须等这个标记为 true 才能判定无会。
+     */
+    private volatile boolean loadedOnce;
 
     public GuildManager(LiuGuild plugin) {
         this.plugin = plugin;
@@ -105,6 +111,7 @@ public final class GuildManager {
                 guilds = fresh;
                 memberIndex = idx;
                 rebuildIndexes();
+                loadedOnce = true;
                 plugin.sync(() -> { if (plugin.guildChat() != null) plugin.guildChat().refresh(); });
             } catch (Exception e) {
                 plugin.getLogger().warning("载入工会数据失败: " + e.getMessage());
@@ -125,6 +132,11 @@ public final class GuildManager {
 
     public Guild guild(String id) {
         return id == null ? null : guilds.get(id);
+    }
+
+    /** 是否已完成过一次全量载入（启动初期为空表，不能据此判定玩家无工会）。 */
+    public boolean loaded() {
+        return loadedOnce;
     }
 
     public Guild guildByName(String name) {
@@ -1135,6 +1147,11 @@ public final class GuildManager {
                     plugin.messages().send(actor, "rename-success", "old", oldName, "guild", cleanName);
                     plugin.guilds().notifyGuild(g.id(), plugin.messages().component("rename-broadcast",
                             "player", actorName, "old", oldName, "guild", cleanName), null);
+                    // 称号名里的 %liuguild_name% 下次渲染会自动变，但 Tab 前缀由 PlayerScoreboard
+                    // 缓存，需要让 PlayerTitle 重新读取并刷新在线成员。
+                    if (plugin.guildNameTitle() != null) {
+                        plugin.guildNameTitle().onGuildRenamed(g);
+                    }
                 } else {
                     // 回滚内存中的名字
                     g.name(oldName);

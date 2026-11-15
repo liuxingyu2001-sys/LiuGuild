@@ -88,6 +88,7 @@ public final class LiuGuild extends JavaPlugin {
     private com.liu.liuguild.warehouse.WarehouseService warehouse;
     private com.liu.liuguild.activity.ActivityService activity;
     private com.liu.liuguild.title.TitleService titles;
+    private com.liu.liuguild.hook.GuildNameTitleModule guildNameTitle;
     private com.liu.liuguild.shop.ShopService shop;
     private com.liu.liuguild.hook.LiuShopHook liuShop;
     private NotBountiesHook notBounties;
@@ -198,6 +199,8 @@ public final class LiuGuild extends JavaPlugin {
         modules.register(activity);
         titles = new com.liu.liuguild.title.TitleService(this);
         modules.register(titles);
+        guildNameTitle = new com.liu.liuguild.hook.GuildNameTitleModule(this);
+        modules.register(guildNameTitle);
         shop = new com.liu.liuguild.shop.ShopService(this);
         modules.register(shop);
         buffs = new com.liu.liuguild.buff.BuffService(this);
@@ -556,6 +559,10 @@ public final class LiuGuild extends JavaPlugin {
         return playerTitle;
     }
 
+    public com.liu.liuguild.hook.GuildNameTitleModule guildNameTitle() {
+        return guildNameTitle;
+    }
+
     public LuckyPeachesHook luckyPeaches() {
         return luckyPeaches;
     }
@@ -898,6 +905,13 @@ public final class LiuGuild extends JavaPlugin {
                 + hook("Pet", warPets != null && warPets.available())
                 + hook("SparrowUI", sparrowUi != null && sparrowUi.enabled())
                 + hook("PacketEvents", packetEvents != null && packetEvents.available()));
+        out.add("&7PlayerTitle 公会称号: &f" + (guildNameTitle == null ? "未装配"
+                : !s.main.playerTitleGuildTitleEnabled ? "关闭（config.yml hooks.player-title.guild-title.enabled）"
+                : s.main.playerTitleGuildTitleId <= 0 ? "未配置称号 ID"
+                : !guildNameTitle.active() ? "不可用（PlayerTitle 缺失/版本不符）"
+                : "称号#" + s.main.playerTitleGuildTitleId
+                + " &7对账=&f" + s.main.playerTitleGuildTitleRecheckSeconds + "s"
+                + " &7模式=&f" + (s.main.playerTitleGuildTitleForce ? "强制佩戴" : "仅无称号时佩戴")));
         if (pass != null && pass.available()) {
             out.add("&7liupass 任务类型: &f" + (!s.main.passEnabled
                     ? "任务进度已关闭（hooks.liupass.enabled: false）"
