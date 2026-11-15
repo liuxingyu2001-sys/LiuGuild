@@ -125,9 +125,9 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
   - 已安装 **PlaceholderAPI**，且 PlayerTitle 启动时能检测到它（`USE_PAPI=true`，
     即先装 PAPI 再启服）；否则模块会直接跳过并告警，避免称号显示成字面量。
   - PlayerTitle 为 5.x 且包含 `findPlayerTitle` / `playerUseTitle` / `removePlayerTitle` 等 API。
-- 在 PlayerTitle 里创建隐藏、免费、永久的称号（名字用 `%liuguild_name%`），记下返回 ID：
+- 在 PlayerTitle 里创建隐藏、免费、永久的称号（名字启用后会被本插件按配置自动同步），记下返回 ID：
   ```
-  /plt title add not &b%liuguild_name% 0 0 false
+  /plt title add not &b%liuguild_name%工会 0 0 false
   ```
 - 配置（`config.yml`）：
   ```yaml
@@ -136,9 +136,15 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
       guild-title:
         enabled: true
         title-id: <上一步返回的称号 ID>
-        recheck-seconds: 60   # 0 = 关闭对账
-        force: true           # true 始终佩戴；false 仅在玩家没有展示称号时佩戴
+        name: "%liuguild_name%工会"   # 称号显示文本；必须含 %liuguild_name%
+        recheck-seconds: 60           # 0 = 关闭对账
+        force: true                   # true 始终佩戴；false 仅在玩家没有展示称号时佩戴
   ```
+- 称号文本：`name` 决定显示内容，默认 `"%liuguild_name%工会"`（显示成「某某工会」，避免只显示
+  一个名字看不出是工会）；可以加颜色/前后缀，例如 `"&7[&b%liuguild_name%&7]工会"`。
+  启用 / 重载时本插件会通过 `PlayerTitleApi.updateTitleName` 把该称号名同步成 `name` 的值
+  （PlayerTitle 会同时更新所有玩家已拥有称号的显示名并刷新在线玩家，无需重新发放）；
+  `name` 里缺少 `%liuguild_name%` 会告警并回退默认值。
 - 启动 / 重载 / 每轮对账都会校验 `title-id` 是否存在，不存在会告警并自动跳过（不会反复重试写库）。
 - 开启后：进服 / 入会 / 建会 → 自动授予并佩戴；退会 / 被踢 / 解散 → 自动回收
   （回落到 PlayerTitle 默认称号）；`recheck-seconds` 定时对账兜底手动换称号、跨服入退会与漏事件。

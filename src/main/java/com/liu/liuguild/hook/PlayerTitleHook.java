@@ -37,6 +37,7 @@ public final class PlayerTitleHook {
 
     private static final String API_CLASS = "cn.handyplus.title.api.PlayerTitleApi";
     private static final String TITLE_PLAYER_CLASS = "cn.handyplus.title.entity.TitlePlayer";
+    private static final String TITLE_LIST_CLASS = "cn.handyplus.title.entity.TitleList";
     private static final String TITLE_UTIL_CLASS = "cn.handyplus.title.util.TitleUtil";
     private static final String USE_TYPE_CLASS = "cn.handyplus.title.constants.TitleUseTypeEnum";
     private static final String PLUGIN_CLASS = "cn.handyplus.title.PlayerTitle";
@@ -53,6 +54,9 @@ public final class PlayerTitleHook {
     private final Method titlePlayerId;
     private final Method titlePlayerTitleId;
     private final Method refreshPlayerTitle;
+    private final Method findTitleById;
+    private final Method updateTitleName;
+    private final Method titleListTitleName;
     /** 基础 API 可用（只够发称号，沿用工会上奖励的降级语义）。 */
     private final boolean available;
     /** 工会名称号所需的完整 API 可用（查 / 授 / 戴 / 卸 / 刷）。 */
@@ -73,6 +77,9 @@ public final class PlayerTitleHook {
         Method recordId = null;
         Method recordTitleId = null;
         Method refresh = null;
+        Method findTitle = null;
+        Method updateName = null;
+        Method listName = null;
         boolean papi = true;
         try {
             Plugin p = Bukkit.getPluginManager().getPlugin("PlayerTitle");
@@ -85,9 +92,12 @@ public final class PlayerTitleHook {
                 exist = api.getMethod("playerExistTitleId", UUID.class, int.class);
                 show = api.getMethod("findPlayerShowTitle", UUID.class);
                 titleExists = api.getMethod("existTitleId", Integer.class);
+                findTitle = api.getMethod("findTitleById", Integer.class);
+                updateName = api.getMethod("updateTitleName", Integer.class, String.class, boolean.class);
                 Class<?> titlePlayer = Class.forName(TITLE_PLAYER_CLASS);
                 recordId = titlePlayer.getMethod("getId");
                 recordTitleId = titlePlayer.getMethod("getTitleId");
+                listName = Class.forName(TITLE_LIST_CLASS).getMethod("getTitleName");
                 Class<?> util = Class.forName(TITLE_UTIL_CLASS);
                 refresh = util.getMethod("refreshPlayerTitle", UUID.class);
                 try {
@@ -122,6 +132,9 @@ public final class PlayerTitleHook {
         this.titlePlayerId = recordId;
         this.titlePlayerTitleId = recordTitleId;
         this.refreshPlayerTitle = refresh;
+        this.findTitleById = findTitle;
+        this.updateTitleName = updateName;
+        this.titleListTitleName = listName;
         this.papiParsing = papi;
         this.available = set != null;
         this.guildTitleSupported = available
@@ -154,6 +167,42 @@ public final class PlayerTitleHook {
             return Boolean.TRUE.equals(existTitleId.invoke(null, titleId));
         } catch (Throwable ignored) {
             return true;
+        }
+    }
+
+    /** 是否支持读取 / 修改称号名（用于把称号同步成「工会名 + 后缀」等模板）。 */
+    public boolean canRenameTitle() {
+        return findTitleById != null && updateTitleName != null && titleListTitleName != null;
+    }
+
+    /** 读取称号当前名称；不支持或读取失败返回 null。 */
+    public String titleName(int titleId) {
+        if (!canRenameTitle() || titleId <= 0) {
+            return null;
+        }
+        try {
+            Object found = findTitleById.invoke(null, titleId);
+            if (found instanceof Optional<?> optional && optional.isPresent()) {
+                return (String) titleListTitleName.invoke(optional.get());
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * 修改称号名称。PlayerTitle 会同步所有玩家已拥有称号的显示名，并刷新在线玩家的展示。
+     *
+     * @return 是否修改成功（名称相同的情况调用方应先自行跳过）
+     */
+    public boolean renameTitle(int titleId, String name) {
+        if (!canRenameTitle() || titleId <= 0 || name == null || name.isBlank()) {
+            return false;
+        }
+        try {
+            return Boolean.TRUE.equals(updateTitleName.invoke(null, titleId, name, Boolean.FALSE));
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 

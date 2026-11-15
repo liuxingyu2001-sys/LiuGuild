@@ -35,10 +35,14 @@ public final class MainSettings {
     public boolean petsBlockInWar = true;
 
     // ---- PlayerTitle 工会名称号 ----
-    /** 是否用 PlayerTitle 的称号展示玩家工会名（称号名由管理员预先配置为 %liuguild_name%）。 */
+    /** 工会名称号默认显示模板：工会名 + 「工会」，避免只显示一个名字看不出是工会。 */
+    public static final String DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME = "%liuguild_name%工会";
+    /** 是否用 PlayerTitle 的称号展示玩家工会名（称号文本见 playerTitleGuildTitleName）。 */
     public boolean playerTitleGuildTitleEnabled = false;
     /** 管理员在 PlayerTitle 里创建的「工会名」称号 id；0 表示未配置，功能跳过。 */
     public int playerTitleGuildTitleId = 0;
+    /** 称号名模板（PlayerTitle 称号名，支持 PAPI；必须包含 %liuguild_name%）。 */
+    public String playerTitleGuildTitleName = DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME;
     /** 在线玩家称号对账间隔（秒），0 = 关闭。 */
     public int playerTitleGuildTitleRecheckSeconds = 60;
     /** true = 始终佩戴工会称号；false = 仅在玩家当前没有展示称号时佩戴。 */
@@ -114,6 +118,10 @@ public final class MainSettings {
                 "hooks.player-title.guild-title.enabled", s.playerTitleGuildTitleEnabled);
         s.playerTitleGuildTitleId = Math.max(0, c.getInt(
                 "hooks.player-title.guild-title.title-id", s.playerTitleGuildTitleId));
+        String guildTitleName = c.getString("hooks.player-title.guild-title.name", s.playerTitleGuildTitleName);
+        if (guildTitleName != null && !guildTitleName.isBlank()) {
+            s.playerTitleGuildTitleName = guildTitleName.strip();
+        }
         s.playerTitleGuildTitleRecheckSeconds = clamp(c.getInt(
                 "hooks.player-title.guild-title.recheck-seconds", s.playerTitleGuildTitleRecheckSeconds), 0, 3600);
         s.playerTitleGuildTitleForce = c.getBoolean(

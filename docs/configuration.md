@@ -129,7 +129,8 @@ hooks:
   player-title:
     guild-title:
       enabled: false                 # 用 PlayerTitle 展示玩家工会名（需 PAPI，详见 hooks.md）
-      title-id: 0                    # PlayerTitle 里预先创建的 %liuguild_name% 称号 ID；0 = 跳过
+      title-id: 0                    # PlayerTitle 里预先创建的工会名称号 ID；0 = 跳过
+      name: "%liuguild_name%工会"     # 称号显示文本（启用时自动同步）；必须含 %liuguild_name%
       recheck-seconds: 60            # 在线玩家称号对账间隔（秒），0 = 关闭
       force: true                    # true 始终占展示槽；false 仅在玩家没有展示称号时佩戴
 ```

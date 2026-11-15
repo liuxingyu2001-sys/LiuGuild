@@ -26,9 +26,10 @@ import java.util.UUID;
  * <h3>为什么不需要给每个工会建称号</h3>
  * <p>PlayerTitle 的称号名支持 PlaceholderAPI 变量：聊天前缀与 Tab 前缀显示时都会调用
  * {@code PlaceholderApiUtil.set(player, titleName)}。而 LiuGuild 已经注册了
- * {@code %liuguild_name%}，所以管理员只需要在 PlayerTitle 里创建 <b>一个</b> 称号名为
- * {@code %liuguild_name%} 的称号，成员戴上后显示的就是各自工会名；工会改名也会在下次
- * 渲染时实时生效（无需重建称号，也不受 PlayerTitle 免费版 100 个称号的上限影响）。</p>
+ * {@code %liuguild_name%}，所以管理员只需要在 PlayerTitle 里创建 <b>一个</b> 称号
+ * （文本由 {@code hooks.player-title.guild-title.name} 配置，默认 {@code %liuguild_name%工会}，
+ * 显示成「某某工会」），成员戴上后显示的就是各自工会名；工会改名也会在下次渲染时实时生效
+ * （无需重建称号，也不受 PlayerTitle 免费版 100 个称号的上限影响）。</p>
  *
  * <h3>同步策略</h3>
  * <ul>
@@ -126,10 +127,11 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         if (!hook.titleExists(titleId())) {
             plugin.getLogger().warning("hooks.player-title.guild-title.title-id=" + titleId()
                     + " 在 PlayerTitle 中不存在，工会名称号已跳过。请先用 "
-                    + "/plt title add not &b%liuguild_name% 0 0 false 创建称号并回填 ID。");
+                    + "/plt title add not &b%liuguild_name%工会 0 0 false 创建称号并回填 ID。");
             stop();
             return;
         }
+        syncTitleName(hook);
         if (!registered) {
             Bukkit.getPluginManager().registerEvents(this, plugin);
             registered = true;
@@ -138,6 +140,37 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         // 配置热重载 / 插件重载后，立即校准一次在线玩家（启动时工会数据可能还没加载，sync 会自行跳过）。
         for (Player player : Bukkit.getOnlinePlayers()) {
             sync(player, force());
+        }
+    }
+
+    /**
+     * 把 PlayerTitle 里该称号的名称同步成配置模板（默认「工会名 + 工会」，避免只显示一个名字
+     * 看不出是工会）。PlayerTitle 的 updateTitleName 会同步所有玩家已拥有称号的显示名并刷新
+     * 在线展示，所以旧玩家不需要重新发放。
+     */
+    private void syncTitleName(PlayerTitleHook hook) {
+        String configured = plugin.settings().main.playerTitleGuildTitleName;
+        String name = configured == null || configured.isBlank()
+                ? MainSettings.DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME : configured.strip();
+        if (!name.contains("%liuguild_name%")) {
+            plugin.getLogger().warning("hooks.player-title.guild-title.name=\"" + configured
+                    + "\" 不含 %liuguild_name%，无法显示各人工会名，已回退默认值: "
+                    + MainSettings.DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME);
+            name = MainSettings.DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME;
+        }
+        if (!hook.canRenameTitle()) {
+            // 旧版 PlayerTitle 不支持读写称号名：保留管理员手动设置的名字。
+            return;
+        }
+        String current = hook.titleName(titleId());
+        if (current != null && current.equals(name)) {
+            return;
+        }
+        if (hook.renameTitle(titleId(), name)) {
+            plugin.getLogger().info("已将 PlayerTitle 工会称号（ID " + titleId() + "）的名称同步为: " + name);
+        } else {
+            plugin.getLogger().warning("同步 PlayerTitle 工会称号（ID " + titleId()
+                    + "）名称失败，请手动把该称号名改为: " + name);
         }
     }
 

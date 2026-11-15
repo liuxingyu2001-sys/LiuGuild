@@ -63,19 +63,27 @@ class MainSettingsTest {
         MainSettings defaults = MainSettings.parse(new YamlConfiguration());
         assertFalse(defaults.playerTitleGuildTitleEnabled);
         assertEquals(0, defaults.playerTitleGuildTitleId);
+        assertEquals("%liuguild_name%工会", defaults.playerTitleGuildTitleName);
         assertEquals(60, defaults.playerTitleGuildTitleRecheckSeconds);
         assertTrue(defaults.playerTitleGuildTitleForce);
 
         YamlConfiguration c = new YamlConfiguration();
         c.set("hooks.player-title.guild-title.enabled", true);
         c.set("hooks.player-title.guild-title.title-id", 12);
+        c.set("hooks.player-title.guild-title.name", " &7[&b%liuguild_name%&7]工会 ");
         c.set("hooks.player-title.guild-title.recheck-seconds", 0);
         c.set("hooks.player-title.guild-title.force", false);
         MainSettings s = MainSettings.parse(c);
         assertTrue(s.playerTitleGuildTitleEnabled);
         assertEquals(12, s.playerTitleGuildTitleId);
+        assertEquals("&7[&b%liuguild_name%&7]工会", s.playerTitleGuildTitleName);
         assertEquals(0, s.playerTitleGuildTitleRecheckSeconds);
         assertFalse(s.playerTitleGuildTitleForce);
+
+        // 空白的 name 回退默认值
+        YamlConfiguration blank = new YamlConfiguration();
+        blank.set("hooks.player-title.guild-title.name", "   ");
+        assertEquals("%liuguild_name%工会", MainSettings.parse(blank).playerTitleGuildTitleName);
     }
 
     @Test
