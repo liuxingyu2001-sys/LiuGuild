@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import com.liu.liuguild.LiuGuild;
 import com.liu.liuguild.model.Guild;
 import com.liu.liuguild.model.GuildWar;
+import com.liu.liuguild.util.Text;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -502,7 +503,7 @@ public final class QqBotHook {
         if (g == null) {
             return "找不到工会：" + name;
         }
-        return "【工会】" + g.name() + " [" + g.tag() + "]\n"
+        return "【工会】" + Text.clean(g.name()) + "\n"
                 + "等级：" + g.level() + "｜资金：" + g.points() + "｜银行：" + g.bank() + "\n"
                 + "成员：" + g.memberCount() + "｜战绩：" + g.wins() + " 胜 " + g.losses() + " 负\n"
                 + "会长：" + g.leaderName() + "｜" + (g.open() ? "开放加入" : "邀请制");
@@ -526,14 +527,14 @@ public final class QqBotHook {
         }
         if (war == null) {
             if (queued != null) {
-                return "【战况】" + g.name() + " 正在排队：" + queued;
+                return "【战况】" + Text.clean(g.name()) + " 正在排队：" + queued;
             }
-            return g == null ? "请指定工会名：!war <工会名>" : "【战况】" + g.name() + " 当前没有进行中的工会战";
+            return g == null ? "请指定工会名：!war <工会名>" : "【战况】" + Text.clean(g.name()) + " 当前没有进行中的工会战";
         }
         boolean home = war.guildA().equals(g.id());
-        return "【战况】" + war.nameA() + " " + war.scoreA() + " : " + war.scoreB() + " " + war.nameB() + "\n"
+        return "【战况】" + Text.clean(war.nameA()) + " " + war.scoreA() + " : " + war.scoreB() + " " + Text.clean(war.nameB()) + "\n"
                 + "阶段：" + war.state().display() + "｜承办服：" + war.hostServer() + "\n"
-                + "你查询的一方：" + g.name() + "｜比分：" + (home ? war.scoreA() : war.scoreB());
+                + "你查询的一方：" + Text.clean(g.name()) + "｜比分：" + (home ? war.scoreA() : war.scoreB());
     }
 
     private String topInfo() {
@@ -542,7 +543,7 @@ public final class QqBotHook {
         StringBuilder sb = new StringBuilder("【资金排行】");
         for (int i = 0; i < Math.min(5, list.size()); i++) {
             Guild g = list.get(i);
-            sb.append("\n#").append(i + 1).append(" ").append(g.name())
+            sb.append("\n#").append(i + 1).append(" ").append(Text.clean(g.name()))
                     .append("：").append(g.points());
         }
         if (list.isEmpty()) {

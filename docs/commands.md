@@ -5,7 +5,7 @@
 | 指令 | 说明 |
 |---|---|
 | `/guild`、`/guild gui` | 打开工会主菜单 |
-| `/guild create <名称> [标签]` | 创建工会（扣除创建费）；标签省略时自动从名称截取 |
+| `/guild create <名称>` | 创建工会（扣除创建费）；名称可用颜色代码（需 `liuguild.name.color`），标签由名称自动生成 |
 | `/guild disband confirm` | 会长解散工会（二次确认） |
 | `/guild join <名称>` | 加入开放加入的工会 |
 | `/guild leave` | 退出工会（会长需先转让/解散） |
@@ -105,7 +105,7 @@
 | `/guildadmin war list` | 进行中的工会战与队列 |
 | `/guildadmin war <warId>` | 单场工会战详情 |
 | `/guildadmin disband <工会>` | 强制解散（对应 GUI 权限 `liuguild.admin.disband`） |
-| `/guildadmin rename <工会> <新名称> [新标签]` | 给任意工会改名（绕开冷却与费用，权限 `liuguild.admin.rename`） |
+| `/guildadmin rename <工会> <新名称>` | 给任意工会改名（绕开冷却与费用，权限 `liuguild.admin.rename`；标签自动生成） |
 | `/guildadmin setlevel <工会> <等级>` | 设置等级 |
 | `/guildadmin setpoints <工会> <点数>` | 设置点数 |
 | `/guildadmin forceend [warId]` | 强制结束工会战 |
@@ -119,6 +119,7 @@
 | `liuguild.use` | true | 基础功能（`/guild` 全部子命令） |
 | `liuguild.create` | true | 创建工会（命令与 GUI 均校验） |
 | `liuguild.create.free` | op | 免创建费 |
+| `liuguild.name.color` | false | 允许在工会名（创建 / 改名）中使用颜色代码 |
 | `liuguild.war` | true | 参与 / 排队 / 进入工会战（仍需会长或官员身份） |
 | `liuguild.warehouse` | true | 打开工会共享仓库 |
 | `liuguild.shop.manage` | op | 管理工会商店（上架 / 改价 / 下架） |

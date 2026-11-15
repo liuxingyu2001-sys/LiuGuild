@@ -142,9 +142,20 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
   ```
 - 称号文本：`name` 决定显示内容，默认 `"%liuguild_name%工会"`（显示成「某某工会」，避免只显示
   一个名字看不出是工会）；可以加颜色/前后缀，例如 `"&7[&b%liuguild_name%&7]工会"`。
+  PlayerTitle 用 MiniMessage 渲染称号名，所以也支持渐变标签，例如
+  `"<gradient:#00E5FF:#FF00FF>%liuguild_name%</gradient>&7工会"`。
   启用 / 重载时本插件会通过 `PlayerTitleApi.updateTitleName` 把该称号名同步成 `name` 的值
   （PlayerTitle 会同时更新所有玩家已拥有称号的显示名并刷新在线玩家，无需重新发放）；
   `name` 里缺少 `%liuguild_name%` 会告警并回退默认值。
+- 工会头衔：可以把玩家当前装备的工会固定头衔（`guild.yml` → `titles.presets`）拼进称号，
+  例如 `name: "%liuguild_name_title%"` 显示成「星辰 会长」；未装备头衔时只显示工会名，
+  不会留下多余空格。也可以写 `"%liuguild_name%工会%liuguild_title_spaced%"` 保留「工会」后缀。
+  玩家换装 / 卸下头衔时本插件会主动刷新 PlayerTitle，聊天与 Tab 前缀立即更新。
+- 工会名颜色：`guild.name.allow-colors: true`（默认）且玩家拥有 `liuguild.name.color` 权限时，
+  工会名可带 `&a` / `&#FF0000` 等颜色代码，`%liuguild_name%` 会原样返回，PlayerTitle 渲染称号时
+  按旧版颜色代码解析，因此聊天前缀 / Tab 里显示的是各工会自己的颜色；名字里的 `<`、`>`、`\`
+  会被拒绝，避免经 PAPI 注入 MiniMessage。需要不带颜色的纯文本（给不解析颜色的插件/日志）时
+  使用 `%liuguild_name_plain%`。
 - 启动 / 重载 / 每轮对账都会校验 `title-id` 是否存在，不存在会告警并自动跳过（不会反复重试写库）。
 - 开启后：进服 / 入会 / 建会 → 自动授予并佩戴；退会 / 被踢 / 解散 → 自动回收
   （回落到 PlayerTitle 默认称号）；`recheck-seconds` 定时对账兜底手动换称号、跨服入退会与漏事件。

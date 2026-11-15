@@ -5,6 +5,7 @@ import com.liu.liuguild.api.GuildAPI;
 import com.liu.liuguild.model.Guild;
 import com.liu.liuguild.model.GuildMember;
 import com.liu.liuguild.model.GuildWar;
+import com.liu.liuguild.util.Text;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
 import org.jetbrains.annotations.NotNull;
@@ -144,7 +145,11 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         return switch (p) {
             case "guild_id" -> guild.id();
             case "name" -> guild.name();
-            case "tag" -> guild.tag();
+            case "name_plain" -> Text.clean(guild.name());
+            // 工会名 + 玩家当前装备的工会固定头衔：没有头衔时自动省略后面的空格。
+            case "name_title" -> guild.name() + titleSuffix(player);
+            case "title_spaced" -> titleSuffix(player);
+            case "tag" -> plugin.guilds().tagDisplay(guild);
             case "level" -> String.valueOf(guild.level());
             case "points", "funds" -> String.valueOf(guild.points());
             case "home_slots" -> String.valueOf(plugin.settings().guild.homeSlots(guild.level()));
@@ -184,6 +189,24 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         };
     }
 
+    /** 已装备的工会固定头衔（旧版 § 颜色文本）；未装备返回空串。 */
+    private String guildTitleLegacy(OfflinePlayer player) {
+        if (player == null || plugin.titles() == null) {
+            return "";
+        }
+        String title = plugin.titles().displayLegacy(player.getUniqueId());
+        return title == null ? "" : title;
+    }
+
+    /**
+     * 带前导空格的工会头衔：没有装备头衔时返回空串，避免称号里留下多余空格。
+     * 供 {@code %liuguild_name_title%} 与 {@code %liuguild_title_spaced%} 使用。
+     */
+    private String titleSuffix(OfflinePlayer player) {
+        String title = guildTitleLegacy(player);
+        return title.isBlank() ? "" : " " + title;
+    }
+
     private String handleNamed(String rest) {
         int idx = rest.indexOf('_');
         if (idx <= 0) {
@@ -197,7 +220,11 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         }
         return switch (field) {
             case "name" -> g.name();
-            case "tag" -> g.tag();
+            case "name_plain" -> Text.clean(g.name());
+            case "tag" -> {
+                Guild guild = plugin.guilds().guild(g.id());
+                yield guild == null ? "" : plugin.guilds().tagDisplay(guild);
+            }
             case "level" -> String.valueOf(g.level());
             case "points", "funds" -> String.valueOf(g.points());
             case "members" -> String.valueOf(g.members());
@@ -253,7 +280,11 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         GuildAPI.GuildView g = top.get(n - 1);
         return switch (field) {
             case "name" -> g.name();
-            case "tag" -> g.tag();
+            case "name_plain" -> Text.clean(g.name());
+            case "tag" -> {
+                Guild guild = plugin.guilds().guild(g.id());
+                yield guild == null ? "" : plugin.guilds().tagDisplay(guild);
+            }
             case "level" -> String.valueOf(g.level());
             case "points", "funds" -> String.valueOf(g.points());
             case "wins" -> String.valueOf(g.wins());

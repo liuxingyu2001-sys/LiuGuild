@@ -112,6 +112,33 @@ class GuildSettingsTest {
     }
 
     @Test
+    void guildNameColorAndTagDisplayDefaults() {
+        GuildSettings def = GuildSettings.parse(new org.bukkit.configuration.file.YamlConfiguration());
+        assertTrue(def.nameAllowColors, "默认允许工会名颜色代码");
+        assertFalse(def.showTag, "默认不对外展示工会标签");
+    }
+
+    @Test
+    void guildNameColorAndTagDisplayCanBeConfigured() {
+        org.bukkit.configuration.file.YamlConfiguration c =
+                new org.bukkit.configuration.file.YamlConfiguration();
+        try {
+            c.loadFromString("""
+                    guild:
+                      name:
+                        allow-colors: false
+                      tag:
+                        show: true
+                    """);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        GuildSettings s = GuildSettings.parse(c);
+        assertFalse(s.nameAllowColors);
+        assertTrue(s.showTag);
+    }
+
+    @Test
     void negativeCheckinCostIsClampedToZero() {
         org.bukkit.configuration.file.YamlConfiguration c =
                 new org.bukkit.configuration.file.YamlConfiguration();

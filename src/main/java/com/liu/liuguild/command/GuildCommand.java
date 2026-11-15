@@ -135,7 +135,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
 
     private void help(Player player) {
         plugin.messages().sendRaw(player, "help-header");
-        helpLine(player, "基础", "/guild create <名称> [标签]", "创建一个新工会");
+        helpLine(player, "基础", "/guild create <名称>", "创建一个新工会（颜色代码需权限）");
         helpLine(player, "基础", "/guild join <名称>", "加入一个开放加入的工会");
         helpLine(player, "基础", "/guild accept [工会]", "接受收到的入会邀请");
         helpLine(player, "基础", "/guild deny [工会]", "拒绝收到的入会邀请");
@@ -149,7 +149,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         helpLine(player, "成员", "/guild kick <玩家>", "踢出成员");
         helpLine(player, "成员", "/guild transfer <玩家>", "转让会长");
         helpLine(player, "设置", "/guild seticon <图标>", "更换工会图标");
-        helpLine(player, "设置", "/guild rename <新名称> [新标签]", "给工会改名字");
+        helpLine(player, "设置", "/guild rename <新名称>", "给工会改名字");
         helpLine(player, "设置", "/guild set notice <内容>", "修改工会公告");
         helpLine(player, "设置", "/guild set desc <内容>", "修改工会简介");
         helpLine(player, "设置", "/guild set open <true|false>", "切换开放加入 / 邀请制");
@@ -198,9 +198,8 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             return;
         }
         String name = args[1];
-        // 标签可选：不传时由 GuildManager 从名称生成，避免长名称因标签超长而创建失败。
-        String tag = args.length >= 3 ? args[2] : null;
-        plugin.guilds().create(player, name, tag);
+        // 标签不再需要玩家填写：由名称自动生成（多余的 [标签] 参数忽略）。
+        plugin.guilds().create(player, name, null);
     }
 
     private void disband(Player player, String[] args) {
@@ -395,7 +394,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    /** /guild rename <新名称> [新标签] —— 仅会长，受开关/冷却/费用限制。 */
+    /** /guild rename <新名称> —— 仅会长，受开关/冷却/费用限制；标签按名称自动生成。 */
     private void rename(Player player, String[] args) {
         Guild g = plugin.guilds().guildOf(player.getUniqueId());
         if (g == null) {
@@ -406,9 +405,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(player, "rename-usage");
             return;
         }
-        String newName = args[1];
-        String newTag = args.length > 2 ? args[2] : null;
-        plugin.guilds().rename(player, g, newName, newTag);
+        plugin.guilds().rename(player, g, args[1], null);
     }
 
     private void bank(Player player, String[] args) {        Guild g = plugin.guilds().guildOf(player.getUniqueId());
@@ -440,7 +437,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
             plugin.messages().send(player, "guild-not-found", "name", args.length >= 2 ? args[1] : "");
             return;
         }
-        plugin.messages().sendRaw(player, "info-header", "tag", g.tag(), "guild", g.name());
+        plugin.messages().sendRaw(player, "info-header", "tag", plugin.guilds().tagDisplay(g), "guild", g.name());
         plugin.messages().sendRaw(player, "info-body", "leader", g.leaderName(), "level", g.level(),
                 "members", g.memberCount(), "max", plugin.settings().guild.memberLimit(g.level()));
         plugin.messages().sendRaw(player, "info-points", "points", g.points(), "wins", g.wins(),
@@ -459,7 +456,7 @@ public final class GuildCommand implements CommandExecutor, TabCompleter {
         plugin.messages().sendRaw(player, "list-header", "count", guilds.size());
         for (int i = 0; i < perPage && from + i < guilds.size(); i++) {
             Guild g = guilds.get(from + i);
-            plugin.messages().sendRaw(player, "list-line", "guild", g.name(), "tag", g.tag(),
+            plugin.messages().sendRaw(player, "list-line", "guild", g.name(), "tag", plugin.guilds().tagDisplay(g),
                     "leader", g.leaderName(), "members", g.memberCount());
         }
         player.sendMessage(Text.mm("<gray>第 <white>" + page + "<gray>/<white>" + maxPage + " <gray>页  "

@@ -57,6 +57,31 @@ class TextTest {
     }
 
     @Test
+    void legacyColorsInsidePlainPlaceholderValuesAreRenderedSafely() {
+        // 工会名允许颜色代码后，普通占位符值里的 &b 也要上色，而不是显示字面量。
+        Component c = Text.fmt("<gray>{name}", "name", "&b星辰");
+        assertEquals("星辰", Text.plain(c));
+        assertTrue(hasColor(c, NamedTextColor.AQUA));
+        assertTrue(noClickEvents(c));
+
+        // 玩家可控文本里的迷你标签必须被转义成纯文本，不能注入颜色/点击事件。
+        Component unsafe = Text.fmt("<gray>{name}", "name", "&b<red><click:run_command:'/op me'>x");
+        assertEquals("<red><click:run_command:'/op me'>x", Text.plain(unsafe));
+        assertTrue(noClickEvents(unsafe));
+    }
+
+    @Test
+    void guildNameValidationAllowsColorsButRejectsMiniMessage() {
+        assertTrue(Text.isGuildNameAllowed("&b星辰", true));
+        assertTrue(Text.isGuildNameAllowed("&#FF0000星辰", true));
+        assertFalse(Text.isGuildNameAllowed("&b星辰", false), "关闭颜色后应拒绝颜色代码");
+        assertFalse(Text.isGuildNameAllowed("<red>星辰", true), "尖括号会被其它插件当 MiniMessage 解析");
+        assertFalse(Text.isGuildNameAllowed("星辰\\", true));
+        assertFalse(Text.isGuildNameAllowed("   ", true));
+        assertEquals("星辰", Text.clean("&b星辰"));
+    }
+
+    @Test
     void selectiveRenderingEscapesPlainKeysButAllowsRichKeys() {
         Component c = Text.fmtSelective("<gray>{player}: {notice}",
                 java.util.Set.of("notice"),

@@ -87,6 +87,17 @@ heartbeat-seconds: 5
 工会名称/标签长度、创建费、成员上限与每级增长、邀请有效期与冷却、银行开关与税率、
 升级所需点数与成长系数、最高等级、新工会的成员 PvP 默认值（`friendly-fire`）、官员权限（邀请/踢人/宣战/公告/驻地/群发邮件）、默认图标与图标更换费用、工会邮件群发开关/冷却/长度/保留天数。已有工会可在 GUI「工会设置」中单独开关成员 PvP。
 
+工会名与标签（`guild.name` / `guild.tag`）：
+
+- `guild.name.allow-colors: true`：工会名允许旧版颜色代码（`&a`、`&l`、`&#FF0000`，也接受 `§`）。
+  开启后消息、GUI、列表、PAPI 与 PlayerTitle 称号都会按颜色渲染；长度与重名判断按**去掉颜色代码后的纯文本**计算。
+  玩家还需要权限 `liuguild.name.color`（默认 `false`）才能实际使用颜色代码；`/guildadmin rename` 视为管理员操作、不受该权限限制。
+  名称中的 `<`、`>`、`\` 与控制字符始终禁止（避免经 PAPI 注入到 MiniMessage 渲染的插件）。
+- `guild.tag.show: false`：是否在玩家可见界面展示工会标签。标签**始终按名称自动生成**、无需玩家填写；
+  默认关闭展示，仅内部用于唯一性与旧数据兼容。`/guild create`、`/guild rename` 已不再接收标签参数。
+  内置 `messages.yml` / `gui.yml` 默认模板已去掉标签（避免留下空 `[]`）；需要恢复展示时，把
+  `{tag}` 加回对应模板即可。
+
 ## war.yml
 
 全局开关与 `war.defaults`（所有模式的公共默认值）。也可以在这里与 `defaults` 同级直接写模式规则（或放进 `war.modes:`），未写的项继承 `defaults`；同名模式以 `war-modes.yml` 为准。详见 [war.md](war.md)。

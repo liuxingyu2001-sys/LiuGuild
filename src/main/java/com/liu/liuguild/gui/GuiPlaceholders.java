@@ -24,7 +24,7 @@ final class GuiPlaceholders {
             return ph;
         }
         ph.put("guild", g.name());
-        ph.put("tag", g.tag());
+        ph.put("tag", plugin.guilds().tagDisplay(g));
         ph.put("leader", g.leaderName());
         ph.put("level", String.valueOf(g.level()));
         ph.put("max_level", String.valueOf(plugin.settings().guild.maxLevel));

@@ -123,7 +123,8 @@ public final class GuildManager {
         Map<String, String> names = new ConcurrentHashMap<>();
         Map<String, String> tags = new ConcurrentHashMap<>();
         for (Guild g : guilds.values()) {
-            names.put(g.name().toLowerCase(Locale.ROOT), g.id());
+            // 名称可能带颜色代码：索引/重名统一按去色文本，避免同一显示名用不同颜色绕过占用。
+            names.put(Text.clean(g.name()).toLowerCase(Locale.ROOT), g.id());
             tags.put(g.tag().toLowerCase(Locale.ROOT), g.id());
         }
         nameIndex = names;
@@ -143,12 +144,24 @@ public final class GuildManager {
         if (name == null) {
             return null;
         }
-        String id = nameIndex.get(name.toLowerCase(Locale.ROOT));
+        // 玩家输入的名称可能带颜色代码，也可能是纯文本；统一按去色文本匹配。
+        String id = nameIndex.get(Text.clean(name).toLowerCase(Locale.ROOT));
         if (id != null) {
             return guilds.get(id);
         }
         // 兜底：允许用 id 直接查
         return guilds.get(name);
+    }
+
+    /**
+     * 玩家可见的工会标签文本。{@code guild.tag.show=false}（默认）时返回空串：
+     * 标签仍然自动生成并用于内部唯一性/旧数据兼容，但不再出现在列表、GUI、PAPI 等对外展示中。
+     */
+    public String tagDisplay(Guild g) {
+        if (g == null) {
+            return "";
+        }
+        return conf().showTag ? g.tag() : "";
     }
 
     public Guild guildOf(UUID uuid) {
@@ -236,56 +249,52 @@ public final class GuildManager {
     // 创建 / 解散
     // =====================================================================
 
-    /** 从工会名生成标签：去空格后截断到上限。 */
-    private static String deriveTag(String name, int tagMax) {
-        if (name == null) {
-            return "";
-        }
-        String t = name.replace(" ", "").replace("　", "").trim();
-        return t.length() > tagMax ? t.substring(0, tagMax) : t;
-    }
+    /** {@code guilds.name} 列长度（VARCHAR(64)）：带颜色代码的原始名称不能超过该上限。 */
+    private static final int NAME_RAW_MAX = 64;
+
+    /** 允许在工会名（创建 / 改名）中使用颜色代码的权限。 */
+    public static final String PERMISSION_NAME_COLORS = "liuguild.name.color";
 
     /** 进程启动时间：关服 upsert 只补插“本进程内新建”的行，避免把别服已删除的工会/成员复活。 */
     private final long startedAt = System.currentTimeMillis();
 
+    /**
+     * 创建工会。
+     * <p>名称允许旧版颜色代码（见 {@code guild.name.allow-colors}），长度/重名按去色文本判断；
+     * 标签不再由玩家填写，按名称自动生成（{@code tag} 参数保留只为兼容旧调用方，始终忽略）。</p>
+     */
     public boolean create(Player player, String name, String tag) {
         if (!player.hasPermission("liuguild.create")) {
             plugin.messages().send(player, "no-permission");
             return false;
         }
         GuildSettings c = conf();
-        String cleanName = Text.clean(name);
-        String cleanTag = Text.clean(tag);
-        if (cleanTag.isEmpty()) {
-            // 标签是可选项：省略时从名称截取，避免 /guild create MyGuild 因名称超过 tag-max 必然失败。
-            cleanTag = deriveTag(cleanName, c.tagMax);
+        String rawName = name == null ? "" : name.strip();
+        String cleanName = Text.clean(rawName);
+        // 标签不再由玩家/管理员填写：始终按名称自动生成；tag 参数保留只为兼容旧调用方。
+        boolean colorsAllowed = c.nameAllowColors && player.hasPermission(PERMISSION_NAME_COLORS);
+        if (!colorsAllowed && Text.hasLegacyCode(rawName)) {
+            plugin.messages().send(player, c.nameAllowColors ? "name-color-no-permission" : "create-name-invalid",
+                    "min", c.nameMin, "max", c.nameMax);
+            return false;
         }
-        final String tagValue = cleanTag;
-        if (Text.hasFormatting(name) || Text.hasFormatting(tag)
-                || cleanName.length() < c.nameMin || cleanName.length() > c.nameMax) {
+        if (!validGuildName(rawName, cleanName, c, colorsAllowed)) {
             plugin.messages().send(player, "create-name-invalid", "min", c.nameMin, "max", c.nameMax);
             return false;
         }
-        if (cleanTag.length() < c.tagMin || cleanTag.length() > c.tagMax) {
-            plugin.messages().send(player, "create-tag-invalid", "min", c.tagMin, "max", c.tagMax);
-            return false;
-        }
+        String tagValue = autoTag(cleanName, c, null);
         if (isInGuild(player.getUniqueId())) {
             Guild cur = guildOf(player.getUniqueId());
             plugin.messages().send(player, "already-in-guild", "guild", cur == null ? "" : cur.name());
             return false;
         }
         String normName = cleanName.toLowerCase(Locale.ROOT);
-        String normTag = cleanTag.toLowerCase(Locale.ROOT);
+        String normTag = tagValue.toLowerCase(Locale.ROOT);
         if (nameIndex.containsKey(normName) || !pendingNames.add(normName)) {
-            plugin.messages().send(player, "create-name-taken", "name", cleanName);
+            plugin.messages().send(player, "create-name-taken", "name", rawName);
             return false;
         }
-        if (tagIndex.containsKey(normTag) || !pendingTags.add(normTag)) {
-            pendingNames.remove(normName);
-            plugin.messages().send(player, "create-tag-taken", "tag", cleanTag);
-            return false;
-        }
+        pendingTags.add(normTag);
         if (c.createCost > 0 && !player.hasPermission("liuguild.create.free")
                 && !plugin.economy().has(player, c.createCost)) {
             pendingNames.remove(normName);
@@ -296,7 +305,7 @@ public final class GuildManager {
 
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
-        Guild g = new Guild(id, cleanName, cleanTag, player.getUniqueId(), player.getName(),
+        Guild g = new Guild(id, rawName, tagValue, player.getUniqueId(), player.getName(),
                 "", "", false, now, now, 0, 1, 0, 0, 0, plugin.serverId(), 1,
                 conf().defaultIcon);
         g.memberPvp(c.friendlyFire);
@@ -327,7 +336,7 @@ public final class GuildManager {
                 plugin.sync(() -> {
                     pendingNames.remove(normName);
                     pendingTags.remove(normTag);
-                    plugin.messages().send(player, "create-success", "guild", cleanName);
+                    plugin.messages().send(player, "create-success", "guild", rawName);
                     Bukkit.getPluginManager().callEvent(new GuildCreateEvent(g, player));
                     if (plugin.webhook() != null) {
                         plugin.webhook().guildCreate(g, player.getName());
@@ -348,7 +357,7 @@ public final class GuildManager {
 
     private void rollbackCreate(Player player, Guild guild, String id, GuildSettings settings, String message) {
         plugin.sync(() -> {
-            pendingNames.remove(guild.name().toLowerCase(Locale.ROOT));
+            pendingNames.remove(Text.clean(guild.name()).toLowerCase(Locale.ROOT));
             pendingTags.remove(guild.tag().toLowerCase(Locale.ROOT));
             guilds.remove(id, guild);
             memberIndex.remove(player.getUniqueId(), id);
@@ -1005,9 +1014,10 @@ public final class GuildManager {
     }
 
     /**
-     * 改工会名称（可选同时改标签）。仅会长可执行，需改名字开关打开。
+     * 改工会名称。仅会长可执行，需改名字开关打开。
+     * <p>标签不再由玩家填写：改名后按新名称自动重新生成。</p>
      *
-     * @param newTag 传 null 表示不改标签
+     * @param newTag 已废弃，忽略（保留参数只为兼容旧调用方）
      * @return true 表示已提交（异步写库完成后发消息）
      */
     public boolean rename(Player actor, Guild g, String newName, String newTag) {
@@ -1030,100 +1040,85 @@ public final class GuildManager {
             plugin.messages().send(actor, "rename-cooldown", "seconds", left);
             return false;
         }
-        return applyRename(actor, g, newName, newTag, c.renameAllowTag, c.renameCost, true, false);
+        return applyRename(actor, g, newName, c.renameCost, true, false,
+                c.nameAllowColors && actor.hasPermission(PERMISSION_NAME_COLORS));
     }
 
     /**
      * 管理员改名：绕开开关、冷却、费用与「仅会长」限制（仍会校验名称合法性）。
      * 供 {@code /guildadmin} 与后台 GUI 使用。
+     *
+     * @param newTag 已废弃，忽略（标签始终按名称自动生成）
      */
     public boolean adminRename(org.bukkit.command.CommandSender actor, Guild g, String newName, String newTag) {
-        return applyRename(actor, g, newName, newTag, true, 0, false, true);
+        // 管理改名视为已获授权：只受全局 allow-colors 开关限制，不再要求 liuguild.name.color。
+        return applyRename(actor, g, newName, 0, false, true, conf().nameAllowColors);
     }
 
-    private boolean applyRename(org.bukkit.command.CommandSender actor, Guild g, String newName, String newTag,
-                                boolean allowTag, double cost, boolean checkEconomy, boolean admin) {
+    private boolean applyRename(org.bukkit.command.CommandSender actor, Guild g, String newName,
+                                double cost, boolean checkEconomy, boolean admin, boolean colorsAllowed) {
         GuildSettings c = conf();
-        String cleanName = Text.clean(newName);
-        if (Text.hasFormatting(newName) || cleanName.length() < c.nameMin || cleanName.length() > c.nameMax) {
+        String rawName = newName == null ? "" : newName.strip();
+        String cleanName = Text.clean(rawName);
+        if (!colorsAllowed && Text.hasLegacyCode(rawName)) {
+            plugin.messages().send(actor, c.nameAllowColors ? "name-color-no-permission" : "create-name-invalid",
+                    "min", c.nameMin, "max", c.nameMax);
+            return false;
+        }
+        if (!validGuildName(rawName, cleanName, c, colorsAllowed)) {
             plugin.messages().send(actor, "create-name-invalid", "min", c.nameMin, "max", c.nameMax);
             return false;
         }
         String oldName = g.name();
-        if (cleanName.equalsIgnoreCase(oldName)) {
+        // 完全相同的原始名才是「同名」；只改颜色代码（纯文本相同）应当允许，方便工会重新上色。
+        if (rawName.equals(oldName)) {
             plugin.messages().send(actor, "rename-same");
             return false;
         }
 
-        String cleanTag = null;
-        if (newTag != null && !newTag.isBlank()) {
-            if (!allowTag) {
-                plugin.messages().send(actor, "rename-tag-disabled");
-                return false;
-            }
-            cleanTag = Text.clean(newTag);
-            if (Text.hasFormatting(newTag) || cleanTag.length() < c.tagMin || cleanTag.length() > c.tagMax) {
-                plugin.messages().send(actor, "create-tag-invalid", "min", c.tagMin, "max", c.tagMax);
-                return false;
-            }
-            if (cleanTag.equalsIgnoreCase(g.tag())) {
-                plugin.messages().send(actor, "rename-same");
-                return false;
-            }
-        }
-
+        // 标签自动跟随名称重新生成，不再接受玩家输入。
+        String newTag = autoTag(cleanName, c, g);
         String normName = cleanName.toLowerCase(Locale.ROOT);
-        String normTag = cleanTag == null ? null : cleanTag.toLowerCase(Locale.ROOT);
-        if (nameIndex.containsKey(normName) || !pendingNames.add(normName)) {
-            plugin.messages().send(actor, "create-name-taken", "name", cleanName);
+        String normTag = newTag.toLowerCase(Locale.ROOT);
+        String nameOwner = nameIndex.get(normName);
+        if ((nameOwner != null && !nameOwner.equals(g.id())) || !pendingNames.add(normName)) {
+            plugin.messages().send(actor, "create-name-taken", "name", rawName);
             return false;
         }
-        if (normTag != null && (tagIndex.containsKey(normTag) || !pendingTags.add(normTag))) {
-            pendingNames.remove(normName);
-            plugin.messages().send(actor, "create-tag-taken", "tag", cleanTag);
-            return false;
-        }
+        pendingTags.add(normTag);
 
         if (cost > 0 && checkEconomy && !plugin.economy().available()) {
             plugin.messages().send(actor, "rename-no-economy");
             pendingNames.remove(normName);
-            if (normTag != null) {
-                pendingTags.remove(normTag);
-            }
+            pendingTags.remove(normTag);
             return false;
         }
         if (cost > 0 && checkEconomy) {
             if (!(actor instanceof Player payer)) {
+                pendingNames.remove(normName);
+                pendingTags.remove(normTag);
                 plugin.messages().send(actor, "players-only");
                 return false;
             }
             if (!plugin.economy().withdraw(payer, cost)) {
-                plugin.messages().send(actor, "rename-cost-missing", "cost", plugin.economy().format(cost));
                 pendingNames.remove(normName);
-                if (normTag != null) {
-                    pendingTags.remove(normTag);
-                }
+                pendingTags.remove(normTag);
+                plugin.messages().send(actor, "rename-cost-missing", "cost", plugin.economy().format(cost));
                 return false;
             }
         }
 
         String oldTag = g.tag();
-        String oldNormName = oldName.toLowerCase(Locale.ROOT);
-        String oldNormTag = oldTag == null ? "" : oldTag.toLowerCase(Locale.ROOT);
-        g.name(cleanName);
-        if (cleanTag != null) {
-            g.tag(cleanTag);
-        }
+        g.name(rawName);
+        g.tag(newTag);
         rebuildIndexes();
         lastRename.put(g.id(), System.currentTimeMillis());
-        final String appliedTag = cleanTag;
-        final String tagForCheck = cleanTag == null ? oldTag : cleanTag;
         final String actorName = actor.getName();
 
         plugin.async(() -> {
             boolean ok;
             try {
-                ok = !plugin.repo().nameOrTagTaken(cleanName, tagForCheck, g.id());
+                ok = !plugin.repo().nameOrTagTaken(cleanName, newTag, g.id());
                 if (ok) {
                     synchronized (g) { ok = plugin.repo().saveGuild(g, g.updatedAt()); }
                 }
@@ -1134,41 +1129,60 @@ public final class GuildManager {
             final boolean success = ok;
             plugin.sync(() -> {
                 pendingNames.remove(normName);
-                if (normTag != null) {
-                    pendingTags.remove(normTag);
-                }
+                pendingTags.remove(normTag);
                 if (success) {
                     plugin.broadcastGuildChange(g.id());
                     if (plugin.audit() != null) {
                         plugin.audit().record(g.id(), actor instanceof Player p ? p.getUniqueId() : null,
                                 actorName, admin ? "admin.rename" : "guild.rename", null, 0,
-                                oldName + " -> " + cleanName);
+                                oldName + " -> " + rawName);
                     }
-                    plugin.messages().send(actor, "rename-success", "old", oldName, "guild", cleanName);
+                    plugin.messages().send(actor, "rename-success", "old", oldName, "guild", rawName);
                     plugin.guilds().notifyGuild(g.id(), plugin.messages().component("rename-broadcast",
-                            "player", actorName, "old", oldName, "guild", cleanName), null);
+                            "player", actorName, "old", oldName, "guild", rawName), null);
                     // 称号名里的 %liuguild_name% 下次渲染会自动变，但 Tab 前缀由 PlayerScoreboard
                     // 缓存，需要让 PlayerTitle 重新读取并刷新在线成员。
                     if (plugin.guildNameTitle() != null) {
                         plugin.guildNameTitle().onGuildRenamed(g);
                     }
                 } else {
-                    // 回滚内存中的名字
+                    // 回滚内存中的名字与自动生成的标签
                     g.name(oldName);
-                    if (appliedTag != null) {
-                        g.tag(oldTag);
-                    }
+                    g.tag(oldTag);
                     rebuildIndexes();
                     lastRename.remove(g.id());
                     if (cost > 0 && actor instanceof Player refundTo && plugin.economy().available()
                             && !plugin.economy().deposit(refundTo, cost)) {
                         plugin.getLogger().severe("工会改名回滚退款失败: 玩家=" + refundTo.getUniqueId() + " guild=" + g.id());
                     }
-                    plugin.messages().send(actor, "create-name-taken", "name", cleanName);
+                    plugin.messages().send(actor, "create-name-taken", "name", rawName);
                 }
             });
         });
         return true;
+    }
+
+    /**
+     * 名称是否合法：允许颜色代码时按去色文本判断长度；原始文本受数据库列 {@code VARCHAR(64)} 限制。
+     * MiniMessage 尖括号/反斜杠/控制字符一律拒绝，避免经 PAPI 注入到其它插件。
+     *
+     * @param allowColors 是否允许颜色代码（全局开关开启且调用者有权限）
+     */
+    private boolean validGuildName(String rawName, String cleanName, GuildSettings c, boolean allowColors) {
+        return Text.isGuildNameAllowed(rawName, allowColors)
+                && cleanName.length() >= c.nameMin
+                && cleanName.length() <= c.nameMax
+                && rawName.length() <= NAME_RAW_MAX;
+    }
+
+    /** 按（去色后的）名称自动生成唯一标签；except 用于改名时释放自身旧标签。 */
+    private String autoTag(String cleanName, GuildSettings c, Guild except) {
+        java.util.Set<String> used = new java.util.HashSet<>(tagIndex.keySet());
+        if (except != null && except.tag() != null) {
+            used.remove(except.tag().toLowerCase(Locale.ROOT));
+        }
+        return com.liu.liuguild.util.Strings.uniqueTag(cleanName, c.tagMin, c.tagMax, used,
+                cand -> pendingTags.contains(cand.toLowerCase(Locale.ROOT)));
     }
 
     /** 设置公告；长度为 0 时清空。超长返回 false 并提示。 */

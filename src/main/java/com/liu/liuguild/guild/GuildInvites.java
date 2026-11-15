@@ -167,7 +167,7 @@ final class GuildInvites {
         for (Invite inv : map.values()) {
             Guild g = guilds.guild(inv.guildId);
             if (inv.guildId.equalsIgnoreCase(wanted)
-                    || (g != null && g.name().equalsIgnoreCase(wanted))
+                    || (g != null && com.liu.liuguild.util.Text.clean(g.name()).equalsIgnoreCase(wanted))
                     || (g != null && g.tag().equalsIgnoreCase(wanted))) {
                 return inv;
             }

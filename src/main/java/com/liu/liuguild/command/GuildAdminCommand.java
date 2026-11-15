@@ -139,7 +139,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         adminLine(sender, "war stop all", "取消各子服当前全部工会战，不发放结算奖励");
         adminLine(sender, "war list|queue|stop|tp|score", "工会战管理（查看/队列/停止/传送/改分）");
         adminLine(sender, "disband|setlevel|setpoints|setbank|info <工会>", "工会数据管理");
-        adminLine(sender, "rename <工会> <新名称> [新标签]", "给任意工会改名（绕开冷却与费用）");
+        adminLine(sender, "rename <工会> <新名称>", "给任意工会改名（绕开冷却与费用，标签自动生成）");
         adminLine(sender, "guilds [页码]", "分页列出全部工会");
         adminLine(sender, "player <玩家>", "查看玩家所属工会");
         adminLine(sender, "broadcast <文本>", "全服广播消息");
@@ -764,7 +764,7 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
         });
     }
 
-    /** /guildadmin rename <工会> <新名称> [新标签] —— 绕开冷却与费用。 */
+    /** /guildadmin rename <工会> <新名称> —— 绕开冷却与费用；标签按名称自动生成。 */
     private void rename(CommandSender sender, String[] args) {
         if (!require(sender, args, 3)) {
             return;
@@ -775,12 +775,11 @@ public final class GuildAdminCommand implements CommandExecutor, TabCompleter {
             return;
         }
         String newName = args[2];
-        String newTag = args.length > 3 ? args[3] : null;
         if (sender instanceof Player player) {
-            plugin.guilds().adminRename(player, g, newName, newTag);
+            plugin.guilds().adminRename(player, g, newName, null);
         } else {
             // 控制台没有 Player：直接改内存并落库，同名校验仍生效
-            plugin.guilds().adminRename(sender, g, newName, newTag);
+            plugin.guilds().adminRename(sender, g, newName, null);
         }
     }
 

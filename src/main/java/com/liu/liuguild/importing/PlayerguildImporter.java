@@ -150,7 +150,9 @@ public final class PlayerguildImporter {
 
         plugin.guilds().reloadAll();
         for (Guild guild : plugin.repo().loadGuilds()) {
-            if (usedNames.contains(guild.name().toLowerCase(Locale.ROOT))) plugin.broadcastGuildChange(guild.id());
+            if (usedNames.contains(com.liu.liuguild.util.Text.clean(guild.name()).toLowerCase(Locale.ROOT))) {
+                plugin.broadcastGuildChange(guild.id());
+            }
         }
         return new ImportResult(guildCount, memberCount, skippedGuilds, skippedMembers, warnings);
     }

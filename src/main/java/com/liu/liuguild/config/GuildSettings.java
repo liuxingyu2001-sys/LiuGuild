@@ -9,8 +9,12 @@ public final class GuildSettings {
 
     public int nameMin = 2;
     public int nameMax = 16;
+    /** 工会名是否允许旧版颜色代码（&a / &#FF0000 / §a）；允许后消息、GUI、称号都会上色。 */
+    public boolean nameAllowColors = true;
     public int tagMin = 2;
     public int tagMax = 5;
+    /** 是否在玩家可见界面展示工会标签（tag）；关闭后标签仍自动生成并用于内部唯一性。 */
+    public boolean showTag = false;
     public double createCost = 10000.0;
     public int maxMembers = 50;
     public boolean applicationEnabled = true;
@@ -109,8 +113,6 @@ public final class GuildSettings {
     public int renameCooldownSeconds = 3600;
     /** 改名字费用（Vault 金币）；0 = 免费。 */
     public double renameCost = 0;
-    /** 是否允许工会改名字（/guild rename <新名> <新标签>）。 */
-    public boolean renameAllowTag = true;
 
     // ---- 工会仓库 ----
     /** 是否启用工会仓库（跨服共享，同一时刻仅一人可打开）。 */
@@ -172,8 +174,10 @@ public final class GuildSettings {
         GuildSettings s = new GuildSettings();
         s.nameMin = Math.max(1, c.getInt("guild.name.min-length", s.nameMin));
         s.nameMax = Math.max(s.nameMin, c.getInt("guild.name.max-length", s.nameMax));
+        s.nameAllowColors = c.getBoolean("guild.name.allow-colors", s.nameAllowColors);
         s.tagMin = Math.max(1, c.getInt("guild.tag.min-length", s.tagMin));
         s.tagMax = Math.max(s.tagMin, c.getInt("guild.tag.max-length", s.tagMax));
+        s.showTag = c.getBoolean("guild.tag.show", s.showTag);
         s.createCost = c.getDouble("guild.create-cost", s.createCost);
         s.maxMembers = Math.max(1, c.getInt("guild.max-members", s.maxMembers));
         s.applicationEnabled = c.getBoolean("guild.application.enabled", s.applicationEnabled);
@@ -235,7 +239,6 @@ public final class GuildSettings {
         s.renameEnabled = c.getBoolean("guild.rename.enabled", s.renameEnabled);
         s.renameCooldownSeconds = Math.max(0, c.getInt("guild.rename.cooldown-seconds", s.renameCooldownSeconds));
         s.renameCost = Math.max(0, c.getDouble("guild.rename.cost", s.renameCost));
-        s.renameAllowTag = c.getBoolean("guild.rename.allow-tag", s.renameAllowTag);
         s.warehouseEnabled = c.getBoolean("guild.warehouse.enabled", s.warehouseEnabled);
         s.warehouseRequireRent = c.getBoolean("guild.warehouse.require-rent", s.warehouseRequireRent);
         s.warehouseBaseSlots = warehouseCapacity(c.getInt("guild.warehouse.base-slots", s.warehouseBaseSlots));

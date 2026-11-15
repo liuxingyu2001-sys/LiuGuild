@@ -38,6 +38,7 @@ if (GuildAPI.isReady()) {
 | `plugin()` | 主插件实例（高级用途） |
 
 `GuildView`：`id, name, tag, leaderName, icon, level, points, members, memberLimit, wins, losses, bank, open, notice`。
+`name` 可能含颜色代码（`&a` / `&#FF0000`），展示前自行按需渲染；`tag` 为内部标签，默认不在玩家界面展示。
 
 `MemberView`：`uuid, name, rank, contributed, kills, deaths, joinedAt`。
 

@@ -4,6 +4,7 @@ import com.liu.liuguild.LiuGuild;
 import com.liu.liuguild.db.WarPlayerStat;
 import com.liu.liuguild.model.Guild;
 import com.liu.liuguild.model.GuildWar;
+import com.liu.liuguild.util.Text;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -84,28 +85,28 @@ public final class WebhookHook {
         if (!plugin.settings().main.webhookGuildLevel) {
             return;
         }
-        send("**工会升级**\n" + guild.name() + "：" + oldLevel + " → " + newLevel + " 级");
+        send("**工会升级**\n" + Text.clean(guild.name()) + "：" + oldLevel + " → " + newLevel + " 级");
     }
 
     public void guildCreate(Guild guild, String actor) {
         if (!plugin.settings().main.webhookGuildCreate) {
             return;
         }
-        send("**新建工会**\n" + guild.name() + " [" + guild.tag() + "]｜会长：" + actor);
+        send("**新建工会**\n" + Text.clean(guild.name()) + "｜会长：" + actor);
     }
 
     public void guildDisband(Guild guild, String cause) {
         if (!plugin.settings().main.webhookGuildDisband) {
             return;
         }
-        send("**工会解散**\n" + guild.name() + "｜原因：" + cause);
+        send("**工会解散**\n" + Text.clean(guild.name()) + "｜原因：" + cause);
     }
 
     public void application(Guild guild, String player, String message) {
         if (!plugin.settings().main.webhookApplication) {
             return;
         }
-        send("**新的入会申请**\n" + player + " → " + guild.name()
+        send("**新的入会申请**\n" + player + " → " + Text.clean(guild.name())
                 + (message == null || message.isBlank() ? "" : "：" + message));
     }
 

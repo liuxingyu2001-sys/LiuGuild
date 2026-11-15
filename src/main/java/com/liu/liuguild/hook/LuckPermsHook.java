@@ -89,7 +89,7 @@ public final class LuckPermsHook {
             Guild guild = plugin.guilds() == null ? null : plugin.guilds().guildOf(uuid);
             if (guild != null) {
                 consumer.accept("liuguild:guild_id", guild.id());
-                consumer.accept("liuguild:guild", guild.name());
+                consumer.accept("liuguild:guild", com.liu.liuguild.util.Text.clean(guild.name()));
                 GuildMember member = guild.member(uuid);
                 if (member != null) {
                     consumer.accept("liuguild:guild_rank",

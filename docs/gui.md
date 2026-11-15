@@ -140,6 +140,7 @@ gui:
 ## 常用占位符
 
 工会：`{guild}` `{tag}` `{leader}` `{level}` `{max_level}` `{points}` `{members}`
+（`{guild}` 含颜色代码，会正常渲染；`{tag}` 在默认 `guild.tag.show: false` 下为空串。）
 `{member_limit}` `{wins}` `{losses}` `{bank}` `{notice}` `{description}` `{icon}` `{open}`。
 
 成员条目：`{player}` `{rank}` `{contributed}` `{kills}` `{deaths}` `{joined}`。

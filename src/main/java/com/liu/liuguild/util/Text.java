@@ -81,7 +81,7 @@ public final class Text {
                 source = source.replace("{" + key + "}", "<" + key + ">");
                 resolvers.add(richKeys != null && richKeys.contains(key)
                         ? Placeholder.parsed(key, sanitizeToMini(value))
-                        : Placeholder.unparsed(key, value));
+                        : valuePlaceholder(key, value));
             }
         }
         return MM.deserialize(source, TagResolver.resolver(resolvers));
@@ -129,10 +129,27 @@ public final class Text {
                 source = source.replace("{" + key + "}", "<" + key + ">");
                 resolvers.add(richValues
                         ? Placeholder.parsed(key, legacyToMini(value))
-                        : Placeholder.unparsed(key, value));
+                        : valuePlaceholder(key, value));
             }
         }
         return MM.deserialize(source, TagResolver.resolver(resolvers));
+    }
+
+    /**
+     * 普通占位符值：默认按纯文本插入（防注入）；但若值里带旧版颜色代码
+     * （{@code &a} / {@code &#FF0000} / {@code §a}），先转义 MiniMessage 特殊字符，
+     * 再把颜色代码转成标签，让工会名等玩家可配置文本在聊天/消息/GUI 里正常上色：
+     * <ul>
+     *   <li>{@code <}、{@code \} 先被转义，玩家无法通过名字注入 MiniMessage 标签/点击事件；</li>
+     *   <li>未识别的 {@code &x} 原样保留；</li>
+     *   <li>不含颜色代码的值仍走 unparsed，保持原有语义。</li>
+     * </ul>
+     */
+    private static TagResolver valuePlaceholder(String key, String value) {
+        if (!hasLegacyCode(value)) {
+            return Placeholder.unparsed(key, value);
+        }
+        return Placeholder.parsed(key, legacyToMini(esc(value)));
     }
 
     /** 消息中出现的 /guild、/guildadmin 指令自动变为可点击（点击补全到聊天栏）。 */
@@ -221,6 +238,35 @@ public final class Text {
     /** 是否包含颜色/格式标记（用于禁止名称使用颜色与标签）。 */
     public static boolean hasFormatting(String s) {
         return s != null && (MM_TAG.matcher(s).find() || LEGACY.matcher(s).find());
+    }
+
+    /**
+     * 是否包含会破坏 MiniMessage 渲染的字符（尖括号、反斜杠、控制字符）。
+     * <p>工会名会通过 PlaceholderAPI 进入 PlayerTitle 等使用 MiniMessage 渲染的插件，
+     * 因此即使允许颜色代码，也必须拒绝这些字符，避免玩家注入标签/点击事件。</p>
+     */
+    public static boolean hasUnsafeFormatting(String s) {
+        if (s == null || s.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '<' || c == '>' || c == '\\' || Character.isISOControl(c)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 工会名输入是否可接受：拒绝 MiniMessage 特殊字符；{@code allowColors=false} 时也拒绝颜色代码。
+     * <p>长度校验由调用方按 {@link #clean(String)} 后的纯文本计算。</p>
+     */
+    public static boolean isGuildNameAllowed(String s, boolean allowColors) {
+        if (s == null || s.isBlank() || hasUnsafeFormatting(s)) {
+            return false;
+        }
+        return allowColors || !hasLegacyCode(s);
     }
 
     /**

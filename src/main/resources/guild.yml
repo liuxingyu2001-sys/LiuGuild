@@ -7,9 +7,17 @@ guild:
   name:
     min-length: 2
     max-length: 16
+    # 是否允许工会名使用颜色代码（&a、&l、&#FF0000；也接受 §）。
+    # 开启后消息、GUI、列表、称号（PlayerTitle/PAPI）里都会按颜色渲染；
+    # 名称长度按去掉颜色代码后的纯文本计算，重名判断也同样忽略颜色代码。
+    # 实际生效还需要玩家拥有权限 liuguild.name.color（默认 false，管理员用 /guildadmin rename 不受限制）。
+    allow-colors: true
   tag:
     min-length: 2
     max-length: 5
+    # 是否在玩家可见界面展示工会标签（如在名称后显示 [SKY]）。
+    # 标签始终按名称自动生成、无需玩家填写；关闭展示后仅内部用于唯一性/兼容旧数据。
+    show: false
   # 创建费用（需 Vault 经济；无经济插件时忽略）
   create-cost: 30000.0
   # 基础成员上限
@@ -118,8 +126,6 @@ guild:
     cooldown-seconds: 3600
     # 费用（Vault 金币）；0 = 免费
     cost: 1000.0
-    # 是否允许同时修改标签（tag，如 [SKY]）
-    allow-tag: true
   # 固定工会头衔：仅管理员编辑配置，玩家只能装备/卸下
   titles:
     enabled: true

@@ -765,7 +765,7 @@ public final class GuiManager implements GuildModule, Listener {
                 default -> String.valueOf(g.points());
             };
             inv.setItem(slot, GuiUtil.build(player, "CE:liuguild:emblem_default", "SHIELD",
-                    "<white>#" + rank + " " + g.name() + " <dark_gray>[" + g.tag() + "]",
+                    "<white>#" + rank + " " + g.name() + tagSuffix(g),
                     List.of("<gray>等级：<white>" + g.level(),
                             "<gray>成员：<white>" + g.memberCount(),
                             "<gray>资金：<white>" + g.points(),
@@ -1395,20 +1395,8 @@ public final class GuiManager implements GuildModule, Listener {
                     if (name.isEmpty()) {
                         return;
                     }
-                    // 第二步：输入标签（2~5 字符）；直接确认则用名称截断作为默认值
-                    com.liu.liuguild.config.GuildSettings c = plugin.settings().guild;
-                    String fallback = name.length() > c.tagMax ? name.substring(0, c.tagMax) : name;
-                    if (fallback.length() < c.tagMin) {
-                        fallback = name;
-                    }
-                    final String defaultTag = fallback;
-                    requestText(player, "create-input-tag", tagText -> {
-                        String tag = tagText.trim();
-                        if (tag.isEmpty()) {
-                            tag = defaultTag;
-                        }
-                        plugin.guilds().create(player, name, tag);
-                    }, "min", c.tagMin, "max", c.tagMax);
+                    // 标签按名称自动生成，不再多问一步。
+                    plugin.guilds().create(player, name, null);
                 }, "min", plugin.settings().guild.nameMin, "max", plugin.settings().guild.nameMax);
             }
             case "back:settings" -> {
@@ -1582,16 +1570,14 @@ public final class GuiManager implements GuildModule, Listener {
                     plugin.messages().send(player, "no-permission-rank");
                     break;
                 }
-                // 先输入新名称，确认后再问标签
+                // 标签按新名称自动生成，只需输入新名称
                 requestText(player, "rename-input-name", name -> {
                     if (name.isBlank()) {
                         openSettings(player, g);
                         return;
                     }
-                    requestText(player, "rename-input-tag", tag -> {
-                        plugin.guilds().rename(player, g, name, tag.isBlank() ? null : tag);
-                        openSettings(player, g);
-                    });
+                    plugin.guilds().rename(player, g, name, null);
+                    openSettings(player, g);
                 });
             }
             case "set:open" -> {
@@ -2402,7 +2388,7 @@ public final class GuiManager implements GuildModule, Listener {
         }, "key", key);
     }
 
-    /** 管理员改名字：先输入名称，再输入标签（可留空）。 */
+    /** 管理员改名字：只输入名称，标签自动生成。 */
     private void promptAdminRename(Player player, String guildId) {
         Guild guild = plugin.guilds().guild(guildId);
         if (guild == null) {
@@ -2414,10 +2400,8 @@ public final class GuiManager implements GuildModule, Listener {
                 openGuildEditor(player, guildId);
                 return;
             }
-            requestText(player, "rename-input-tag", tag -> {
-                plugin.guilds().adminRename(player, guild, name, tag.isBlank() ? null : tag);
-                openGuildEditor(player, guildId);
-            });
+            plugin.guilds().adminRename(player, guild, name, null);
+            openGuildEditor(player, guildId);
         });
     }
 
@@ -2527,6 +2511,12 @@ public final class GuiManager implements GuildModule, Listener {
         show(player, holder, inv);
     }
 
+    /** 名称后自动附加的标签后缀；{@code guild.tag.show=false}（默认）时为空。 */
+    private String tagSuffix(Guild g) {
+        String tag = plugin.guilds().tagDisplay(g);
+        return tag.isBlank() ? "" : " <dark_gray>[" + tag + "]";
+    }
+
     public void openGuildList(Player player, int page) {
         Holder holder = new Holder("guild_list", "", page);
         Inventory inv = simpleInventory(player, holder, 6, "<gold>工会管理", Map.of());
@@ -2536,7 +2526,7 @@ public final class GuiManager implements GuildModule, Listener {
         int from = Math.max(0, page) * perPage;
         for (int i = 0; i < perPage && from + i < guilds.size(); i++) {
             Guild g = guilds.get(from + i);
-            inv.setItem(i, GuiUtil.build(player, "SHIELD", "SHIELD", "<white>" + g.name() + " <dark_gray>[" + g.tag() + "]",
+            inv.setItem(i, GuiUtil.build(player, "SHIELD", "SHIELD", "<white>" + g.name() + tagSuffix(g),
                     List.of("<gray>会长：<white>" + g.leaderName(),
                             "<gray>等级：<white>" + g.level() + "  <gray>成员：<white>" + g.memberCount(),
                             "<gray>资金：<white>" + g.points() + "  <gray>银行：<white>" + g.bank(),
@@ -2557,8 +2547,8 @@ public final class GuiManager implements GuildModule, Listener {
         Holder holder = new Holder("guild_edit", g.id(), 0);
         Inventory inv = simpleInventory(player, holder, 6, "<gold>管理工会 <white>" + g.name(), Map.of());
         int slot = 0;
-        slot = put(inv, holder, slot, player, "NAME_TAG", "<white>改名字：<yellow>" + g.name() + " <dark_gray>[" + g.tag() + "]",
-                List.of("<gray>管理员改名（绕开冷却与费用）", "<gray>不填标签 = 只改名称"),
+        slot = put(inv, holder, slot, player, "NAME_TAG", "<white>改名字：<yellow>" + g.name() + tagSuffix(g),
+                List.of("<gray>管理员改名（绕开冷却与费用）", "<gray>只改名称（标签由名称自动生成）"),
                 "guild_rename:" + g.id());
         slot = put(inv, holder, slot, player, "EXPERIENCE_BOTTLE", "<white>设置等级：<yellow>" + g.level(),
                 List.of("<gray>点击输入新等级"), "guild_input:" + g.id() + ":level");

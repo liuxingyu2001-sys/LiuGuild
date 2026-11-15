@@ -64,6 +64,9 @@ permissions:
   liuguild.create.free:
     description: 免创建费用
     default: op
+  liuguild.name.color:
+    description: 允许在工会名 / 改名字中使用颜色代码
+    default: false
   liuguild.war:
     description: 发起 / 参与工会战（仍需会长或官员身份）
     default: true

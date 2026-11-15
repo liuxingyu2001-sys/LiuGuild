@@ -24,7 +24,7 @@ gui:
         slot: 4
         material: "CE:liuguild:emblem_default"
         fallback-material: SHIELD
-        name: "<white>{guild} <dark_gray>[{tag}]"
+        name: "<white>{guild}"
         lore:
           - "<gray>会长：<white>{leader}"
           - "<gray>等级：<white>{level} <dark_gray>/ {max_level}"
@@ -138,7 +138,7 @@ gui:
         slot: 4
         material: "CE:liuguild:emblem_default"
         fallback-material: SHIELD
-        name: "<white>{guild} <dark_gray>[{tag}]"
+        name: "<white>{guild}"
         lore:
           - "<gray>会长：<white>{leader}"
           - "<gray>等级：<white>{level} <dark_gray>/ {max_level}"
@@ -201,7 +201,7 @@ gui:
     entry:
       material: "CE:liuguild:emblem_default"
       fallback-material: SHIELD
-      name: "<white>{guild} <dark_gray>[{tag}]"
+      name: "<white>{guild}"
       lore:
         - "<gray>等级 <white>{level} <dark_gray>· <gray>成员 <white>{members}/{member_limit}"
         - "<gray>加入方式：<white>{open}"
@@ -265,8 +265,7 @@ gui:
         name: "<white>工会改名字"
         lore:
           - "<gray>当前名称：<white>{guild}"
-          - "<gray>当前标签：<white>{tag}"
-          - "<gray>可同时修改名称与标签"
+          - "<gray>标签由名称自动生成，无需填写"
           - "<gray>冷却：<white>{rename_cooldown}"
           - "<gray>费用：<white>{rename_cost}"
           - ""

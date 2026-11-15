@@ -198,7 +198,7 @@ final class WarRewards {
                 .mapToInt(GuildWar.Party::score).max().orElse(0);
         return cmd.replace("{player}", player.getName())
                 .replace("{uuid}", player.getUniqueId().toString())
-                .replace("{guild}", guild == null ? "" : guild.name())
+                .replace("{guild}", guild == null ? "" : com.liu.liuguild.util.Text.clean(guild.name()))
                 .replace("{guild_id}", guild == null ? "" : guild.id())
                 .replace("{mode}", mode.key)
                 .replace("{score}", String.valueOf(mine))

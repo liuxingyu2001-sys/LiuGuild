@@ -22,8 +22,9 @@
 | 变量 | 说明 |
 |---|---|
 | `%liuguild_guild_id%` | 工会 UUID |
-| `%liuguild_name%` | 工会名 |
-| `%liuguild_tag%` | 标签 |
+| `%liuguild_name%` | 工会名（含颜色代码，交给支持 `&`/`§` 的插件会直接上色） |
+| `%liuguild_name_plain%` | 工会名（去掉颜色代码的纯文本，供不解析颜色的插件/日志使用） |
+| `%liuguild_tag%` | 标签；`guild.tag.show: false`（默认）时返回空串 |
 | `%liuguild_level%` / `%liuguild_points%` | 等级 / 点数 |
 | `%liuguild_members%` / `%liuguild_member_limit%` | 当前 / 上限成员数 |
 | `%liuguild_wins%` / `%liuguild_losses%` | 胜 / 负场 |
@@ -38,6 +39,8 @@
 | `%liuguild_kills%` / `%liuguild_deaths%` | 个人击杀 / 死亡 |
 | `%liuguild_contributed%` | 个人贡献 |
 | `%liuguild_title%` | 已装备的工会头衔显示文本（未装备为空） |
+| `%liuguild_name_title%` | 工会名 + 已装备的工会头衔（未装备头衔时只返回工会名，自动省略空格） |
+| `%liuguild_title_spaced%` | 已装备的工会头衔（带前导空格；未装备返回空串，适合拼在名称后） |
 | `%liuguild_title_id%` | 已装备的工会头衔内部 ID（供集成使用，玩家界面不展示） |
 | `%liuguild_checkin_streak%` | 连续签到天数 |
 | `%liuguild_checkin_state%` | `已签到` / `未签到` |
@@ -63,10 +66,10 @@
 ## 指定工会 `g_<字段>_<工会名>`
 
 例：`%liuguild_g_points_王者公会%`、`%liuguild_g_level_王者公会%`。
-支持字段：`name, tag, level, points, members, wins, losses, bank, leader, icon`。
+支持字段：`name, name_plain, tag, level, points, members, wins, losses, bank, leader, icon`。
 
 ## 排行榜 `top_<名次>_<字段>`
 
 例：`%liuguild_top_1_name%`、`%liuguild_top_1_points%`、`%liuguild_top_3_bank%`。
 `top_<n>_<field>` 会按对应字段排序（`points`/`bank`/`level`/`wins`/`members`/`losses`），
-字段可选：`name, tag, level, points, wins, losses, members, bank, leader, icon`。
+字段可选：`name, name_plain, tag, level, points, wins, losses, members, bank, leader, icon`。

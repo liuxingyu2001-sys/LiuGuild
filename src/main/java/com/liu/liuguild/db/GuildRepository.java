@@ -79,17 +79,24 @@ public final class GuildRepository {
     }
 
     public boolean nameOrTagTaken(String name, String tag, String exceptId) throws SQLException {
-        // 直接等值：name/tag 列本身已是大小写不敏感（SQLite COLLATE NOCASE / MySQL ci 排序规则），
-        // 套一层 LOWER() 会让唯一索引失效、退化成全表扫描。
-        String sql = "SELECT `guild_id` FROM `" + db.t("guilds")
-                + "` WHERE (`name`=? OR `tag`=?) AND `guild_id`<>? LIMIT 1";
+        // 名称可能带颜色代码（&a / &#FF0000），数据库等值比较会把「同显示名、不同颜色」判成两个名字。
+        // 工会表很小（一次创建/改名才查），取回后在 Java 侧按去色文本比较，保证重名判断与颜色无关。
+        String cleanName = com.liu.liuguild.util.Text.clean(name);
+        String sql = "SELECT `guild_id`,`name`,`tag` FROM `" + db.t("guilds") + "` WHERE `guild_id`<>?";
         try (Connection c = db.source().getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, name);
-            ps.setString(2, tag);
-            ps.setString(3, exceptId == null ? "" : exceptId);
+            ps.setString(1, exceptId == null ? "" : exceptId);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
+                while (rs.next()) {
+                    if (cleanName.equalsIgnoreCase(com.liu.liuguild.util.Text.clean(rs.getString("name")))) {
+                        return true;
+                    }
+                    String other = rs.getString("tag");
+                    if (tag != null && other != null && tag.equalsIgnoreCase(other)) {
+                        return true;
+                    }
+                }
+                return false;
             }
         }
     }

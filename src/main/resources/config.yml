@@ -55,9 +55,15 @@ hooks:
       # 管理员在 PlayerTitle 里创建的「工会名」称号 ID；0 = 未配置，功能跳过。
       title-id: 0
       # 称号显示文本（PlayerTitle 里该称号的名称，本插件会在启用/重载时自动同步）。
-      # 必须包含 %liuguild_name%，其余文字/颜色代码会原样显示：
+      # 必须包含 %liuguild_name%（或 %liuguild_name_title%），其余文字/颜色代码会原样显示
+      # （PlayerTitle 用 MiniMessage 渲染）：
       #   "%liuguild_name%工会"        → 某某工会
       #   "&7[&b%liuguild_name%&7]工会" → [某某]工会
+      #   "%liuguild_name%&7工会"       → 工会名按各自颜色，后缀灰色
+      #   渐变也可用： "<gradient:#00E5FF:#FF00FF>%liuguild_name%</gradient>&7工会"
+      # 想把玩家当前装备的工会头衔也拼进来（如「星辰 会长」）：
+      #   "%liuguild_name_title%"       → 工会名 + 空格 + 头衔；未装备头衔时只有工会名
+      #   "%liuguild_name%工会%liuguild_title_spaced%" → 星辰工会 会长
       name: "%liuguild_name%工会"
       # 在线玩家称号对账间隔（秒），0 = 关闭。用于兜底手动换称号、跨服入退会与漏事件。
       recheck-seconds: 60

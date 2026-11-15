@@ -10,6 +10,7 @@ public final class Guild {
 
     private final String id;
     private volatile String name;
+    /** 内部短标签：按名称自动生成，默认不对外展示（见 guild.yml 的 guild.tag.show）。 */
     private volatile String tag;
     private volatile UUID leaderUuid;
     private volatile String leaderName;

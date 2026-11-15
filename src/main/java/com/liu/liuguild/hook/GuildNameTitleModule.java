@@ -152,9 +152,9 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         String configured = plugin.settings().main.playerTitleGuildTitleName;
         String name = configured == null || configured.isBlank()
                 ? MainSettings.DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME : configured.strip();
-        if (!name.contains("%liuguild_name%")) {
+        if (!name.contains("%liuguild_name%") && !name.contains("%liuguild_name_title%")) {
             plugin.getLogger().warning("hooks.player-title.guild-title.name=\"" + configured
-                    + "\" 不含 %liuguild_name%，无法显示各人工会名，已回退默认值: "
+                    + "\" 不含 %liuguild_name% 或 %liuguild_name_title%，无法显示各人工会名，已回退默认值: "
                     + MainSettings.DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME);
             name = MainSettings.DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME;
         }
@@ -300,6 +300,20 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         // 第一次通常已拿到新名字；重载慢时第二次兜底。
         plugin.syncDelayed(() -> refreshIfRenamed(guildId), 100L);
         plugin.syncDelayed(() -> refreshIfRenamed(guildId), 400L);
+    }
+
+    /**
+     * 工会固定头衔换装 / 卸下后调用：聊天前缀每条消息都会重新解析 PAPI，但 Tab 前缀
+     * 由 PlayerScoreboard 缓存，需要让 PlayerTitle 重新读取并刷新该玩家。
+     */
+    public void onFixedTitleChanged(UUID player) {
+        if (!active() || player == null) {
+            return;
+        }
+        PlayerTitleHook hook = plugin.playerTitle();
+        if (hook != null && hook.available()) {
+            hook.refresh(player);
+        }
     }
 
     /** 工会名变化时才刷新该会在线成员，避免被高频 GUILD_CHANGED 触发无意义刷新。 */

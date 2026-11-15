@@ -305,6 +305,7 @@ public final class TitleService implements GuildModule {
             return "title-rank-too-low";
         }
         equipped.put(member.uuid(), titleId);
+        notifyPlayerTitleChanged(member.uuid());
         plugin.async(() -> {
             try {
                 repo.setEquipped(member.uuid(), g.id(), titleId);
@@ -322,6 +323,7 @@ public final class TitleService implements GuildModule {
             return;
         }
         String guildId = g == null ? null : g.id();
+        notifyPlayerTitleChanged(player);
         plugin.async(() -> {
             try {
                 repo.setEquipped(player, guildId, null);
@@ -372,5 +374,21 @@ public final class TitleService implements GuildModule {
     private void broadcastCrossServer(String guildId) {
         if (guildId == null || plugin.bus() == null) return;
         plugin.publishAsync("GUILD_TITLES", Map.of("guild", guildId, "server", plugin.serverId()));
+    }
+
+    /**
+     * 工会固定头衔会出现在 PlayerTitle 称号文本里（{@code %liuguild_name_title%}）。
+     * 换装 / 卸下后让 PlayerTitle 重新解析，聊天实时生效、Tab 前缀也立即刷新。
+     */
+    private void notifyPlayerTitleChanged(UUID player) {
+        if (player == null || plugin.guildNameTitle() == null) {
+            return;
+        }
+        // PlayerTitle / PlayerScoreboard 的展示更新必须在主线程。
+        plugin.sync(() -> {
+            if (plugin.guildNameTitle() != null) {
+                plugin.guildNameTitle().onFixedTitleChanged(player);
+            }
+        });
     }
 }
