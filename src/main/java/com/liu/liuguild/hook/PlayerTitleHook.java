@@ -81,44 +81,60 @@ public final class PlayerTitleHook {
         Method updateName = null;
         Method listName = null;
         boolean papi = true;
-        try {
-            Plugin p = Bukkit.getPluginManager().getPlugin("PlayerTitle");
-            if (p != null) {
-                Class<?> api = Class.forName(API_CLASS);
-                set = api.getMethod("setPlayerTitle", UUID.class, int.class);
+        Plugin titlePlugin = Bukkit.getPluginManager().getPlugin("PlayerTitle");
+        if (titlePlugin != null) {
+            // 用 PlayerTitle 自己的类加载器解析它的类：既避开跨插件类加载可见性问题，
+            // 也保证 Method 句柄和枚举常量来自同一份类。
+            ClassLoader loader = titlePlugin.getClass().getClassLoader();
+            Class<?> api = null;
+            try {
+                // 注意：API 方法参数是包装类型 Integer（不是 int），getMethod 必须用 Integer.class，
+                // 否则会 NoSuchMethodException 导致整个钩子静默降级（历史版本曾一直不可用）。
+                api = Class.forName(API_CLASS, true, loader);
+                set = api.getMethod("setPlayerTitle", UUID.class, Integer.class);
                 find = api.getMethod("findPlayerTitle", UUID.class);
-                use = api.getMethod("playerUseTitle", UUID.class, int.class);
-                remove = api.getMethod("removePlayerTitle", UUID.class, int.class);
-                exist = api.getMethod("playerExistTitleId", UUID.class, int.class);
+                use = api.getMethod("playerUseTitle", UUID.class, Integer.class);
+                remove = api.getMethod("removePlayerTitle", UUID.class, Integer.class);
+                exist = api.getMethod("playerExistTitleId", UUID.class, Integer.class);
                 show = api.getMethod("findPlayerShowTitle", UUID.class);
                 titleExists = api.getMethod("existTitleId", Integer.class);
-                findTitle = api.getMethod("findTitleById", Integer.class);
-                updateName = api.getMethod("updateTitleName", Integer.class, String.class, boolean.class);
-                Class<?> titlePlayer = Class.forName(TITLE_PLAYER_CLASS);
+            } catch (Throwable t) {
+                Bukkit.getLogger().warning("[LiuGuild] PlayerTitle 核心 API 解析失败: " + t);
+            }
+            try {
+                if (api != null) {
+                    findTitle = api.getMethod("findTitleById", Integer.class);
+                    updateName = api.getMethod("updateTitleName", Integer.class, String.class, boolean.class);
+                }
+            } catch (Throwable ignored) {
+                // 旧版没有改名 API：称号文本保留管理员在 PlayerTitle 里手动设置的名字。
+            }
+            try {
+                Class<?> titlePlayer = Class.forName(TITLE_PLAYER_CLASS, true, loader);
                 recordId = titlePlayer.getMethod("getId");
                 recordTitleId = titlePlayer.getMethod("getTitleId");
-                listName = Class.forName(TITLE_LIST_CLASS).getMethod("getTitleName");
-                Class<?> util = Class.forName(TITLE_UTIL_CLASS);
-                refresh = util.getMethod("refreshPlayerTitle", UUID.class);
-                try {
-                    Class<?> useType = Class.forName(USE_TYPE_CLASS);
-                    showType = useType.getField("SHOW").get(null);
-                    useTyped = util.getMethod("playerTitleUse",
-                            UUID.class, Integer.class, useType, Boolean.class);
-                } catch (Throwable ignored) {
-                    // 旧版没有该重载：佩戴时降级为 playerUseTitle（会占用 ALL 槽位）。
-                    useTyped = null;
-                    showType = null;
-                }
-                try {
-                    papi = Class.forName(PLUGIN_CLASS).getField("USE_PAPI").getBoolean(null);
-                } catch (Throwable ignored) {
-                    // 读不到就按 true 处理，由调用方再用 PAPI 插件是否存在兜底。
-                    papi = true;
-                }
+                listName = Class.forName(TITLE_LIST_CLASS, true, loader).getMethod("getTitleName");
+            } catch (Throwable ignored) {
+                // 实体结构不匹配：可查/戴能力降级，调用方通过 guildTitleSupported() 判断。
             }
-        } catch (Throwable ignored) {
-            // 版本不匹配或插件未加载：整体降级，调用方通过 available() 判断。
+            try {
+                Class<?> util = Class.forName(TITLE_UTIL_CLASS, true, loader);
+                refresh = util.getMethod("refreshPlayerTitle", UUID.class);
+                Class<?> useType = Class.forName(USE_TYPE_CLASS, true, loader);
+                showType = useType.getField("SHOW").get(null);
+                useTyped = util.getMethod("playerTitleUse",
+                        UUID.class, Integer.class, useType, Boolean.class);
+            } catch (Throwable ignored) {
+                // 旧版没有该重载：佩戴时降级为 playerUseTitle（会占用 ALL 槽位）。
+                useTyped = null;
+                showType = null;
+            }
+            try {
+                papi = Class.forName(PLUGIN_CLASS, true, loader).getField("USE_PAPI").getBoolean(null);
+            } catch (Throwable ignored) {
+                // 读不到就按 true 处理，由调用方再用 PAPI 插件是否存在兜底。
+                papi = true;
+            }
         }
         this.setTitle = set;
         this.findPlayerTitles = find;
