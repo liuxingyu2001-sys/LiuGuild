@@ -126,9 +126,16 @@ hooks:
     donate: true                     # liuguild:donate（进度 = 金额）
     bank-deposit: false              # liuguild:bank-deposit（可循环刷进度，默认关闭）
     legacy-task-ids: true            # 兼容旧版 tasks.yml 的任务 ID 绑定
+  player-title:
+    guild-title:
+      enabled: false                 # 用 PlayerTitle 展示玩家工会名（需 PAPI，详见 hooks.md）
+      title-id: 0                    # PlayerTitle 里预先创建的 %liuguild_name% 称号 ID；0 = 跳过
+      recheck-seconds: 60            # 在线玩家称号对账间隔（秒），0 = 关闭
+      force: true                    # true 始终占展示槽；false 仅在玩家没有展示称号时佩戴
 ```
 
 `hooks.liupass` 只控制任务进度；工会战通行证经验由 `war-modes.yml` 配置，完整用法见 [tasks.md](tasks.md)。
+PlayerTitle 工会名称号的创建与启用步骤见 [hooks.md](hooks.md)。
 
 - `webhook`：Discord / 通用 JSON webhook，配置在每服 `server.yml`，见 [webhook.md](webhook.md)。
 - `qqbot`：QQ 官方机器人 WebSocket + 指令 + 主动推送，配置在每服 `server.yml`，见 [qqbot.md](qqbot.md)。

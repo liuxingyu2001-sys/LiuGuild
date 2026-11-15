@@ -118,7 +118,13 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
   而 LiuGuild 已注册 `%liuguild_name%`。因此**所有公会共用一个称号**即可，成员戴上后显示的
   是各自工会名，工会改名实时生效；不需要给每个公会建称号，也不占 PlayerTitle 免费版
   100 个称号的名额。
-- 前置：已安装 **PlaceholderAPI**，且 PlayerTitle 启动时能检测到它（先装 PAPI 再启服）。
+- 只占「展示槽」：佩戴时通过 `TitleUtil.playerTitleUse(..., TitleUseTypeEnum.SHOW, true)`
+  只切换展示称号，**不会顶掉玩家自己的 buff / 粒子称号**（旧版 PlayerTitle 缺少该重载时
+  降级为 `playerUseTitle`，会占用 ALL 槽位）。
+- 前置：
+  - 已安装 **PlaceholderAPI**，且 PlayerTitle 启动时能检测到它（`USE_PAPI=true`，
+    即先装 PAPI 再启服）；否则模块会直接跳过并告警，避免称号显示成字面量。
+  - PlayerTitle 为 5.x 且包含 `findPlayerTitle` / `playerUseTitle` / `removePlayerTitle` 等 API。
 - 在 PlayerTitle 里创建隐藏、免费、永久的称号（名字用 `%liuguild_name%`），记下返回 ID：
   ```
   /plt title add not &b%liuguild_name% 0 0 false
@@ -133,12 +139,19 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
         recheck-seconds: 60   # 0 = 关闭对账
         force: true           # true 始终佩戴；false 仅在玩家没有展示称号时佩戴
   ```
+- 启动 / 重载 / 每轮对账都会校验 `title-id` 是否存在，不存在会告警并自动跳过（不会反复重试写库）。
 - 开启后：进服 / 入会 / 建会 → 自动授予并佩戴；退会 / 被踢 / 解散 → 自动回收
   （回落到 PlayerTitle 默认称号）；`recheck-seconds` 定时对账兜底手动换称号、跨服入退会与漏事件。
+- 改名：聊天前缀每次消息都会重新解析 `%liuguild_name%`，实时生效；Tab / 头顶前缀由
+  PlayerScoreboard 缓存，本服改名会立即刷新，跨服改名会在下一次对账（≤ `recheck-seconds`）
+  前刷新（仅真改名时触发，普通 `GUILD_CHANGED` 不会重复刷新）。
 - 显示位置：PlayerTitle 的 `config.yml` 中 `isChat`（聊天）与 `isTabPrefix`（Tab / 头顶，
   需 PlayerScoreboard）；`displayPrefix` / `displaySuffix` 决定 `[ 工会名 ]` 前后缀。
-- 注意：PlayerTitle 只有一个展示称号槽，`force: true` 会顶掉玩家自选 / 战利品称号，
-  和工会战奖励称号共用该槽位；称号名在 Tab 前缀受 Minecraft 64 字符截断（颜色代码计入）。
+- 多子服：`title-id` 写在共享 `config.yml` 里，因此 PlayerTitle 必须使用 **共享 MySQL**
+  （`storage.yml` → `storage-method: MySQL`），保证所有子服看到同一个称号 ID 与玩家数据；
+  各子服进服时会补授 / 补戴，退会回收后下次进服也会自愈。
+- 注意：`force: true` 会替换玩家当前的展示称号，和工会战奖励称号共用展示槽；称号名在
+  Tab 前缀受 Minecraft 64 字符截断（颜色代码计入）。
 
 ## LiuShop（价格参照与禁售联动）
 

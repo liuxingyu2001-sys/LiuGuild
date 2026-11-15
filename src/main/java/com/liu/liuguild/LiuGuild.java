@@ -908,7 +908,7 @@ public final class LiuGuild extends JavaPlugin {
         out.add("&7PlayerTitle 公会称号: &f" + (guildNameTitle == null ? "未装配"
                 : !s.main.playerTitleGuildTitleEnabled ? "关闭（config.yml hooks.player-title.guild-title.enabled）"
                 : s.main.playerTitleGuildTitleId <= 0 ? "未配置称号 ID"
-                : !guildNameTitle.active() ? "不可用（PlayerTitle 缺失/版本不符）"
+                : !guildNameTitle.active() ? "不可用（PlayerTitle/PAPI 缺失、版本不符或称号 ID 不存在）"
                 : "称号#" + s.main.playerTitleGuildTitleId
                 + " &7对账=&f" + s.main.playerTitleGuildTitleRecheckSeconds + "s"
                 + " &7模式=&f" + (s.main.playerTitleGuildTitleForce ? "强制佩戴" : "仅无称号时佩戴")));

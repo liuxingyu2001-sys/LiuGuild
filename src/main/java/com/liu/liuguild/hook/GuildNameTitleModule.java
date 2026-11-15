@@ -37,12 +37,15 @@ import java.util.UUID;
  *   <li>按 {@code recheck-seconds} 对在线玩家定时对账，兜底手动换称号、跨服入退会与漏事件。</li>
  * </ul>
  *
- * <p>PlayerTitle 只有一个展示称号槽：{@code force: true}（默认）会顶掉玩家自选 / 战利品称号；
- * 想保留玩家自选称号可设 {@code force: false}，仅在玩家没有展示称号时佩戴。</p>
+ * <p>PlayerTitle 有展示 / buff / 粒子三个槽位。工会名称号只占「展示槽」，佩戴时不会顶掉
+ * 玩家自己的 buff / 粒子称号；{@code force: true}（默认）会替换玩家当前的展示称号
+ * （自选 / 战利品称号），想保留可设 {@code force: false}，仅在玩家没有展示称号时佩戴。</p>
  */
 public final class GuildNameTitleModule implements GuildModule, Listener {
 
     private final LiuGuild plugin;
+    /** guildId → 本模块最近一次见到的工会名；只用于判断跨服 GUILD_CHANGED 是否真的改了名。 */
+    private final Map<String, String> knownNames = new java.util.concurrent.ConcurrentHashMap<>();
     private BukkitTask recheckTask;
     private boolean registered;
 
@@ -79,7 +82,7 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
     /** 模块是否处于生效状态（供状态命令展示）。 */
     public boolean active() {
         PlayerTitleHook hook = plugin.playerTitle();
-        return registered && enabled() && hook != null && hook.available();
+        return registered && enabled() && hook != null && hook.guildTitleSupported();
     }
 
     // =====================================================================
@@ -88,19 +91,44 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
 
     private void apply() {
         if (!enabled()) {
+            if (plugin.settings().main.playerTitleGuildTitleEnabled) {
+                plugin.getLogger().warning("hooks.player-title.guild-title.enabled=true，"
+                        + "但 title-id 未配置（0），工会名称号已跳过。");
+            }
             stop();
             return;
         }
         PlayerTitleHook hook = plugin.playerTitle();
         if (hook == null || !hook.available()) {
             plugin.getLogger().warning("已开启 hooks.player-title.guild-title，"
-                    + "但 PlayerTitle 不可用（未安装 / 版本不符），工会名称号已跳过。");
+                    + "但 PlayerTitle 不可用（未安装 / 初始化失败），工会名称号已跳过。");
+            stop();
+            return;
+        }
+        if (!hook.guildTitleSupported()) {
+            plugin.getLogger().warning("当前 PlayerTitle 版本缺少工会称号所需的 API"
+                    + "（findPlayerTitle / playerUseTitle / removePlayerTitle 等），工会名称号已跳过。");
             stop();
             return;
         }
         if (plugin.papi() == null || !plugin.papi().available()) {
-            plugin.getLogger().warning("工会名称号依赖 PlaceholderAPI："
-                    + "缺少 PAPI 时 %liuguild_name% 不会被解析，称号会显示成字面量。");
+            plugin.getLogger().warning("工会名称号依赖 PlaceholderAPI：缺少 PAPI 时 "
+                    + "%liuguild_name% 不会被解析，称号会显示成字面量，已跳过。");
+            stop();
+            return;
+        }
+        if (!hook.papiParsing()) {
+            plugin.getLogger().warning("PlayerTitle 启动时未检测到 PlaceholderAPI（USE_PAPI=false），"
+                    + "称号名里的 %liuguild_name% 不会被解析。请先安装 PAPI 再启动 PlayerTitle/服务器，已跳过。");
+            stop();
+            return;
+        }
+        if (!hook.titleExists(titleId())) {
+            plugin.getLogger().warning("hooks.player-title.guild-title.title-id=" + titleId()
+                    + " 在 PlayerTitle 中不存在，工会名称号已跳过。请先用 "
+                    + "/plt title add not &b%liuguild_name% 0 0 false 创建称号并回填 ID。");
+            stop();
+            return;
         }
         if (!registered) {
             Bukkit.getPluginManager().registerEvents(this, plugin);
@@ -136,6 +164,13 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         long ticks = seconds * 20L;
         // 主线程执行：PlayerTitle API 内部会同步写库并触发 Bukkit 事件，不能放到异步线程。
         recheckTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            PlayerTitleHook hook = plugin.playerTitle();
+            if (hook != null && !hook.titleExists(titleId())) {
+                plugin.getLogger().warning("PlayerTitle 中的工会名称号（ID " + titleId()
+                        + "）已不存在，停止工会称号对账。");
+                stop();
+                return;
+            }
             for (Player player : Bukkit.getOnlinePlayers()) {
                 sync(player, force());
             }
@@ -184,6 +219,7 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         if (guild == null) {
             return;
         }
+        knownNames.remove(guild.id());
         // 解散不会再给每个成员单独发 GuildLeaveEvent，这里按成员列表统一回收。
         for (UUID uuid : guild.memberMap().keySet()) {
             clear(uuid);
@@ -198,6 +234,7 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         if (!active() || guild == null) {
             return;
         }
+        knownNames.put(guild.id(), guild.name());
         for (UUID uuid : guild.memberMap().keySet()) {
             Player player = Bukkit.getPlayer(uuid);
             if (player == null) {
@@ -220,12 +257,32 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         if (guildId == null || guildId.isBlank()) {
             return;
         }
+        String from = data.get("server");
+        if (from != null && from.equals(plugin.serverId())) {
+            return; // 本服改名时 GuildManager 已经同步刷新过，避免重复刷新
+        }
+        // GUILD_CHANGED 覆盖所有工会变更（入会/银行/商店/buff…），只有真改名才需要刷新
+        // 在线成员的 Tab 前缀，否则会给活跃工会造成大量无意义的 PlayerTitle 重读。
+        // GuildSyncModule（order 50）收到消息后是异步重载工会的，所以延迟两次检查：
+        // 第一次通常已拿到新名字；重载慢时第二次兜底。
+        plugin.syncDelayed(() -> refreshIfRenamed(guildId), 100L);
+        plugin.syncDelayed(() -> refreshIfRenamed(guildId), 400L);
+    }
+
+    /** 工会名变化时才刷新该会在线成员，避免被高频 GUILD_CHANGED 触发无意义刷新。 */
+    private void refreshIfRenamed(String guildId) {
+        if (!registered) {
+            return;
+        }
         Guild guild = plugin.guilds().guild(guildId);
         if (guild == null) {
             return;
         }
-        // 跨服总线回调可能在异步线程：刷新展示要回主线程。
-        plugin.sync(() -> onGuildRenamed(guild));
+        String previous = knownNames.put(guild.id(), guild.name());
+        if (previous != null && previous.equals(guild.name())) {
+            return;
+        }
+        onGuildRenamed(guild);
     }
 
     // =====================================================================
@@ -246,7 +303,7 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         }
         PlayerTitleHook hook = plugin.playerTitle();
         int titleId = titleId();
-        if (hook == null || !hook.available() || titleId <= 0) {
+        if (hook == null || !hook.guildTitleSupported() || titleId <= 0) {
             return;
         }
         UUID uuid = player.getUniqueId();
@@ -278,7 +335,7 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
     private void clear(UUID uuid) {
         PlayerTitleHook hook = plugin.playerTitle();
         int titleId = titleId();
-        if (hook == null || !hook.available() || titleId <= 0 || uuid == null) {
+        if (hook == null || !hook.guildTitleSupported() || titleId <= 0 || uuid == null) {
             return;
         }
         if (hook.owns(uuid, titleId)) {
