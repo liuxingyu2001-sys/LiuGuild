@@ -27,8 +27,9 @@ import java.util.UUID;
  * <p>PlayerTitle 的称号名支持 PlaceholderAPI 变量：聊天前缀与 Tab 前缀显示时都会调用
  * {@code PlaceholderApiUtil.set(player, titleName)}。而 LiuGuild 已经注册了
  * {@code %liuguild_name%}，所以管理员只需要在 PlayerTitle 里创建 <b>一个</b> 称号
- * （文本由 {@code hooks.player-title.guild-title.name} 配置，默认 {@code %liuguild_name%工会}，
- * 显示成「某某工会」），成员戴上后显示的就是各自工会名；工会改名也会在下次渲染时实时生效
+ * （文本由 {@code hooks.player-title.guild-title.name} 配置，默认 {@code %liuguild_name_title%}，
+ * 显示成「星辰 会长」：工会名 + 手动装备的固定头衔，未装备时自动用职位），成员戴上后显示的就是
+ * 各自工会名；工会改名也会在下次渲染时实时生效
  * （无需重建称号，也不受 PlayerTitle 免费版 100 个称号的上限影响）。</p>
  *
  * <h3>同步策略</h3>
@@ -127,7 +128,7 @@ public final class GuildNameTitleModule implements GuildModule, Listener {
         if (!hook.titleExists(titleId())) {
             plugin.getLogger().warning("hooks.player-title.guild-title.title-id=" + titleId()
                     + " 在 PlayerTitle 中不存在，工会名称号已跳过。请先用 "
-                    + "/plt title add not &b%liuguild_name%工会 0 0 false 创建称号并回填 ID。");
+                    + "/plt title add not &b%liuguild_name_title% 0 0 false 创建称号并回填 ID。");
             stop();
             return;
         }

@@ -145,6 +145,10 @@ public final class GuildSettings {
     public boolean titlesEnabled = true;
     /** 固定头衔，全服统一，由管理员配置；不读取旧自定义头衔。 */
     public Map<String, com.liu.liuguild.model.GuildTitle> fixedTitles = defaultTitles();
+    /** 未手动装备固定头衔时，是否自动把玩家当前职位作为头衔显示。 */
+    public boolean autoRankTitle = true;
+    /** 各职位对应的自动头衔文本（MiniMessage / 旧版颜色）；空串 = 该职位不显示头衔。 */
+    public Map<GuildRank, String> autoRankTitles = defaultAutoRankTitles();
 
     private static Map<String, com.liu.liuguild.model.GuildTitle> defaultTitles() {
         Map<String, com.liu.liuguild.model.GuildTitle> out = new java.util.LinkedHashMap<>();
@@ -152,6 +156,26 @@ public final class GuildSettings {
         out.put("officer", new com.liu.liuguild.model.GuildTitle("officer", "<aqua>工会官员", GuildRank.OFFICER));
         out.put("leader", new com.liu.liuguild.model.GuildTitle("leader", "<gold>工会会长", GuildRank.LEADER));
         return out;
+    }
+
+    private static Map<GuildRank, String> defaultAutoRankTitles() {
+        Map<GuildRank, String> out = new java.util.EnumMap<>(GuildRank.class);
+        out.put(GuildRank.MEMBER, "<white>成员");
+        out.put(GuildRank.OFFICER, "<aqua>副会长");
+        out.put(GuildRank.LEADER, "<gold>会长");
+        return out;
+    }
+
+    /**
+     * 某职位对应的自动头衔文本；未启用或该职位配置为空时返回空串。
+     * <p>仅在玩家没有手动装备固定头衔时使用，见 {@code TitleService#effectiveDisplay}。</p>
+     */
+    public String autoRankTitle(GuildRank rank) {
+        if (!autoRankTitle || rank == null) {
+            return "";
+        }
+        String text = autoRankTitles.get(rank);
+        return text == null ? "" : text;
     }
 
     // ---- 工会商店 ----
@@ -276,6 +300,25 @@ public final class GuildSettings {
             }
             if (s.fixedTitles.size() > 45) {
                 throw new IllegalArgumentException("固定头衔最多配置45个");
+            }
+        }
+        s.autoRankTitle = c.getBoolean("guild.titles.auto-rank.enabled", s.autoRankTitle);
+        var rankTexts = c.getConfigurationSection("guild.titles.auto-rank.texts");
+        if (rankTexts != null) {
+            for (GuildRank rank : GuildRank.values()) {
+                String key = rank.name().toLowerCase(java.util.Locale.ROOT);
+                if (!rankTexts.contains(key)) {
+                    continue; // 未写的职位保留默认文本
+                }
+                String text = rankTexts.getString(key, "");
+                if (text == null || text.isBlank()) {
+                    s.autoRankTitles.put(rank, ""); // 显式留空 = 该职位不显示头衔
+                    continue;
+                }
+                if (com.liu.liuguild.title.TitleService.validateDisplay(text) != null) {
+                    throw new IllegalArgumentException("自动职位头衔配置无效: " + key);
+                }
+                s.autoRankTitles.put(rank, text);
             }
         }
         return s;

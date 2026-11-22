@@ -212,10 +212,49 @@ public final class TitleService implements GuildModule {
         return t;
     }
 
-    /** 玩家头衔渲染后的显示文本（未装备返回空串）。 */
+    /** 玩家头衔渲染后的显示文本（未装备固定头衔时为空，不含自动职位头衔）。 */
     public String display(UUID player) {
         GuildTitle t = equipped(player);
         return t == null ? "" : t.display();
+    }
+
+    /**
+     * 自动职位头衔：玩家没有手动装备固定头衔时，回退到其当前工会职位文本
+     * （{@code guild.yml → titles.auto-rank}，默认「成员 / 副会长 / 会长」）。
+     *
+     * <p>不会写入数据库，也不占固定头衔的装备槽：升职 / 降职 / 转让会长后下一次渲染
+     * 立即变化，不存在跨服脏状态。</p>
+     *
+     * @return 原始 MiniMessage / 旧版颜色文本；未启用、无工会或该职位留空时返回空串
+     */
+    public String autoRankDisplay(UUID player) {
+        if (player == null || plugin.settings() == null) {
+            return "";
+        }
+        if (!plugin.settings().guild.autoRankTitle) {
+            return "";
+        }
+        Guild g = plugin.guilds().guildOf(player);
+        if (g == null) {
+            return "";
+        }
+        GuildMember m = g.member(player);
+        if (m == null) {
+            return "";
+        }
+        return plugin.settings().guild.autoRankTitle(m.rank());
+    }
+
+    /**
+     * 玩家当前生效的工会头衔文本：优先手动装备的固定头衔，否则回退到自动职位头衔。
+     * PAPI {@code %liuguild_title%} / {@code %liuguild_name_title%} 都走这里。
+     */
+    public String effectiveDisplay(UUID player) {
+        GuildTitle t = equipped(player);
+        if (t != null) {
+            return t.display();
+        }
+        return autoRankDisplay(player);
     }
 
     /**
@@ -223,11 +262,16 @@ public final class TitleService implements GuildModule {
      * 外部插件通常只认识旧版颜色，不认识 MiniMessage 标签。
      */
     public String displayLegacy(UUID player) {
-        GuildTitle t = equipped(player);
-        if (t == null) {
+        String text = effectiveDisplay(player);
+        if (text == null || text.isBlank()) {
             return "";
         }
-        return LegacyComponentSerializer.legacySection().serialize(Text.mm(t.display()));
+        return LegacyComponentSerializer.legacySection().serialize(Text.mm(text));
+    }
+
+    /** 职位变化（提升 / 降职 / 转让会长）后刷新 PlayerTitle 展示——自动职位头衔依赖职位。 */
+    public void onRankChanged(UUID player) {
+        notifyPlayerTitleChanged(player);
     }
 
         /** 玩家够格装备的头衔列表。 */

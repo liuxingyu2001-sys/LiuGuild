@@ -141,7 +141,7 @@ hooks:
     guild-title:
       enabled: false                 # 用 PlayerTitle 展示玩家工会名（需 PAPI，详见 hooks.md）
       title-id: 0                    # PlayerTitle 里预先创建的工会名称号 ID；0 = 跳过
-      name: "%liuguild_name%工会"     # 称号显示文本（启用时自动同步）；必须含 %liuguild_name%
+      name: "%liuguild_name_title%"   # 称号显示文本（启用时自动同步）：工会名 + 头衔/职位，如「星辰 会长」
       recheck-seconds: 60            # 在线玩家称号对账间隔（秒），0 = 关闭
       force: true                    # true 始终占展示槽；false 仅在玩家没有展示称号时佩戴
 ```
@@ -188,8 +188,19 @@ guild:
 
   titles:
     enabled: true
-    max: 12
-    manage-rank: OFFICER
+    auto-rank:
+      enabled: true                  # 未装备固定头衔时自动显示职位（成员/副会长/会长）
+      texts:
+        member: "<white>成员"
+        officer: "<aqua>副会长"
+        leader: "<gold>会长"
+    presets:
+      member:
+        display: "<white>工会成员"
+        min-rank: MEMBER
+      leader:
+        display: "<gold>工会会长"
+        min-rank: LEADER
 
   warehouse:
     enabled: true

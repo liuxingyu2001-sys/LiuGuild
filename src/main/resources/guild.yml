@@ -129,6 +129,18 @@ guild:
   # 固定工会头衔：仅管理员编辑配置，玩家只能装备/卸下
   titles:
     enabled: true
+    # 未手动装备固定头衔时，自动把玩家当前职位作为头衔显示。
+    # 影响 %liuguild_title%、%liuguild_title_spaced%、%liuguild_name_title%
+    # （PlayerTitle 工会称号使用 name_title 时即显示成「工会名 会长」）。
+    # 自动职位头衔不写数据库、不占固定头衔装备槽：升职/降职/转让会长立即生效；
+    # 玩家手动装备了固定头衔时，固定头衔优先。
+    auto-rank:
+      enabled: true
+      # 各职位的显示文本（支持 MiniMessage 与 & 颜色代码）；留空 = 该职位不显示头衔。
+      texts:
+        member: "<white>成员"
+        officer: "<aqua>副会长"
+        leader: "<gold>会长"
     # 最多45个；min-rank 是最低可用职位
     presets:
       member:

@@ -38,10 +38,10 @@
 | `%liuguild_online%` | 在线成员数 |
 | `%liuguild_kills%` / `%liuguild_deaths%` | 个人击杀 / 死亡 |
 | `%liuguild_contributed%` | 个人贡献 |
-| `%liuguild_title%` | 已装备的工会头衔显示文本（未装备为空） |
-| `%liuguild_name_title%` | 工会名 + 已装备的工会头衔（未装备头衔时只返回工会名，自动省略空格） |
-| `%liuguild_title_spaced%` | 已装备的工会头衔（带前导空格；未装备返回空串，适合拼在名称后） |
-| `%liuguild_title_id%` | 已装备的工会头衔内部 ID（供集成使用，玩家界面不展示） |
+| `%liuguild_title%` | 当前生效的工会头衔：手动装备的固定头衔；未装备时自动用职位（成员/副会长/会长） |
+| `%liuguild_name_title%` | 工会名 + 当前头衔（同上；默认即「星辰 会长」），没有头衔时只返回工会名并自动省略空格 |
+| `%liuguild_title_spaced%` | 当前头衔（带前导空格；没有头衔返回空串，适合拼在名称后） |
+| `%liuguild_title_id%` | 已手动装备的工会头衔内部 ID（供集成使用，玩家界面不展示；自动职位头衔不产生 ID） |
 | `%liuguild_checkin_streak%` | 连续签到天数 |
 | `%liuguild_checkin_state%` | `已签到` / `未签到` |
 

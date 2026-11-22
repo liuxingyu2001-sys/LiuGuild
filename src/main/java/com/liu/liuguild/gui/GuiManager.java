@@ -608,9 +608,21 @@ public final class GuiManager implements GuildModule, Listener {
 
         // 底排：返回 / 卸下
         GuildTitle current = plugin.titles().equipped(player.getUniqueId());
-        String currentDisplay = current == null ? "无" : current.display();
+        String currentDisplay;
+        String currentNote = "";
+        if (current != null) {
+            currentDisplay = current.display();
+        } else {
+            // 未手动装备固定头衔时，称号里显示的是自动职位头衔（成员/副会长/会长）。
+            currentDisplay = plugin.titles().autoRankDisplay(player.getUniqueId());
+            if (currentDisplay == null || currentDisplay.isBlank()) {
+                currentDisplay = "无";
+            } else {
+                currentNote = " <gray>（自动职位）";
+            }
+        }
         inv.setItem(50, GuiUtil.build(player, "BARRIER", "BARRIER", "<yellow>卸下当前头衔",
-                List.of("<gray>当前：<white>" + currentDisplay), Map.of(), null));
+                List.of("<gray>当前：<white>" + currentDisplay + currentNote), Map.of(), null));
         holder.actions.put(50, "title:clear");
         inv.setItem(49, GuiUtil.build(player, "ARROW", "ARROW", "<white>返回", List.of(), Map.of(), null));
         holder.actions.put(49, "back:main");

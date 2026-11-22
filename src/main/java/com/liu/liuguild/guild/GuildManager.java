@@ -837,6 +837,7 @@ public final class GuildManager {
         targetM.rank(GuildRank.OFFICER);
         saveMember(targetM);
         refreshLuckPerms(plugin.player(targetId));
+        notifyTitleChanged(targetId);
         plugin.messages().send(actor, "promote-success", "player", targetName, "rank", GuildRank.OFFICER.display());
         notifyMember(targetId, plugin.messages().component("promote-notify", "rank", GuildRank.OFFICER.display()));
         return true;
@@ -864,6 +865,7 @@ public final class GuildManager {
         targetM.rank(GuildRank.MEMBER);
         saveMember(targetM);
         refreshLuckPerms(plugin.player(targetId));
+        notifyTitleChanged(targetId);
         plugin.messages().send(actor, "demote-success", "player", targetName, "rank", GuildRank.MEMBER.display());
         notifyMember(targetId, plugin.messages().component("promote-notify", "rank", GuildRank.MEMBER.display()));
         return true;
@@ -919,6 +921,8 @@ public final class GuildManager {
                 g.leaderName(targetName);
                 refreshLuckPerms(plugin.player(oldLeaderId));
                 refreshLuckPerms(plugin.player(targetId));
+                notifyTitleChanged(oldLeaderId);
+                notifyTitleChanged(targetId);
                 plugin.messages().send(actor, "transfer-success", "player", targetName);
                 notifyMember(targetId, plugin.messages().component("transfer-notify", "guild", g.name()));
                 plugin.broadcastGuildChange(g.id());
@@ -940,6 +944,13 @@ public final class GuildManager {
 
     private void saveMember(GuildMember m) {
         saveMemberAsync(m);
+    }
+
+    /** 职位变化后刷新 PlayerTitle 展示：工会称号里的自动职位头衔（成员/副会长/会长）会变。 */
+    private void notifyTitleChanged(UUID uuid) {
+        if (plugin.titles() != null) {
+            plugin.titles().onRankChanged(uuid);
+        }
     }
 
     public void saveGuild(Guild g) {

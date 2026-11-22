@@ -6,6 +6,13 @@
 guild:
   titles:
     enabled: true
+    # 未手动装备固定头衔时，自动用玩家当前职位作为头衔显示
+    auto-rank:
+      enabled: true
+      texts:
+        member: "<white>成员"
+        officer: "<aqua>副会长"
+        leader: "<gold>会长"
     presets:
       member:
         display: "<white>工会成员"
@@ -25,12 +32,26 @@ guild:
 - 旧配置缺少 `presets` 时使用上述三个默认预设；显式设置 `presets: {}` 可清空预设。
 - 修改后重载配置即可生效。`max`、`manage-rank` 和 `liuguild.title.manage` 已停用。
 
+## 自动职位头衔
+
+没有手动装备固定头衔的玩家，会自动显示自己的工会职位（`titles.auto-rank.texts`，默认「成员 / 副会长 / 会长」）：
+
+- 影响 `%liuguild_title%`、`%liuguild_title_spaced%`、`%liuguild_name_title%`，因此 PlayerTitle 工会称号
+  使用 `name: "%liuguild_name_title%"` 时会显示成「星辰 会长」，不需要玩家手动佩戴头衔。
+- 只是显示层回退，**不写数据库、不占固定头衔装备槽**：升职、降职、转让会长后立即变化，
+  跨服也不会出现脏数据。
+- 手动装备了固定头衔时以固定头衔优先；`/guild title clear` 后回到自动职位头衔。
+- 某个职位不想显示头衔时把对应文本留空（例如 `member: ""`）；整个功能可用 `enabled: false` 关闭。
+- 文本最多16个可见字符，支持 MiniMessage 与 `&` 颜色代码，配置无效会拒绝加载。
+
+## 指令
+
 | 指令 | 说明 |
 |---|---|
 | `/guild title` | 打开固定头衔面板 |
 | `/guild title list` | 查看预设与职位要求 |
 | `/guild title set <标识>` | 装备符合条件的头衔 |
-| `/guild title clear` | 卸下头衔 |
+| `/guild title clear` | 卸下头衔（之后显示自动职位头衔） |
 
 GUI 左键装备或卸下，右键不再删除。每人同时最多一个，显示于成员列表、工会频道及 `%liuguild_title%`。
 

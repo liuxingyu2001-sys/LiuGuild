@@ -35,8 +35,11 @@ public final class MainSettings {
     public boolean petsBlockInWar = true;
 
     // ---- PlayerTitle 工会名称号 ----
-    /** 工会名称号默认显示模板：工会名 + 「工会」，避免只显示一个名字看不出是工会。 */
-    public static final String DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME = "%liuguild_name%工会";
+    /**
+     * 工会名称号默认显示模板：工会名 + 空格 + 头衔（手动装备的固定头衔；未装备时自动用职位），
+     * 显示成「星辰 会长」，既看得出是工会，也带职位信息。
+     */
+    public static final String DEFAULT_PLAYER_TITLE_GUILD_TITLE_NAME = "%liuguild_name_title%";
     /** 是否用 PlayerTitle 的称号展示玩家工会名（称号文本见 playerTitleGuildTitleName）。 */
     public boolean playerTitleGuildTitleEnabled = false;
     /** 管理员在 PlayerTitle 里创建的「工会名」称号 id；0 表示未配置，功能跳过。 */

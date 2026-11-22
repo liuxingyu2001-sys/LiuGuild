@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   %liuguild_bank% %liuguild_rank% %liuguild_leader% %liuguild_notice%
  *   %liuguild_icon% %liuguild_open% %liuguild_created% %liuguild_online%
  *   %liuguild_kills% %liuguild_deaths% %liuguild_contributed%
- *   %liuguild_title% %liuguild_title_id%
+ *   %liuguild_title% %liuguild_title_id% %liuguild_name_title% %liuguild_title_spaced%
  * </pre>
  *
  * <h3>指定工会</h3>
@@ -146,7 +146,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
             case "guild_id" -> guild.id();
             case "name" -> guild.name();
             case "name_plain" -> Text.clean(guild.name());
-            // 工会名 + 玩家当前装备的工会固定头衔：没有头衔时自动省略后面的空格。
+            // 工会名 + 当前头衔（手动装备的固定头衔，未装备则自动用职位）。
             case "name_title" -> guild.name() + titleSuffix(player);
             case "title_spaced" -> titleSuffix(player);
             case "tag" -> plugin.guilds().tagDisplay(guild);
@@ -189,7 +189,7 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
         };
     }
 
-    /** 已装备的工会固定头衔（旧版 § 颜色文本）；未装备返回空串。 */
+    /** 当前生效的工会头衔（手动装备的固定头衔，未装备则自动用职位）；旧版 § 颜色文本。 */
     private String guildTitleLegacy(OfflinePlayer player) {
         if (player == null || plugin.titles() == null) {
             return "";
@@ -199,8 +199,10 @@ public final class GuildPlaceholders extends PlaceholderExpansion {
     }
 
     /**
-     * 带前导空格的工会头衔：没有装备头衔时返回空串，避免称号里留下多余空格。
+     * 带前导空格的工会头衔：没有头衔时返回空串，避免称号里留下多余空格。
      * 供 {@code %liuguild_name_title%} 与 {@code %liuguild_title_spaced%} 使用。
+     * <p>未手动装备固定头衔时会自动回退到玩家当前职位（成员/副会长/会长），
+     * 因此正常情况下称号会显示成「工会名 职位」。</p>
      */
     private String titleSuffix(OfflinePlayer player) {
         String title = guildTitleLegacy(player);

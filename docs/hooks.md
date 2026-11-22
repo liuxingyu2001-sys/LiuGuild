@@ -127,7 +127,7 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
   - PlayerTitle 为 5.x 且包含 `findPlayerTitle` / `playerUseTitle` / `removePlayerTitle` 等 API。
 - 在 PlayerTitle 里创建隐藏、免费、永久的称号（名字启用后会被本插件按配置自动同步），记下返回 ID：
   ```
-  /plt title add not &b%liuguild_name%工会 0 0 false
+  /plt title add not &b%liuguild_name_title% 0 0 false
   ```
 - 配置（`config.yml`）：
   ```yaml
@@ -136,21 +136,23 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
       guild-title:
         enabled: true
         title-id: <上一步返回的称号 ID>
-        name: "%liuguild_name%工会"   # 称号显示文本；必须含 %liuguild_name%
+        name: "%liuguild_name_title%"   # 称号显示文本；含 %liuguild_name% 或 %liuguild_name_title%
         recheck-seconds: 60           # 0 = 关闭对账
         force: true                   # true 始终佩戴；false 仅在玩家没有展示称号时佩戴
   ```
-- 称号文本：`name` 决定显示内容，默认 `"%liuguild_name%工会"`（显示成「某某工会」，避免只显示
-  一个名字看不出是工会）；可以加颜色/前后缀，例如 `"&7[&b%liuguild_name%&7]工会"`。
+- 称号文本：`name` 决定显示内容，默认 `"%liuguild_name_title%"`（显示成「星辰 会长」：工会名 +
+  当前头衔，未手动装备固定头衔时自动用职位，见 [titles.md](titles.md#自动职位头衔)）；
+  也可以加颜色/前后缀，例如 `"&7[&b%liuguild_name%&7]工会"`。
   PlayerTitle 用 MiniMessage 渲染称号名，所以也支持渐变标签，例如
   `"<gradient:#00E5FF:#FF00FF>%liuguild_name%</gradient>&7工会"`。
   启用 / 重载时本插件会通过 `PlayerTitleApi.updateTitleName` 把该称号名同步成 `name` 的值
   （PlayerTitle 会同时更新所有玩家已拥有称号的显示名并刷新在线玩家，无需重新发放）；
-  `name` 里缺少 `%liuguild_name%` 会告警并回退默认值。
-- 工会头衔：可以把玩家当前装备的工会固定头衔（`guild.yml` → `titles.presets`）拼进称号，
-  例如 `name: "%liuguild_name_title%"` 显示成「星辰 会长」；未装备头衔时只显示工会名，
-  不会留下多余空格。也可以写 `"%liuguild_name%工会%liuguild_title_spaced%"` 保留「工会」后缀。
-  玩家换装 / 卸下头衔时本插件会主动刷新 PlayerTitle，聊天与 Tab 前缀立即更新。
+  `name` 里缺少 `%liuguild_name%` / `%liuguild_name_title%` 会告警并回退默认值。
+- 工会头衔：可以把玩家当前工会头衔（`guild.yml` → `titles.presets`，未手动装备时自动用职位
+  成员/副会长/会长）拼进称号，例如 `name: "%liuguild_name_title%"` 显示成「星辰 会长」；
+  自动职位头衔无需玩家佩戴，因此不会只显示工会名，也不会留下多余空格。也可以写
+  `"%liuguild_name%工会%liuguild_title_spaced%"` 保留「工会」后缀。玩家换装 / 卸下头衔、
+  升职 / 降职时本插件会主动刷新 PlayerTitle，聊天与 Tab 前缀立即更新。
 - 工会名颜色：`guild.name.allow-colors: true`（默认）且玩家拥有 `liuguild.name.color` 权限时，
   工会名可带 `&a` / `&#FF0000` 等颜色代码，`%liuguild_name%` 会原样返回，PlayerTitle 渲染称号时
   按旧版颜色代码解析，因此聊天前缀 / Tab 里显示的是各工会自己的颜色；名字里的 `<`、`>`、`\`
