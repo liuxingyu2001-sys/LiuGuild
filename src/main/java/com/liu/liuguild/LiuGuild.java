@@ -67,6 +67,8 @@ public final class LiuGuild extends JavaPlugin {
     private GuildManager guilds;
     private WarManager war;
     private KitService kits;
+    /** 公平血量：战斗期间把参赛者最大生命归一（抵消蟠桃/称号属性/第三方属性加成）。 */
+    private com.liu.liuguild.war.FairHealthService fairHealth;
     private GuiManager gui;
     private PlayerguildImporter importer;
     private com.liu.liuguild.buff.BuffService buffs;
@@ -172,6 +174,7 @@ public final class LiuGuild extends JavaPlugin {
         guilds = new GuildManager(this);
         kits = new KitService(this);
         kits.preload();
+        fairHealth = new com.liu.liuguild.war.FairHealthService(this);
         war = new WarManager(this);
         luckPerms = hasPlugin("LuckPerms") ? safe(() -> new com.liu.liuguild.hook.LuckPermsHook(this)) : null;
         if (luckPerms != null) luckPerms.register();
@@ -260,6 +263,10 @@ public final class LiuGuild extends JavaPlugin {
         }
         if (modules != null) {
             modules.disableAll();
+        }
+        // 模块收尾后兜底：任何还没解除的公平血量补偿 modifier 都要清掉（transient，但会留在在线玩家身上）。
+        if (fairHealth != null) {
+            fairHealth.endAll();
         }
         if (heartbeatTask != null) {
             heartbeatTask.cancel();
@@ -507,6 +514,10 @@ public final class LiuGuild extends JavaPlugin {
 
     public KitService kits() {
         return kits;
+    }
+
+    public com.liu.liuguild.war.FairHealthService fairHealth() {
+        return fairHealth;
     }
 
     public GuiManager gui() {
@@ -885,6 +896,11 @@ public final class LiuGuild extends JavaPlugin {
         // 预加载
         out.add("&7预加载: &f套装 " + (kits == null ? 0 : kits.preloadedKits()) + " 套 &7场地 " + s.arenas.arenas.size()
                 + " 个 &7模式 " + s.war.modes.size() + " 个 &7图标 " + s.icons.icons.size() + " 个");
+        if (fairHealth != null) {
+            java.util.List<com.liu.liuguild.config.WarMode> fairModes = new java.util.ArrayList<>(s.war.modes.values());
+            fairModes.addAll(s.war.inlineModes.values());
+            out.add("&7公平血量: &f" + fairHealth.summary(fairModes));
+        }
         // 场地
         s.arenas.arenas.forEach((id, a) -> out.add("&8 - 场地 &f" + id + " &7承办=&f"
                 + (a.server.isBlank() ? "-" : a.server) + " &7世界=&f" + (a.world.isBlank() ? "主世界" : a.world)

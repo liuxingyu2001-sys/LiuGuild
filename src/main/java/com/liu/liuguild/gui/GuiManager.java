@@ -365,7 +365,7 @@ public final class GuiManager implements GuildModule, Listener {
             mph.put("mode_min", String.valueOf(m.minMembers));
             mph.put("mode_team", String.valueOf(m.teamSize));
             mph.put("mode_fair", m.fairEquipment ? "公平装备" : "自由装备");
-            mph.put("mode_health", m.fairHealth ? "公平血量" : "原生血量");
+            mph.put("mode_health", m.fairHealth ? "公平血量(" + formatHealth(m.fairBaseHealth) + ")" : "原生血量");
             mph.put("mode_arena", m.arena);
             mph.put("mode_schedule", m.schedule.isEmpty() ? "随时" : String.join(", ",
                     m.schedule.stream().map(com.liu.liuguild.util.TimeUtil::prettySchedule).toList()));
@@ -2015,7 +2015,7 @@ public final class GuiManager implements GuildModule, Listener {
         // ---- 布尔开关（第 1 排） ----
         modeToggle(inv, holder, player, key, 0, "enabled", m.enabled, "启用该模式");
         modeToggle(inv, holder, player, key, 1, "fair-equipment", m.fairEquipment, "发放统一公平装备");
-        modeToggle(inv, holder, player, key, 2, "fair-health", m.fairHealth, "屏蔽蟠桃血量，保证公平血量");
+        modeToggle(inv, holder, player, key, 2, "fair-health", m.fairHealth, "最大生命统一压到公平值（抵消蟠桃/称号属性加成）");
         modeToggle(inv, holder, player, key, 3, "allow-spectators", m.allowSpectators, "允许成员旁观");
         modeToggle(inv, holder, player, key, 5, "broadcast-queue", m.broadcastQueue, "参与匹配时全服广播");
 
@@ -2625,6 +2625,14 @@ public final class GuiManager implements GuildModule, Listener {
     private static String fmtSpawn(ArenaDef.Spawn s) {
         if (s == null) return "未设置";
         return String.format(java.util.Locale.ROOT, "%.1f, %.1f, %.1f", s.x(), s.y(), s.z());
+    }
+
+    /** 整数生命值不显示多余的小数位（20.0 → 20）。 */
+    private static String formatHealth(double value) {
+        if (value == Math.rint(value)) {
+            return String.valueOf((long) value);
+        }
+        return String.format(java.util.Locale.ROOT, "%.1f", value);
     }
 
     /** 坐标保留两位小数，避免配置过长。 */

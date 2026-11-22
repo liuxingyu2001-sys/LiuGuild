@@ -63,10 +63,23 @@ kits:
 
 ## 公平血量
 
-`war-modes.yml` 的 `fair-health: true` 会在入战时屏蔽 LuckyPeaches 的蟠桃血量加成，
-出战后恢复，保证血量一致。详见 [hooks.md](hooks.md)。
+`war-modes.yml` 的 `fair-health: true` 会把参赛者的**最大生命值在战斗中统一压到
+`fair-base-health`**（默认 `20`，即原版满血），离场后自动解除：
+
+- 入场/复活回满用的是公平值，而不是“玩家当前最大生命”——避免上一场胜方拿到带
+  “生命上限 +20”的胜利称号后，下一场比别人多 20 血；
+- 抵消范围包括蟠桃血量、胜利称号的属性类 buff（PlayerTitle / LiuTitle 的
+  `max_health`、AttributePlus / MythicLib / AttributeSystem / SX-Attribute）、
+  其它插件对 `max_health` 的加成；
+- 实现方式是不动玩家基础值、也不删别人的 modifier，只追加一个 **transient** 补偿
+  modifier（不写玩家存档），战斗期间每秒重算一次，第三方插件把加成加回来也会被压回；
+- `fair-base-health` 可按模式单独覆盖（写在该模式段里），非法值钳到 `1..1024`；
+- 如果 `kit.yml` 的 `effects` 里配了 `HEALTH_BOOST` 这类会改变最大生命的药水效果，
+  它也会被计入公平值（所有人一样），需要更大血量请直接上调该模式的 `fair-base-health`；
+- LuckyPeaches 的蟠桃屏蔽与死亡扣罚豁免仍按原逻辑保留，详见 [hooks.md](hooks.md)。
 
 ## 赛后还原
 
 无论是否发放统一装备，参赛者入战时都会记录快照（Sparrow Sync 优先，缺失时本地内存），
 退出/结束时完整还原玩家原有背包与状态，不会造成物品丢失。
+公平血量补偿在按快照还原血量**之前**解除，避免真实血量被公平值上限截断。

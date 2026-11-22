@@ -25,6 +25,9 @@ modes:
     fair-equipment: true
     # 是否屏蔽 LuckyPeaches 蟠桃血量加成，保证公平血量
     fair-health: true
+    # 公平血量目标值（继承 war.defaults.fair-base-health = 20）：
+    # 战斗中所有参赛者最大生命统一压到该值，胜利称号的属性 buff / 第三方属性加成也会被抵消。
+    # fair-base-health: 20.0
     # 使用 kit.yml 中的哪套装备
     kit: default
     team-size: 10
@@ -104,6 +107,8 @@ modes:
     fair-equipment: true
     # 是否屏蔽 LuckyPeaches 蟠桃血量加成，保证公平血量
     fair-health: true
+    # 公平血量目标值（同样继承 war.defaults.fair-base-health；赛季可单独覆盖）
+    # fair-base-health: 20.0
     kit: season
     team-size: 10
     min-members: 2

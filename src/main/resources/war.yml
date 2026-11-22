@@ -54,6 +54,10 @@ war:
     fair-equipment: true
     # 是否屏蔽 LuckyPeaches 等额外血量，保证公平血量
     fair-health: true
+    # 公平血量目标值：fair-health 开启时，所有参赛者的最大生命值在战斗中统一压到该值。
+    # 蟠桃、胜利称号的属性 buff（生命上限 +N）、AttributePlus / MythicLib 等第三方属性加成
+    # 都会被临时抵消，避免上一场胜方下一场比别人多血（原版满血 = 20）。
+    fair-base-health: 20.0
     # kit.yml 中的装备套装 key
     kit: default
     team-size: 10

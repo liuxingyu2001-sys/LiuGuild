@@ -64,6 +64,23 @@ class WarConfigTest {
     }
 
     @Test
+    void fairBaseHealthInheritsAndCanBeOverriddenPerMode() throws Exception {
+        WarSettings w = war("war:\n  defaults:\n    fair-health: true\n    fair-base-health: 20\n");
+        WarMode inherited = modes("modes:\n  match: {}\n", w).mode("match");
+        assertTrue(inherited.fairHealth);
+        assertEquals(20.0, inherited.fairBaseHealth, 1.0E-9);
+
+        WarMode overridden = modes("modes:\n  match:\n    fair-base-health: 30\n", w).mode("match");
+        assertEquals(30.0, overridden.fairBaseHealth, 1.0E-9);
+
+        // 非法值钳到 1..1024，避免把玩家血量压到 0 或无限大
+        WarMode low = modes("modes:\n  match:\n    fair-base-health: 0\n", w).mode("match");
+        assertEquals(1.0, low.fairBaseHealth, 1.0E-9);
+        WarMode high = modes("modes:\n  match:\n    fair-base-health: 99999\n", w).mode("match");
+        assertEquals(1024.0, high.fairBaseHealth, 1.0E-9);
+    }
+
+    @Test
     void modeRulesCanLiveDirectlyBesideDefaultsInWarYml() throws Exception {
         WarSettings w = war("""
                 war:

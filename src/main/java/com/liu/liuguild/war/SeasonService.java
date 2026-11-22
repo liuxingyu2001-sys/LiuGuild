@@ -191,6 +191,8 @@ public final class SeasonService implements GuildModule, Listener {
         long nowMs = System.currentTimeMillis();
         // 返程等待期的临时无敌必须有兜底期限：返程失败/跨服传送不可用时也不能一直无敌。
         sweepInvulnerability(nowMs);
+        // 公平血量每秒兜底：称号/属性插件可能在切世界、复活后重新把“生命上限 +N”加回来。
+        enforceFairHealth();
         // 赛季期间也占用承办服：普通匹配不要再把两工会战派到同一台机器。
         if(current != null && nowMs - lastHostLeaseAt >= 5000L) {
             lastHostLeaseAt = nowMs;
@@ -624,15 +626,28 @@ public final class SeasonService implements GuildModule, Listener {
         return plugin.sparrow()==null || plugin.sparrow().playerReady(player);
     }
 
-    /** 赛季公平血量：按模式开关屏蔽 LuckyPeaches 蟠桃加成，必须在发放套装前执行。 */
+    /** 赛季公平血量：屏蔽蟠桃 + 把最大生命归一，必须在发放套装/回满血量之前执行。 */
     private void applyFairHealth(Player player) {
-        if(mode==null || !mode.fairHealth || plugin.luckyPeaches()==null || !plugin.luckyPeaches().available()) return;
-        plugin.luckyPeaches().enter(player,plugin.luckyPeaches().supportsSuppress());
+        if(mode==null || plugin.fairHealth()==null) return;
+        plugin.fairHealth().beginFight(player,mode);
     }
     private void clearFairHealth(Player player,UUID id) {
-        if(plugin.luckyPeaches()==null || !plugin.luckyPeaches().available()) return;
-        if(player!=null && player.isOnline()) plugin.luckyPeaches().exit(player);
-        else plugin.luckyPeaches().clear(id);
+        if(plugin.luckyPeaches()!=null && plugin.luckyPeaches().available()) {
+            if(player!=null && player.isOnline()) plugin.luckyPeaches().exit(player);
+            else plugin.luckyPeaches().clear(id);
+        }
+        if(plugin.fairHealth()!=null) {
+            if(player!=null && player.isOnline()) plugin.fairHealth().endFight(player);
+            else plugin.fairHealth().endFightOffline(id);
+        }
+    }
+    /** 每秒兜底：把赛季参赛者的最大生命重新压回公平值。 */
+    private void enforceFairHealth() {
+        if(mode==null || plugin.fairHealth()==null || !plugin.fairHealth().enabled(mode)) return;
+        for(UUID id:new ArrayList<>(participants.keySet())) {
+            Player p=Bukkit.getPlayer(id);
+            if(p!=null && p.isOnline()) plugin.fairHealth().tick(p,mode);
+        }
     }
     private void restore(Player p,SeasonRepository.Entry entry,boolean quitting) {
         if(!quitting && !playerReady(entry.player())) return;
@@ -859,6 +874,8 @@ public final class SeasonService implements GuildModule, Listener {
                 applyFairHealth(player);
                 plugin.kits().apply(player,mode); player.setGameMode(GameMode.ADVENTURE); player.setInvulnerable(false);
                 teleportSpawn(player,participants.get(uuid).guild(),new ArrayList<>(participants.values()));
+                // 切世界时称号/属性插件可能重新加成；传送后立刻再归一一次，避免出现 20/40 的窗口。
+                if(plugin.fairHealth()!=null) plugin.fairHealth().tick(player,mode);
             } else {
                 player.setGameMode(GameMode.SPECTATOR); player.setInvulnerable(true);
                 if(battle.phase()==SeasonBattle.Phase.RUNNING && waiting.remove(uuid)) {

@@ -3240,6 +3240,7 @@ public final class WarManager implements GuildModule {
 
     private void tickSession(WarSession session, long now) {
         GuildWar war = session.war;
+        enforceFairHealth(war);
         long remain = Math.max(0, session.phaseUntil - now);
         long sec = (remain + 999) / 1000;
         BossBar bar = session.bar;
@@ -4532,12 +4533,15 @@ public final class WarManager implements GuildModule {
             if (!player.isOnline() || session(war) == null || !roster.contains(player.getUniqueId())) {
                 return;
             }
-            // 公平血量：屏蔽 LuckyPeaches 蟠桃加成
-            if (mode.fairHealth && plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
-                plugin.luckyPeaches().enter(player, plugin.luckyPeaches().supportsSuppress());
-            }
+            // 公平血量（屏蔽蟠桃 + 把最大生命归一）在 kits().apply() 内部统一接线，
+            // 保证“先归一、再发套装/回满”的顺序，任何入口都不会漏。
             plugin.kits().apply(player, mode);
             teleportToSpawn(player, war, s);
+            // 切世界时 PlayerTitle 等插件可能重新施加称号属性；传送后立刻再归一一次，
+            // 避免在下一轮每秒兜底之前出现“20/40”的窗口。
+            if (plugin.fairHealth() != null) {
+                plugin.fairHealth().tick(player, mode);
+            }
             plugin.messages().send(player, "war-joined");
             // 传送后确保 game mode，并在准备阶段锁定（开战时自动解除）
             player.setGameMode(org.bukkit.GameMode.SURVIVAL);
@@ -4753,6 +4757,50 @@ public final class WarManager implements GuildModule {
         return true;
     }
 
+    /**
+     * 战斗中每秒兜底：把公平模式参赛者的最大生命重新压回公平值。
+     *
+     * <p>第三方称号/属性插件会在切世界、复活、重新佩戴时把“生命上限 +20”之类的加成加回来；
+     * 只靠入场时归一一次，1 秒后就会失效。这里复用已有的每秒 tick，逐人重新计算补偿 modifier。</p>
+     */
+    private void enforceFairHealth(GuildWar war) {
+        if (war == null || plugin.fairHealth() == null) {
+            return;
+        }
+        WarMode mode = modeOf(war);
+        if (!plugin.fairHealth().enabled(mode)) {
+            return;
+        }
+        for (UUID uuid : war.allPlayers()) {
+            Player player = plugin.player(uuid);
+            if (player != null && player.isOnline()) {
+                plugin.fairHealth().tick(player, mode);
+            }
+        }
+    }
+
+    /**
+     * 离场统一收尾：恢复 LuckyPeaches 蟠桃加成 + 解除本插件的公平血量补偿。
+     * <p>必须在按快照还原血量之前调用：否则快照里的真实血量会被公平值上限截断，
+     * 玩家赛后反而比开战前少一截血。</p>
+     */
+    private void releaseFightHealth(Player player, UUID uuid) {
+        if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
+            if (player != null && player.isOnline()) {
+                plugin.luckyPeaches().exit(player);
+            } else {
+                plugin.luckyPeaches().clear(uuid);
+            }
+        }
+        if (plugin.fairHealth() != null) {
+            if (player != null && player.isOnline()) {
+                plugin.fairHealth().endFight(player);
+            } else {
+                plugin.fairHealth().endFightOffline(uuid);
+            }
+        }
+    }
+
     private void leaveLocal(UUID uuid) {
         Player p = plugin.player(uuid);
         GuildWar leaving = warOfPlayer(uuid);
@@ -4773,6 +4821,8 @@ public final class WarManager implements GuildModule {
         eliminated.remove(uuid);
         statLeftAt.putIfAbsent(uuid, System.currentTimeMillis());
         refreshLuckPerms(p);
+        // 先解除公平血量补偿/蟠桃屏蔽，再按快照还原血量：否则真实血量会被公平值上限截断。
+        releaseFightHealth(p, uuid);
         restoreSnapshot(uuid, p, false, () -> {
             finishTeleport(uuid, plugin.player(uuid));
             returnLoc.remove(uuid);
@@ -4780,13 +4830,6 @@ public final class WarManager implements GuildModule {
             returnWar.remove(uuid);
             returnArena.remove(uuid);
         });
-        if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
-            if (p != null) {
-                plugin.luckyPeaches().exit(p);
-            } else {
-                plugin.luckyPeaches().clear(uuid);
-            }
-        }
         if (p != null) {
             p.setGameMode(org.bukkit.GameMode.SURVIVAL);
             hideWarBar(p, leaving);
@@ -4808,6 +4851,7 @@ public final class WarManager implements GuildModule {
             }
         }
         Player p = plugin.player(uuid);
+        releaseFightHealth(p, uuid);
         restoreSnapshot(uuid, p, false, () -> {
             finishTeleport(uuid, plugin.player(uuid));
             returnLoc.remove(uuid);
@@ -4815,9 +4859,6 @@ public final class WarManager implements GuildModule {
             returnWar.remove(uuid);
             returnArena.remove(uuid);
         });
-        if (p != null && plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
-            plugin.luckyPeaches().exit(p);
-        }
         hideWarBar(plugin.player(uuid), leaving);
     }
 
@@ -5462,6 +5503,8 @@ public final class WarManager implements GuildModule {
         playerWars.remove(uuid, war);
         // 交还统一装备并送回原位
         Player p = plugin.player(uuid);
+        // 先解除公平血量/蟠桃屏蔽，再按快照还原真实血量。
+        releaseFightHealth(p, uuid);
         if (p != null) {
             // 必须解冻：否则 frozen 残留会让 WarListener 持续拦截该玩家的背包/移动/指令。
             unfreezePlayer(p);
@@ -5486,13 +5529,6 @@ public final class WarManager implements GuildModule {
                 returnLoc.remove(uuid);
                 returnWar.remove(uuid);
             });
-        }
-        if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
-            if (p != null) {
-                plugin.luckyPeaches().exit(p);
-            } else {
-                plugin.luckyPeaches().clear(uuid);
-            }
         }
         // 人都走了：该方若再无人，立即判定
         if (war.state() == WarState.ACTIVE && wasParticipant && side != null) {
@@ -5533,10 +5569,9 @@ public final class WarManager implements GuildModule {
         }
         refreshLuckPerms(player);
         if (side != null || sparrowSnap.containsKey(uuid) || localSnap.containsKey(uuid)) {
+            // 先解除公平血量补偿，再按快照把真实血量写回 Player 对象（随后这次退出才会被服务器存档）。
+            releaseFightHealth(player, uuid);
             restoreSnapshot(uuid, player, true, null);
-            if (plugin.luckyPeaches() != null && plugin.luckyPeaches().available()) {
-                plugin.luckyPeaches().clear(uuid);
-            }
             spectators.remove(uuid);
             livesRemaining.remove(uuid);
             if (!reconnecting) {
@@ -5677,6 +5712,9 @@ public final class WarManager implements GuildModule {
                 victim.setGameMode(org.bukkit.GameMode.SURVIVAL);
                 plugin.kits().apply(victim, mode);
                 teleportToSpawn(victim, war, side);
+                if (plugin.fairHealth() != null) {
+                    plugin.fairHealth().tick(victim, mode);
+                }
                 plugin.messages().send(victim, "war-respawned");
             }, mode.respawnDelaySeconds * 20L);
         }
@@ -5781,8 +5819,12 @@ public final class WarManager implements GuildModule {
         if (side == null) {
             return;
         }
-        plugin.kits().apply(player, modeOf(war));
+        WarMode mode = modeOf(war);
+        plugin.kits().apply(player, mode);
         teleportToSpawn(player, war, side);
+        if (plugin.fairHealth() != null) {
+            plugin.fairHealth().tick(player, mode);
+        }
     }
 
     // =====================================================================

@@ -329,6 +329,11 @@ public final class KitService {
         if (player == null || mode == null) {
             return;
         }
+        // 公平血量必须在发装备、回满血量之前生效（否则按被加成后的最大生命回满）。
+        // 所有入场/复活路径最终都会走到这里，因此统一在这里接线，避免漏掉某条路径。
+        if (plugin.fairHealth() != null) {
+            plugin.fairHealth().beginFight(player, mode);
+        }
         KitProfile c = profile(mode);
         if (!kit().enabled || !mode.fairEquipment || c == null || !c.enabled) {
             // 非公平模式：仅恢复满状态，不动装备
@@ -460,7 +465,14 @@ public final class KitService {
         } finally {
             effectBypass.remove(player.getUniqueId());
         }
-        com.liu.liuguild.util.ApiCompat.setHealthSafely(player, com.liu.liuguild.util.ApiCompat.maxHealth(player));
+        // 公平模式：先把最大生命重新归一（第三方称号/属性插件可能在入场瞬间又加回来），
+        // 再按公平值回满；非公平模式维持“按玩家当前最大生命回满”的原行为。
+        double healTo = com.liu.liuguild.util.ApiCompat.maxHealth(player);
+        if (plugin.fairHealth() != null && plugin.fairHealth().enabled(mode)) {
+            plugin.fairHealth().enforce(player, mode);
+            healTo = plugin.fairHealth().target(mode);
+        }
+        com.liu.liuguild.util.ApiCompat.setHealthSafely(player, healTo);
         player.setFoodLevel(20);
         player.setSaturation(20f);
         player.setFireTicks(0);

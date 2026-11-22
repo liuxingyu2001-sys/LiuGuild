@@ -60,6 +60,7 @@ war:
   defaults:
     fair-equipment: true
     fair-health: true
+    fair-base-health: 20.0
     kit: default
     team-size: 10
     min-members: 1
@@ -103,6 +104,7 @@ modes:
     arena: main
     fair-equipment: true
     fair-health: true
+    fair-base-health: 20.0
     kit: default
     team-size: 10
     min-members: 1
@@ -132,16 +134,17 @@ war:
   defaults:
     fair-equipment: true
     fair-health: true
+    fair-base-health: 20.0   # 公平模式统一最大生命（原版满血 20）
     team-size: 10
   match:
     fair-equipment: true   # 统一套装
-    fair-health: true      # 屏蔽蟠桃血量
+    fair-health: true      # 屏蔽蟠桃 + 归一最大生命
   owngear:
     enabled: true
     display: "自带装备工会战"
     arena: pvp
     fair-equipment: false  # 使用玩家自己的装备
-    fair-health: false     # 保留原生血量（含蟠桃加成）
+    fair-health: false     # 保留原生血量（含蟠桃/称号属性加成）
     prepare-seconds: 10
     duration-seconds: 600
 ```
@@ -243,7 +246,10 @@ war:
   不会出现“先落到承办服主城、随后才被送回出发服”的两段传送。
 - 场地字段及管理命令见 [arena.md](arena.md)。
 - `fair-equipment` 决定是否发放统一装备；关闭时保留玩家自带装备（仍会采集/恢复快照用于返程兜底）。
-- `fair-health` 决定是否屏蔽 LuckyPeaches 蟠桃血量加成，匹配战与赛季混战都遵循该模式的开关。
+- `fair-health` 决定是否把参赛者最大生命统一归一到 `fair-base-health`（默认 20），匹配战与赛季混战都遵循该模式的开关。
+  开启后会抵消蟠桃血量、胜利称号的属性类 buff（生命上限 +N）以及 AttributePlus / MythicLib 等第三方属性加成，
+  避免上一场胜方下一场比别人多血；关闭时保留玩家原生最大生命（含所有加成）。
+  `fair-base-health` 可写在该模式段里单独覆盖，非法值会钳到 `1..1024`。详见 [kit.md](kit.md#公平血量)。
 - NotBounties 可用时，工会战参赛者的击杀不会领取悬赏，避免以比赛击杀刷取悬赏。
 
 ## 跨服生命周期、镜像与崩溃恢复

@@ -27,6 +27,13 @@ public final class WarMode {
     public String kit = "default";
     /** 是否屏蔽 LuckyPeaches 等插件的额外血量，保证公平血量。 */
     public boolean fairHealth = true;
+    /**
+     * 公平模式下所有参赛者统一的最大生命值（默认 20 = 原版满血）。
+     * <p>{@code fair-health: true} 时，入场会把玩家的“最大生命值”归一到这里：
+     * 蟠桃、胜利称号的属性 buff、AttributePlus / MythicLib 等第三方加成都会被抵消，
+     * 避免上一场胜方拿到“生命上限 +20”的奖励后下一场比别人多血。</p>
+     */
+    public double fairBaseHealth = 20.0;
 
     // ---- 人数 ----
     public int teamSize = 10;
@@ -232,6 +239,7 @@ public final class WarMode {
         m.fairEquipment = sec.getBoolean("fair-equipment", m.fairEquipment);
         m.kit = sec.getString("kit", m.kit);
         m.fairHealth = sec.getBoolean("fair-health", m.fairHealth);
+        m.fairBaseHealth = Math.max(1.0, Math.min(1024.0, sec.getDouble("fair-base-health", m.fairBaseHealth)));
         m.teamSize = Math.max(1, sec.getInt("team-size", m.teamSize));
         m.minMembers = Math.max(1, sec.getInt("min-members", m.minMembers));
         m.minLevel = Math.max(1, sec.getInt("min-level", m.minLevel));
@@ -312,6 +320,7 @@ public final class WarMode {
         c.fairEquipment = fairEquipment;
         c.kit = kit;
         c.fairHealth = fairHealth;
+        c.fairBaseHealth = fairBaseHealth;
         c.teamSize = teamSize;
         c.minMembers = minMembers;
         c.minLevel = minLevel;

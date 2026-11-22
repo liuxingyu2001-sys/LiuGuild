@@ -130,7 +130,7 @@ public final class WarSettings {
     /** 判断一个段是否像模式配置，避免把将来的全局段误认成模式。 */
     private static boolean looksLikeMode(ConfigurationSection sec) {
         for (String key : java.util.List.of("enabled", "display", "description", "arena", "kit", "fair-equipment",
-                "fair-health", "team-size", "min-members", "min-level",
+                "fair-health", "fair-base-health", "team-size", "min-members", "min-level",
                 "prepare-seconds", "duration-seconds", "settle-seconds", "allow-spectators",
                 "freeze-on-prepare", "prepare-platform", "broadcast-queue", "schedule", "season",
                 "lives", "score", "rewards")) {

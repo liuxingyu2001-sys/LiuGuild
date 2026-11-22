@@ -98,6 +98,11 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
 参考：`hook/LuckyPeachesHook.java`。需要公平血量的模式若检测不到屏蔽 API，会跳过血量屏蔽
 （`supportsSuppress()` 为 false），不会把仅死亡豁免当作屏蔽成功。
 
+> `fair-health` 不再只依赖 LuckyPeaches：公平模式会把参赛者最大生命统一压到
+> `fair-base-health`（默认 20，见 [kit.md](kit.md#公平血量)）。因此 LuckyPeaches 版本过旧、
+> 或加成来自胜利称号/第三方属性插件时，开战血量依然一致；LuckyPeaches 钩子只保留
+> “战斗中死亡不扣蟠桃”的豁免语义。
+
 ## PlayerTitle（称号奖励 / 工会名展示）
 
 对应 PlayerTitle 5.x，全部通过反射调用 `cn.handyplus.title.api.PlayerTitleApi`，未安装或版本不符时自动跳过。
@@ -109,8 +114,12 @@ PeachIntegrationAPI.setPeachBonusSuppressed(player, true); // 屏蔽蟠桃血量
   `PlayerTitleApi.setPlayerTitle(UUID, int)`。
 - `win-title-id: 0` 表示不发放。
 - 工会战入场/复活会清理玩家身上的药水效果，并在战斗期间拦截新效果，因此称号的
-  `POTION_EFFECT` buff 不会带进竞技场；如果希望从源头关闭，可把竞技场世界加入
-  PlayerTitle 的 `config.yml` → `disabledBuffWorld`（双保险，不强制）。
+  `POTION_EFFECT` buff 不会带进竞技场。
+- 属性类 buff（AttributePlus / MythicLib / AttributeSystem / SX-Attribute 的
+  `max_health` 等）不是药水效果，这条规则清不掉；现在由公平血量把它们统一压到
+  `fair-base-health`（见 [kit.md](kit.md#公平血量)），所以胜利称号的“生命上限 +20”
+  不会让下一场多血。如果仍希望从源头关闭，可把竞技场世界加入 PlayerTitle 的
+  `config.yml` → `disabledBuffWorld`（双保险，不强制）。
 
 ### 工会名展示称号（可选）
 

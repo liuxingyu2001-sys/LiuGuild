@@ -12,14 +12,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SeasonServiceGuardTest {
 
     @Test
-    void seasonFairHealthSuppressesPeachesBeforeKitApply() throws Exception {
+    void seasonFairHealthNormalizesMaxHealthBeforeKitApply() throws Exception {
         String season = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/SeasonService.java"));
-        assertTrue(season.contains("!mode.fairHealth"));
-        assertTrue(season.contains("luckyPeaches().enter(player,plugin.luckyPeaches().supportsSuppress())"));
-        assertTrue(season.contains("clearFairHealth(p,entry.player())"));
+        assertTrue(season.contains("fairHealth().beginFight(player,mode)"), "赛季入场必须走公平血量归一（含蟠桃屏蔽）");
+        assertTrue(season.contains("clearFairHealth(p,entry.player())"), "离场必须先恢复公平血量/蟠桃");
+        assertTrue(season.contains("fairHealth().endFight"), "赛季还原时必须解除公平血量补偿");
+        assertTrue(season.contains("fairHealth().tick(p,mode)"), "赛季每秒 tick 必须兜底归一");
         int enter = season.indexOf("applyFairHealth(player);");
         int kit = season.indexOf("plugin.kits().apply(player,mode);");
         assertTrue(enter >= 0 && kit > enter, "公平血量必须在发放套装/回满血量之前生效");
+    }
+
+    @Test
+    void matchWarNormalizesMaxHealthAndReleasesItOnExit() throws Exception {
+        String war = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/WarManager.java"));
+        // 每秒兜底：称号/属性插件会把加成加回来，不能只在入场归一一次
+        assertTrue(war.contains("enforceFairHealth(war);"));
+        // 离场/退服统一收尾，并且必须在按快照还原血量之前解除补偿
+        assertTrue(war.contains("releaseFightHealth(p, uuid);"));
+        assertTrue(war.contains("releaseFightHealth(player, uuid);"));
+        assertTrue(war.contains("fairHealth().endFight"));
+        assertTrue(war.contains("fairHealth().endFightOffline"));
+
+        String kit = Files.readString(Path.of("src/main/java/com/liu/liuguild/war/KitService.java"));
+        assertTrue(kit.contains("fairHealth().beginFight(player, mode)"), "所有发套装/复活路径都要先归一最大生命");
+        assertTrue(kit.contains("fairHealth().target(mode)"), "公平模式回满必须用公平值");
+        assertFalse(kit.contains("setHealthSafely(player, com.liu.liuguild.util.ApiCompat.maxHealth(player))"),
+                "不能再按“当前最大生命”回满：那会把胜利称号/第三方属性加成带进战斗");
     }
 
     @Test

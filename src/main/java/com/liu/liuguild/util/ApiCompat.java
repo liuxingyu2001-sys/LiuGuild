@@ -63,6 +63,56 @@ public final class ApiCompat {
         }
     }
 
+    /** 最大生命属性在新旧版本的两种注册表 key。 */
+    private static final String[] MAX_HEALTH_KEYS = {"max_health", "generic.max_health"};
+
+    /**
+     * 取最大生命属性实例（跨版本：1.21.1 是 {@code generic.max_health}，新版改成 {@code max_health}）。
+     *
+     * <p>公平血量需要直接操作属性实例，不能只读 {@link #maxHealth(LivingEntity)}：
+     * 先用注册表按两种 key 查，再遍历注册表按 key 名兜底，最后退回老 API。</p>
+     */
+    public static AttributeInstance maxHealthAttribute(LivingEntity entity) {
+        if (entity == null) {
+            return null;
+        }
+        for (String path : MAX_HEALTH_KEYS) {
+            try {
+                Attribute attribute = Registry.ATTRIBUTE.get(NamespacedKey.minecraft(path));
+                if (attribute == null) {
+                    continue;
+                }
+                AttributeInstance instance = entity.getAttribute(attribute);
+                if (instance != null) {
+                    return instance;
+                }
+            } catch (Throwable ignored) {
+                // 该版本没有这个 key：继续尝试下一种写法
+            }
+        }
+        try {
+            for (Attribute attribute : Registry.ATTRIBUTE) {
+                NamespacedKey key = attribute.getKey();
+                if (key != null && key.getKey().endsWith("max_health")) {
+                    AttributeInstance instance = entity.getAttribute(attribute);
+                    if (instance != null) {
+                        return instance;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            @SuppressWarnings("deprecation")
+            AttributeInstance legacy = entity.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+            if (legacy != null) {
+                return legacy;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
     /** 实体当前最大生命值（新版用属性注册表，旧版回退 getMaxHealth）。 */
     public static double maxHealth(LivingEntity entity) {
         if (entity == null) {
